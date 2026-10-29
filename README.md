@@ -14,6 +14,13 @@ Angeleno 探索的是一种有明确人物视角的语音交流：Jo 有自己�
 
 ## 当前进展
 
-项目处于早期开发阶段。本仓库目前包含项目介绍，独立实现、运行说明和 Demo 尚未接入；上面的首版设计不代表功能已通过验证。后续会提供架构与取舍、可复现的评测、失败案例和实测限制。
+产品处于早期开发阶段。首版 [Intent](docs/intent.md) 与 [Spec](docs/spec.md) 已接入；本仓提供一个可独立运行的离线会话与记忆基线，65 项合成检查通过。LA 查询、真实语音和来源卡片尚未在本仓实现或验收。
 
-工作进展见 [Issues](https://github.com/OKFin33/Angeleno/issues)。
+```sh
+python3 -S -B -m unittest discover -s tests -v
+python3 -S -B -m her_agent.demo
+```
+
+需 macOS／Linux 与 Python 3.10+；不需要模型账号或 GPU。演示使用预编写的合成回复，只验证连续性与请求组织。运行条件、来源与限制见 [baseline](docs/baseline.md)。
+
+后续将提供真实通话 Demo、架构与取舍、同料助手比较及失败案例。开发接续见 [Issue #1](https://github.com/OKFin33/Angeleno/issues/1)；参与实现先读 [AGENTS](AGENTS.md)。
