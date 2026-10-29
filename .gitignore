@@ -1,0 +1,23 @@
+# Credentials and local runtime configuration
+.env
+.env.*
+!.env.example
+/.codex/config.toml
+
+# Private conversations, evidence, media and runtime state
+/private/
+/evidence/raw/
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Development environment
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+.DS_Store
