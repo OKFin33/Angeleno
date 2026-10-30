@@ -1,0 +1,36 @@
+{
+  "fixtures": {
+    "fisher-visit.html": "ebaaf537e57988bc99200568c07b4af104437d0ae7584feb155974a3c9f134cd",
+    "nhm-visit.html": "1dc0fd005f8b0258589083893f34fad2562989777d3af65bb8069d1035f7cae0",
+    "jefferson-overview.html": "1421854f11e8953800ad5df69e71af4df28be57715d639b226b619882af99955",
+    "private-trap.html": "0224bcb6666a88388357bf5d5e8a0b265d62aaab5a292cfccb5e6bc855048906"
+  },
+  "redirect_cases": [
+    {"id": "loopback-ip", "url": "http://127.0.0.1/admin", "reason": "private"},
+    {"id": "decimal-loopback", "url": "http://2130706433/", "reason": "private"},
+    {"id": "short-loopback", "url": "http://127.1/", "reason": "private"},
+    {"id": "localhost", "url": "http://localhost/admin", "reason": "local"},
+    {"id": "localhost-name", "url": "http://foo.localhost/admin", "reason": "local"},
+    {"id": "dot-local", "url": "http://printer.local/admin", "reason": "local"},
+    {"id": "dot-internal", "url": "http://files.internal/admin", "reason": "local"},
+    {"id": "ten", "url": "http://10.1.2.3/", "reason": "private"},
+    {"id": "twelve", "url": "http://172.16.0.1/", "reason": "private"},
+    {"id": "lan", "url": "http://192.168.0.8/admin", "reason": "private"},
+    {"id": "link-local", "url": "http://169.254.169.254/latest/meta-data", "reason": "private"},
+    {"id": "cgnat", "url": "http://100.64.0.1/", "reason": "private"},
+    {"id": "unspecified", "url": "http://0.0.0.0/", "reason": "private"},
+    {"id": "ipv6-loop", "url": "http://[::1]/admin", "reason": "private"},
+    {"id": "ipv6-link-local", "url": "http://[fe80::1]/", "reason": "private"},
+    {"id": "file", "url": "file:///etc/passwd", "reason": "non_http"},
+    {"id": "javascript", "url": "javascript:alert(1)", "reason": "non_http"},
+    {"id": "unregistered", "url": "https://example.com/phish", "reason": "unregistered"},
+    {"id": "public-ip", "url": "https://1.1.1.1/", "reason": "unregistered"},
+    {"id": "userinfo", "url": "https://user:pass@fisher.usc.edu/visit-us/", "reason": "unregistered"},
+    {"id": "query", "url": "https://fisher.usc.edu/visit-us/?next=http://127.0.0.1", "reason": "unregistered"},
+    {"id": "dotdot", "url": "https://fisher.usc.edu/visit-us/../admin", "reason": "unregistered"},
+    {"id": "port", "url": "https://fisher.usc.edu:8443/visit-us/", "reason": "unregistered"},
+    {"id": "http-downgrade", "url": "http://fisher.usc.edu/visit-us/", "reason": "unregistered"},
+    {"id": "fragment", "url": "https://fisher.usc.edu/visit-us/#next", "reason": "unregistered"},
+    {"id": "allowed", "url": "https://fisher.usc.edu/visit-us/", "reason": null}
+  ]
+}

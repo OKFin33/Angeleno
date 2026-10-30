@@ -1,0 +1,121 @@
+{
+  "sources": [
+    {
+      "id": "src.jefferson.overview",
+      "place_id": "place.jefferson-park",
+      "institution": "Historic Jefferson Park",
+      "allowed_urls": ["https://www.historicjeffersonpark.org/overview"],
+      "question_types": ["background", "architecture"],
+      "parser": "places.extract.v1",
+      "last_success": null,
+      "enabled": true,
+      "disabled_reason": null,
+      "fixture": "jefferson-overview.html",
+      "survey_note": "2026-10-30 的调查把社区站点当作保护背景和建筑资料入口，而不是法规或施工许可来源。夹具是离线契约样本，不是该页的字节副本。"
+    },
+    {
+      "id": "src.jefferson.planning",
+      "place_id": "place.jefferson-park",
+      "institution": "Los Angeles City Planning",
+      "allowed_urls": [],
+      "question_types": ["permit"],
+      "parser": "places.extract.v1",
+      "last_success": null,
+      "enabled": false,
+      "disabled_reason": "timeout",
+      "fixture": null,
+      "survey_note": "2026-10-30 的调查中，City Planning 的 Jefferson Park 页超时。当时的记录没有留下确切 URL，允许清单保持为空。"
+    },
+    {
+      "id": "src.usc.campus",
+      "place_id": "place.usc",
+      "institution": "University of Southern California",
+      "allowed_urls": [],
+      "question_types": ["background"],
+      "parser": "places.extract.v1",
+      "last_success": null,
+      "enabled": false,
+      "disabled_reason": "not_surveyed",
+      "fixture": null,
+      "survey_note": "校园与 Exposition Park 的位置关系是稳定背景。2026-10-30 的调查没有登记一份可读取的校园页面。"
+    },
+    {
+      "id": "src.exposition.official",
+      "place_id": "place.exposition-park",
+      "institution": "Exposition Park",
+      "allowed_urls": [],
+      "question_types": ["access"],
+      "parser": "places.extract.v1",
+      "last_success": null,
+      "enabled": false,
+      "disabled_reason": "http_403",
+      "fixture": null,
+      "survey_note": "2026-10-30 的调查中，Exposition Park 官网返回 403。当时的记录没有留下确切 URL，允许清单保持为空。"
+    },
+    {
+      "id": "src.fisher.visit",
+      "place_id": "place.fisher",
+      "institution": "USC Fisher Museum of Art",
+      "allowed_urls": ["https://fisher.usc.edu/visit-us/"],
+      "question_types": ["hours", "access"],
+      "parser": "places.extract.v1",
+      "last_success": null,
+      "enabled": true,
+      "disabled_reason": null,
+      "fixture": "fisher-visit.html",
+      "survey_note": "2026-10-30 的调查把访问页当作开放资料、常态时间和具体日期例外的候选来源，并记下同页 FAQ 与旧社交内容需要筛选。夹具是离线契约样本，不是该页的字节副本。生产读取尚未成功，last_success 保持为空。"
+    },
+    {
+      "id": "src.nhm.visit",
+      "place_id": "place.nhm",
+      "institution": "Natural History Museum of Los Angeles County",
+      "allowed_urls": ["https://nhm.org/plan-your-visit"],
+      "question_types": ["hours", "event", "access"],
+      "parser": "places.extract.v1",
+      "last_success": null,
+      "enabled": true,
+      "disabled_reason": null,
+      "fixture": "nhm-visit.html",
+      "survey_note": "2026-10-30 的调查把访问页当作开放和周边活动的候选来源。夹具是离线契约样本，不是该页的字节副本。生产读取尚未成功，last_success 保持为空。"
+    },
+    {
+      "id": "src.caam.visit",
+      "place_id": "place.caam",
+      "institution": "California African American Museum",
+      "allowed_urls": [],
+      "question_types": ["access"],
+      "parser": "places.extract.v1",
+      "last_success": null,
+      "enabled": false,
+      "disabled_reason": "no_usable_body",
+      "fixture": null,
+      "survey_note": "2026-10-30 的调查没有取得 CAAM 访问页的可用正文。当时的记录没有留下确切 URL，允许清单保持为空。"
+    },
+    {
+      "id": "src.culver.identity",
+      "place_id": "place.culver-city",
+      "institution": "Culver City",
+      "allowed_urls": ["https://www.culvercity.org/"],
+      "question_types": ["background"],
+      "parser": "places.extract.v1",
+      "last_success": null,
+      "enabled": false,
+      "disabled_reason": "not_surveyed",
+      "fixture": null,
+      "survey_note": "城市官网只作为次要生活节点的身份指针。2026-10-30 的调查没有读取它，因此来源保持禁用。"
+    },
+    {
+      "id": "src.sherman.orientation",
+      "place_id": "place.sherman-oaks",
+      "institution": "Sherman Oaks",
+      "allowed_urls": [],
+      "question_types": ["background"],
+      "parser": "places.extract.v1",
+      "last_success": null,
+      "enabled": false,
+      "disabled_reason": "not_surveyed",
+      "fixture": null,
+      "survey_note": "次要生活节点只有位置说明。2026-10-30 的调查没有记录可核对页面，允许清单保持为空。"
+    }
+  ]
+}
