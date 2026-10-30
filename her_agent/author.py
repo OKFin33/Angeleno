@@ -156,7 +156,7 @@ class AuthorPack:
     def instructions(self, variant="guided", today=None, *, memory_enabled=False):
         if variant not in ("raw", "guided"):
             raise ValueError("variant must be raw or guided")
-        zone = os.environ.get("HER_TIMEZONE", "Asia/Taipei")
+        zone = os.environ.get("ANGELENO_TIMEZONE", "America/Los_Angeles")
         current = date.fromisoformat(today) if today else datetime.now(ZoneInfo(zone)).date()
         weekday = "一二三四五六日"[current.weekday()]
         boundaries = RUNTIME_BOUNDARIES.format(capabilities=MEMORY_CAPABILITIES if memory_enabled else CAPABILITIES)
@@ -170,7 +170,7 @@ class AuthorPack:
         return result
 
     def messages(self, history, variant="guided", today=None, *, memory_context=None):
-        # All caller system prompts are replaced, including upstream Fengge instructions.
+        # Author material owns the actor prompt; caller-supplied system prompts do not replace it.
         recent = []
         for message in history:
             role, content = message.get("role"), message.get("content")

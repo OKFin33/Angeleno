@@ -9,13 +9,17 @@ from .continuity import Conversation, Maintainer
 from .memory import MemoryStore, seed_digest
 
 
-def open_store(root, pack, user, *, create=False):
+def open_store(root, pack, user, *, create=False, data_dir=None):
     if not user or not re.fullmatch(r"[a-z0-9_-]{1,64}", user):
         raise ValueError("Memory identity must use 1–64 lowercase letters, digits, _ or -")
     root = Path(root)
-    path = root / "private/her" / pack.id / user / "memory.sqlite3"
-    if not path.resolve().is_relative_to((root / "private").resolve()):
-        raise ValueError("Memory path must remain inside Her/private")
+    from .config import resolve_path
+    directory = resolve_path(data_dir or "private/state", root=root)
+    if not directory.is_relative_to((root / "private").resolve()):
+        raise ValueError("Memory data directory must remain inside this repository private directory")
+    path = directory / pack.id / user / "memory.sqlite3"
+    if not path.resolve().is_relative_to(directory):
+        raise ValueError("Memory path must remain inside the configured data directory")
     if not create and not path.exists():
         raise ValueError("No memory exists for this character/user")
     return MemoryStore(path, character=pack.id, user=user, seed=seed_digest(pack))
@@ -39,8 +43,8 @@ class ConversationRuntime:
     """
 
     def __init__(self, pack, provider, *, store=None, writer=None, variant="guided", memory_tools=False):
-        if memory_tools:
-            raise ValueError("Memory-tool provider adapter is not included in this offline baseline")
+        if memory_tools and store is None:
+            raise ValueError("Memory tools require a persistent identity")
         if store is not None and writer is None:
             raise ValueError("Persistent conversation requires a maintenance provider")
         self.pack, self.provider, self.store, self.writer = pack, provider, store, writer
@@ -82,7 +86,11 @@ class ConversationRuntime:
     async def stream(self, turn):
         if turn is not self.active or turn.settled or self.closed:
             raise ValueError("Inactive conversation turn")
-        iterator = self.provider.chat(turn.messages)
+        if self.memory_tools:
+            from .memory_tools import reply
+            iterator = reply(self.provider, turn.messages, self.store, user_seq=turn.user_seq)
+        else:
+            iterator = self.provider.chat(turn.messages)
         try:
             async for piece in iterator:
                 if not isinstance(piece, str):

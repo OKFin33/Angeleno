@@ -1,0 +1,11 @@
+{
+  "format": "her-author-pack/1",
+  "id": "demo-local",
+  "as_of": "2026-10-30",
+  "documents": [
+    {
+      "path": "character.md",
+      "kind": "character"
+    }
+  ]
+}
