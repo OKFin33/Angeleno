@@ -9,6 +9,13 @@ from .continuity import Conversation, Maintainer
 from .memory import MemoryStore, seed_digest
 
 
+def _user_utterance(turn):
+    for message in reversed(turn.messages):
+        if message.get("role") == "user" and isinstance(message.get("content"), str) and message["content"].strip():
+            return message["content"]
+    raise ValueError("A nonempty user utterance is required")
+
+
 def open_store(root, pack, user, *, create=False, data_dir=None):
     if not user or not re.fullmatch(r"[a-z0-9_-]{1,64}", user):
         raise ValueError("Memory identity must use 1–64 lowercase letters, digits, _ or -")
@@ -42,13 +49,18 @@ class ConversationRuntime:
     are injected so tests and bounded trial runners use this exact lifecycle.
     """
 
-    def __init__(self, pack, provider, *, store=None, writer=None, variant="guided", memory_tools=False):
+    def __init__(self, pack, provider, *, store=None, writer=None, variant="guided",
+                 memory_tools=False, lookup=None):
         if memory_tools and store is None:
             raise ValueError("Memory tools require a persistent identity")
+        if lookup is not None and memory_tools:
+            raise ValueError("Text lookup and memory tools stay on separate loops")
         if store is not None and writer is None:
             raise ValueError("Persistent conversation requires a maintenance provider")
         self.pack, self.provider, self.store, self.writer = pack, provider, store, writer
         self.variant, self.memory_tools = variant, memory_tools
+        self.lookup = lookup
+        self._lookup_turns = 0
         self.conversation = Conversation(pack, store, variant=variant) if store else None
         self.maintainer = Maintainer(store, pack, writer) if store else None
         self.history, self.temporary_history = [], []
@@ -86,7 +98,23 @@ class ConversationRuntime:
     async def stream(self, turn):
         if turn is not self.active or turn.settled or self.closed:
             raise ValueError("Inactive conversation turn")
-        if self.memory_tools:
+        if self.lookup is not None:
+            from .lookup import reply as lookup_reply
+            utterance = _user_utterance(turn)
+            if self.conversation is not None:
+                session_id = self.conversation.session
+            else:
+                session_id = self.lookup.local_session
+            if turn.user_seq is not None:
+                user_turn = turn.user_seq
+            else:
+                self._lookup_turns += 1
+                user_turn = self._lookup_turns
+            iterator = lookup_reply(
+                self.lookup, self.provider, turn.messages, session_id=session_id,
+                user_turn=user_turn, utterance=utterance, turn=turn,
+            )
+        elif self.memory_tools:
             from .memory_tools import reply
             iterator = reply(self.provider, turn.messages, self.store, user_seq=turn.user_seq)
         else:
@@ -119,6 +147,12 @@ class ConversationRuntime:
                                           {"role": "assistant", "content": text}][-20:]
         elif text:
             self.history = [*turn.messages[1:], {"role": "assistant", "content": text}]
+        if (self.lookup is not None and self.store is not None and complete and text
+                and not turn.temporary):
+            self.lookup.record_if_delivered(
+                self.store, getattr(turn, "lookup_session", None),
+                getattr(turn, "lookup_user_turn", None), text,
+            )
         turn.settled = True
         if complete and not turn.temporary:
             self.completed += 1
