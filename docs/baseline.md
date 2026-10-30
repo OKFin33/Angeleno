@@ -1,6 +1,6 @@
 # 当前代码与验证
 
-2026-10-30 · 独立运行迁移候选，基于已合入的初始化版本ea35622。产品行为见 [Spec](spec.md)，运行方法见 [running](running.md)，迁移工作见 [Issue #3](https://github.com/OKFin33/Angeleno/issues/3)。初始化主线不等于本候选已合入或真实语音已接受。
+2026-10-30 · 独立运行迁移已由 Owner 确认，经 [PR #4](https://github.com/OKFin33/Angeleno/pull/4) 合入 main（3fe63fb）。合入内容与已检查的0927a6e一致；本次接受只覆盖仓库与运行迁移，真实语音尚未接受。产品行为见 [Spec](spec.md)，运行方法见 [running](running.md)，迁移证据见 [Issue #3](https://github.com/OKFin33/Angeleno/issues/3)。
 
 ## 本仓实际包含
 
