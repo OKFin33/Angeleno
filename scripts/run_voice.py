@@ -161,7 +161,7 @@ def run(env, *, livekit_bin=None):
                           'keys': {env['LIVEKIT_API_KEY']: env['LIVEKIT_API_SECRET']},
                           'logging': {'level': 'warn'}}
                 config_path = Path(directory) / 'livekit.json'
-                with config_path.open('w', opener=lambda path, flags: os.open(path, flags, 0o600)) as file:
+                with open(config_path, 'w', opener=lambda path, flags: os.open(path, flags, 0o600)) as file:
                     json.dump(config, file)
                 commands.append([executable, '--config', str(config_path)])
             commands.extend([[sys.executable, '-m', 'worker.web_server'],

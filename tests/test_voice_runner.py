@@ -114,6 +114,36 @@ class RunnerTests(unittest.TestCase):
             kill.assert_called_once_with(child.pid, run_voice.signal.SIGTERM)
             self.assertEqual(list((Path(tmp) / 'private').iterdir()), [])
 
+    def test_local_livekit_config_is_private_and_start_path_reaches_child(self):
+        child = Mock(pid=87654)
+        child.poll.return_value = None
+        captured = {}
+        def spawn(command, **kwargs):
+            if command[0] == '/synthetic/livekit-server':
+                path = Path(command[2])
+                captured['mode'] = path.stat().st_mode & 0o777
+                captured['config'] = json.loads(path.read_text())
+                return child
+            raise OSError('synthetic second child failure')
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(run_voice, 'ROOT', Path(tmp)), \
+             patch.object(run_voice, 'check_configuration', return_value=[]), \
+             patch.object(run_voice, 'require_ports_free'), \
+             patch('her_agent.voice.validate_voice_setup'), \
+             patch('shutil.which', return_value='/synthetic/livekit-server'), \
+             patch('subprocess.Popen', side_effect=spawn), \
+             patch('os.killpg') as kill:
+            env = {'LIVEKIT_URL': 'ws://127.0.0.1:17883',
+                   'LIVEKIT_API_KEY': 'synthetic-local', 'LIVEKIT_API_SECRET': 'synthetic-secret',
+                   'LIVEKIT_NODE_IP': '100.64.0.1', 'LIVEKIT_FORCE_TCP': '1'}
+            with self.assertRaisesRegex(OSError, 'synthetic second child failure'):
+                run_voice.run(env, livekit_bin='livekit-server')
+            self.assertEqual(captured['mode'], 0o600)
+            self.assertEqual(captured['config']['rtc']['node_ip'], '100.64.0.1')
+            self.assertEqual(captured['config']['port'], 17883)
+            kill.assert_called_once_with(child.pid, run_voice.signal.SIGTERM)
+            self.assertEqual(list((Path(tmp) / 'private').iterdir()), [])
+
     def test_web_health_does_not_probe_and_token_requires_allowed_origin(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = configuration(Path(tmp))
