@@ -511,6 +511,91 @@ class MemoryStore:
             self.db.rollback()
             raise
 
+    def _ensure_lookup_table(self):
+        # Additive result log. The schema meta value stays 2; opening an older
+        # database does not create this table and does not rewrite existing rows.
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS lookup_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session TEXT NOT NULL,
+                user_turn INTEGER NOT NULL,
+                request_id TEXT NOT NULL UNIQUE,
+                assistant_seq INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                conclusion TEXT,
+                applicable_date TEXT,
+                checked_at TEXT,
+                source_id TEXT,
+                source_url TEXT,
+                excerpt TEXT,
+                delivered_text TEXT NOT NULL
+            )
+        """)
+
+    def _lookup_table_exists(self):
+        return self.db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='lookup_results'",
+        ).fetchone() is not None
+
+    def remember_lookup(self, session, payload):
+        """Store one delivered source result. Refuses text that is not the stored reply."""
+        required = ("user_turn", "request_id", "status", "subject", "delivered_text")
+        if any(key not in payload for key in required):
+            return None
+        if type(payload["user_turn"]) is not int or payload["user_turn"] < 1:
+            return None
+        if not isinstance(payload["delivered_text"], str) or not payload["delivered_text"].strip():
+            return None
+        if not isinstance(payload["request_id"], str) or not payload["request_id"]:
+            return None
+        row = self.db.execute(
+            "SELECT seq, text, turn FROM events WHERE session=? AND role='assistant' "
+            "AND delivery='complete' ORDER BY seq DESC LIMIT 1",
+            (session,),
+        ).fetchone()
+        if row is None or row["text"] != payload["delivered_text"] or row["turn"] != payload["user_turn"]:
+            return None
+        self._ensure_lookup_table()
+        try:
+            with self.db:
+                self.db.execute(
+                    "INSERT INTO lookup_results(session,user_turn,request_id,assistant_seq,status,subject,"
+                    "conclusion,applicable_date,checked_at,source_id,source_url,excerpt,delivered_text) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        session, payload["user_turn"], payload["request_id"], row["seq"], payload["status"],
+                        payload["subject"], payload["conclusion"], payload["applicable_date"], payload["checked_at"],
+                        payload.get("source_id"), payload.get("source_url"), payload.get("excerpt"),
+                        payload["delivered_text"],
+                    ),
+                )
+        except sqlite3.IntegrityError:
+            return None
+        return row["seq"]
+
+    def lookup_results(self):
+        if not self._lookup_table_exists():
+            return []
+        return [dict(row) for row in self.db.execute(
+            "SELECT session,user_turn,request_id,assistant_seq,status,subject,conclusion,applicable_date,"
+            "checked_at,source_id,source_url,excerpt,delivered_text FROM lookup_results ORDER BY id",
+        )]
+
+    def _drop_lookup_results(self, seqs=None):
+        if not self._lookup_table_exists():
+            return
+        if seqs is None:
+            self.db.execute("DELETE FROM lookup_results")
+            return
+        seqs = tuple(seqs)
+        if not seqs:
+            return
+        placeholders = ",".join("?" for _ in seqs)
+        self.db.execute(
+            f"DELETE FROM lookup_results WHERE assistant_seq IN ({placeholders})", seqs,
+        )
+
     def forget(self, record_id=None):
         """Conservatively remove evidence and all summaries derived from it, including revisions."""
         self.db.execute("BEGIN IMMEDIATE")
@@ -522,6 +607,7 @@ class MemoryStore:
                 self.db.execute("DELETE FROM terms")
                 self.db.execute("DELETE FROM turn_inputs")
                 self.db.execute("UPDATE events SET text='',delivery='forgotten'")
+                self._drop_lookup_results(None)
                 count = len({r["id"] for r in all_records})
             else:
                 found = [r for r in all_records if r["id"] == record_id]
@@ -559,6 +645,7 @@ class MemoryStore:
                 for seq in evidence:
                     self.db.execute("UPDATE events SET text='',delivery='forgotten' WHERE seq=?", (seq,))
                     self.db.execute("DELETE FROM turn_inputs WHERE turn=?", (seq,))
+                self._drop_lookup_results(evidence)
                 count = len(ids)
             self._set_meta("revision", self.revision + 1)
             self.db.commit()
