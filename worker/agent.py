@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Modified from talk-to-fengge. Character context and memory stay outside transport; see NOTICE.
 """Angeleno LiveKit worker. The shared core owns all actor context and memory.
 
 Transport wiring derived from talk-to-fengge (Apache-2.0); see NOTICE.

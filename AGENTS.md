@@ -6,7 +6,7 @@ Purpose: [README](README.md) 与 [Intent](docs/intent.md)。
 Main line: `refs/remotes/origin/main`
 Settled record: [SETTLED.md](SETTLED.md)
 Open items: https://github.com/OKFin33/Angeleno/issues
-Verify: 按 [baseline](docs/baseline.md) 执行当前离线检查；文档运行 `git diff --check`，检查链接及入口，有 OA 时运行 `oa check`。离线通过不代替真实语音或体验接受。
+Verify: `make verify`。它串起 [baseline](docs/baseline.md) 的全部离线命令与 `git diff --check`，并含负向自检（坏 fixture 必须失败；`private/` 或 `.env` 被追踪即失败）。唯一 workflow 为 `.github/workflows/ci.yml`（路径过滤、timeout 15 分钟、无密钥与付费调用）。离线通过不代替真实语音或体验接受。
 Authority: 在已受领范围内可修改、提交、push 私仓，维护 Issues 和 Draft PR；主线 merge、公开发布、未获授权的产品选择由 Owner 决定。收费调用、安装和部署须核对操作者当前有效授权，不由本文件扩权。
 
 从 [Issue #1](https://github.com/OKFin33/Angeleno/issues/1) 的 Now、Verified、Next 接续工作；[Spec](docs/spec.md) 持有行为与验收，[baseline](docs/baseline.md) 持有实际代码和验证。目标、方案与实现状态分别维护；工作项不复制整份 Spec。

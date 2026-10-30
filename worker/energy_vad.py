@@ -1,4 +1,5 @@
-# Derived from talk-to-fengge (Apache-2.0); see NOTICE and LICENSES.
+# SPDX-License-Identifier: Apache-2.0
+# Modified from talk-to-fengge (Apache-2.0). See NOTICE and LICENSES.
 """轻量能量 VAD — 不依赖外部模型，按 RMS 阈值判断 start / end of speech。
 
 适用场景：单声道 16-bit PCM（LiveKit 默认麦克风输入）。

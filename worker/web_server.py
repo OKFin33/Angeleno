@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Modified from talk-to-fengge. Local page and dispatch only; no external health probes. See NOTICE.
 """Local page and LiveKit dispatch service; no external health probes.
 
 Based on talk-to-fengge's web server (Apache-2.0); see NOTICE.

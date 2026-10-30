@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Modified from talk-to-fengge. Explicit provider and usage configuration; see NOTICE.
 """DeepSeek stream adapter extracted from talk-to-fengge; see NOTICE.
 
 Live entry points use configured_providers so actor, tool continuation and JSON
