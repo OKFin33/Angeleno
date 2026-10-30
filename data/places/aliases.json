@@ -1,0 +1,24 @@
+{
+  "aliases": [
+    {"alias": "Historic Jefferson Park", "place_id": "place.jefferson-park"},
+    {"alias": "杰斐逊公园", "place_id": "place.jefferson-park"},
+    {"alias": "杰佛逊公园", "place_id": "place.jefferson-park"},
+    {"alias": "USC", "place_id": "place.usc"},
+    {"alias": "南加州大学", "place_id": "place.usc"},
+    {"alias": "南加大", "place_id": "place.usc"},
+    {"alias": "博览会公园", "place_id": "place.exposition-park"},
+    {"alias": "USC Fisher", "place_id": "place.fisher"},
+    {"alias": "Fisher", "place_id": "place.fisher"},
+    {"alias": "Fisher Museum", "place_id": "place.fisher"},
+    {"alias": "费舍尔艺术博物馆", "place_id": "place.fisher"},
+    {"alias": "费舍尔博物馆", "place_id": "place.fisher"},
+    {"alias": "NHM", "place_id": "place.nhm"},
+    {"alias": "Natural History Museum", "place_id": "place.nhm"},
+    {"alias": "自然历史博物馆", "place_id": "place.nhm"},
+    {"alias": "洛杉矶自然历史博物馆", "place_id": "place.nhm"},
+    {"alias": "CAAM", "place_id": "place.caam"},
+    {"alias": "加州非裔美国人博物馆", "place_id": "place.caam"},
+    {"alias": "卡尔弗城", "place_id": "place.culver-city"},
+    {"alias": "谢尔曼奥克斯", "place_id": "place.sherman-oaks"}
+  ]
+}
