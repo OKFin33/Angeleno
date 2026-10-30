@@ -1,4 +1,5 @@
-# Derived from talk-to-fengge (Apache-2.0); see NOTICE and LICENSES.
+# SPDX-License-Identifier: Apache-2.0
+# Modified from talk-to-fengge (Apache-2.0). See NOTICE and LICENSES.
 """VoxCPM2 流式 TTS plugin for LiveKit agents.
 
 streaming=True：LLM 边生成边按句子边界触发 TTS，首句延迟目标 ~1.5s。

@@ -30,6 +30,8 @@ pyproject.toml and uv.lock. GPU software and model weights are separate operator
 resources; see gpu/requirements.txt and docs/running.md. No reference voice,
 model weights, OpenViking, Nuwa Skill or Fengge Skill is bundled here.
 
-This notice preserves third-party attribution. It does not assign the same
-license to all original Angeleno code, character material or private media;
-the project's public distribution license is not yet selected.
+This notice preserves third-party attribution. Original Angeleno code and
+documentation are under the MIT License; see LICENSE. The six adapted files
+listed above remain Apache-2.0 (SPDX-License-Identifier in each file and
+LICENSES/Apache-2.0.txt). Character material, reference voice and generated
+speech are not covered by any repository license.
