@@ -1,0 +1,187 @@
+"""Fail-closed DeepSeek accounting, shared by every paid model request.
+
+Only prices, balances, aggregate usage and dispositions are stored. No prompt,
+response text, API key or exception body enters the ledger. Monetary fields are
+integer millionths of the explicitly configured currency.
+"""
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
+import hashlib
+import json
+import os
+from pathlib import Path
+import sqlite3
+
+
+APPLICATION_ID = 0x414E4731
+
+
+class BudgetExceeded(RuntimeError):
+    pass
+
+
+def decimal_setting(value, name, *, positive=False):
+    try:
+        result = Decimal(str(value))
+    except InvalidOperation:
+        raise ValueError(f"{name} must be an explicit finite amount") from None
+    if not result.is_finite() or result < 0 or (positive and result == 0):
+        raise ValueError(f"{name} must be an explicit {'positive' if positive else 'nonnegative'} amount")
+    return result
+
+
+def micros(value):
+    return int((value * 1_000_000).to_integral_value(rounding=ROUND_CEILING))
+
+
+@dataclass(frozen=True)
+class Prices:
+    model: str
+    currency: str
+    input: Decimal
+    cache_hit: Decimal
+    output: Decimal
+    source: str
+
+    @classmethod
+    def from_env(cls, env, model):
+        required = ("ANGELENO_PRICE_MODEL", "ANGELENO_BUDGET_CURRENCY", "ANGELENO_PRICE_INPUT",
+                    "ANGELENO_PRICE_CACHE_HIT", "ANGELENO_PRICE_OUTPUT", "ANGELENO_PRICE_SOURCE")
+        if any(not str(env.get(name, "")).strip() for name in required):
+            raise ValueError("Explicit model, currency, input/cache/output prices and price source are required")
+        if env["ANGELENO_PRICE_MODEL"] != model:
+            raise ValueError("Configured prices do not match DEEPSEEK_MODEL")
+        if env["ANGELENO_BUDGET_CURRENCY"] not in {"CNY", "USD"}:
+            raise ValueError("ANGELENO_BUDGET_CURRENCY must be CNY or USD")
+        return cls(model, env["ANGELENO_BUDGET_CURRENCY"],
+                   decimal_setting(env["ANGELENO_PRICE_INPUT"], "input price", positive=True),
+                   decimal_setting(env["ANGELENO_PRICE_CACHE_HIT"], "cache price", positive=True),
+                   decimal_setting(env["ANGELENO_PRICE_OUTPUT"], "output price", positive=True),
+                   env["ANGELENO_PRICE_SOURCE"])
+
+    def cost(self, prompt, completion, hit=0):
+        # Rates are currency per million tokens, hence numerically microcurrency
+        # per token. Round upward once, retaining small cache-hit charges.
+        return int(((prompt - hit) * self.input + hit * self.cache_hit + completion * self.output)
+                   .to_integral_value(rounding=ROUND_CEILING))
+
+
+class Ledger:
+    def __init__(self, path, prices, *, minimum_balance, carryover, account):
+        self.path, self.prices = Path(path), prices
+        self.minimum = micros(decimal_setting(minimum_balance, "ANGELENO_MIN_BALANCE"))
+        self.carryover = micros(decimal_setting(carryover, "ANGELENO_BUDGET_CARRYOVER"))
+        settings = {"model": prices.model, "currency": prices.currency,
+                    "input": str(prices.input), "cache_hit": str(prices.cache_hit),
+                    "output": str(prices.output), "source": prices.source,
+                    "minimum": self.minimum, "carryover": self.carryover,
+                    "account": hashlib.sha256(account.encode()).hexdigest()}
+        if self.path.is_symlink():
+            raise ValueError("Budget ledger must not be a symlink")
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        existing = self.path.exists()
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        os.close(fd)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            application_id = db.execute("PRAGMA application_id").fetchone()[0]
+            if application_id != APPLICATION_ID:
+                if existing or application_id != 0 or db.execute("SELECT name FROM sqlite_master").fetchone():
+                    raise ValueError("Not an Angeleno budget ledger; left untouched")
+                db.execute(f"PRAGMA application_id={APPLICATION_ID}")
+                db.execute("CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL, balance_micros INTEGER)")
+                db.execute("CREATE TABLE requests (id INTEGER PRIMARY KEY, created TEXT NOT NULL, purpose TEXT NOT NULL, reserved_micros INTEGER NOT NULL, estimated_micros INTEGER, status TEXT NOT NULL, http_status INTEGER, prompt_tokens INTEGER, completion_tokens INTEGER, cache_hit_tokens INTEGER)")
+                db.execute("INSERT INTO settings VALUES(1,?,NULL)", (json.dumps(settings, sort_keys=True),))
+            if json.loads(db.execute("SELECT payload FROM settings WHERE id=1").fetchone()[0]) != settings:
+                raise ValueError("Existing budget settings differ; explicit reconciliation is required")
+        self.path.chmod(0o600)
+
+    def connect(self):
+        return sqlite3.connect(self.path, timeout=10)
+
+    def settled_before_check(self):
+        with self.connect() as db:
+            return db.execute("SELECT coalesce(sum(estimated_micros),0) FROM requests").fetchone()[0]
+
+    def reserve(self, payload, purpose, balance, settled_before):
+        if purpose not in {"actor", "maintenance"}:
+            raise ValueError("Unknown model request purpose")
+        if payload.get("model") != self.prices.model or payload.get("thinking") != {"type": "disabled"}:
+            raise ValueError("Request does not match configured non-thinking model prices")
+        output = payload.get("max_tokens")
+        if type(output) is not int or not 1 <= output <= 2048:
+            raise ValueError("Paid output cap must be 1..2048 tokens")
+        # UTF-8 bytes bound tokenized text conservatively; reserve extra framing
+        # and the full output cap, without assuming cache or off-peak discounts.
+        input_bound = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 4096
+        rate = max(self.prices.input, self.prices.cache_hit)
+        reserved = int((input_bound * rate + output * self.prices.output).to_integral_value(rounding=ROUND_CEILING))
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            # The provider's fresh balance is the source for already billed work.
+            # Deduct unknown/cancelled usage plus requests that were not settled
+            # before this GET. Known usage is an estimate for audit, never a
+            # second lifetime spending cap or a claim about the wallet debit.
+            total = db.execute("SELECT coalesce(sum(coalesce(estimated_micros,reserved_micros)),0) FROM requests").fetchone()[0]
+            outstanding = total - settled_before
+            db.execute("UPDATE settings SET balance_micros=? WHERE id=1", (balance,))
+            if balance - outstanding - self.carryover - reserved < self.minimum:
+                db.commit()
+                raise BudgetExceeded("Insufficient verified balance after reservations; no paid request sent")
+            result = db.execute("INSERT INTO requests(created,purpose,reserved_micros,status) VALUES(?,?,?,?)",
+                                (datetime.now(timezone.utc).isoformat(), purpose, reserved, "reserved"))
+            return result.lastrowid
+
+    def finish(self, request_id, usage, status, http_status=None):
+        fields = None
+        if isinstance(usage, dict):
+            prompt, completion, hit = (usage.get(k) for k in
+                                       ("prompt_tokens", "completion_tokens", "prompt_cache_hit_tokens"))
+            if all(type(value) is int and value >= 0 for value in (prompt, completion, hit)) and hit <= prompt:
+                fields = (self.prices.cost(prompt, completion, hit), prompt, completion, hit)
+        with self.connect() as db:
+            if fields is None:
+                db.execute("UPDATE requests SET status=?,http_status=? WHERE id=?", (status, http_status, request_id))
+            else:
+                db.execute("UPDATE requests SET estimated_micros=?,prompt_tokens=?,completion_tokens=?,cache_hit_tokens=?,status=?,http_status=? WHERE id=?",
+                           (*fields, status, http_status, request_id))
+
+    def summary(self):
+        with self.connect() as db:
+            db.row_factory = sqlite3.Row
+            rows = [dict(row) for row in db.execute("SELECT * FROM requests ORDER BY id")]
+            balance = db.execute("SELECT balance_micros FROM settings WHERE id=1").fetchone()[0]
+        return {"currency": self.prices.currency, "minimum_micros": self.minimum,
+                "carryover_micros": self.carryover, "last_balance_micros": balance,
+                "usage_estimate_micros": sum(row["estimated_micros"] or 0 for row in rows),
+                "unresolved_reserved_micros": sum(row["reserved_micros"] for row in rows if row["estimated_micros"] is None),
+                "usage_missing": sum(row["prompt_tokens"] is None for row in rows), "rows": rows}
+
+
+class PaidBudget:
+    def __init__(self, ledger, api_key):
+        self.ledger, self.api_key = ledger, api_key
+
+    async def reserve(self, client, payload, purpose):
+        settled = self.ledger.settled_before_check()
+        try:
+            response = await client.get("https://api.deepseek.com/user/balance",
+                                        headers={"Authorization": f"Bearer {self.api_key}"})
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict) or data.get("is_available") is not True:
+                raise ValueError("Balance unavailable")
+            rows = [row for row in data["balance_infos"] if row.get("currency") == self.ledger.prices.currency]
+            if len(rows) != 1:
+                raise ValueError("Balance currency missing or ambiguous")
+            balance = int((decimal_setting(rows[0]["total_balance"], "balance") * 1_000_000)
+                          .to_integral_value(rounding=ROUND_FLOOR))
+        except Exception:
+            # HTTP errors may contain account information. Never emit their body.
+            raise BudgetExceeded("Account balance is unknown or unavailable; no paid request sent") from None
+        return self.ledger.reserve(payload, purpose, balance, settled)
+
+    def finish(self, *args, **kwargs):
+        self.ledger.finish(*args, **kwargs)

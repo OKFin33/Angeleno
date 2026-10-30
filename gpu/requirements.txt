@@ -1,0 +1,11 @@
+# Optional CUDA service only; not installed by the default application sync.
+# Install torch / torchaudio from the official CUDA 12.8 wheel index first.
+torch==2.7.0
+torchaudio==2.7.0
+voxcpm==2.0.3
+transformers<5
+torchcodec==0.4.0
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+numpy>=1.26,<3
+pydantic>=2,<3
