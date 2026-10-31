@@ -41,6 +41,7 @@ _LOOKUP_NOTE = (
     "invalid_arguments表示参数未被接受，不能据此声称资料未收录；本轮不再搜索，也不猜来源继续核对。"
     "多个地点同时命中时先澄清，不挑选一个。"
     "可用 place_check 对一条已登记来源核对当下信息，每轮最多一次；只使用登记来源，不读取任意网址。"
+    "开放时间的question_type是hours；只用所列登记类型。out_of_scope是请求超出可核对范围，不表示来源打不开。"
     "补充条件时 place_check 带 supplement true，原话保持不变，旧请求取消。"
     "可用 place_cancel 取消当前核对，每轮最多一次。"
     "换题时不把上一轮核对结果写成新题目的结论。"
@@ -81,7 +82,7 @@ TOOLS = [
         {
             "place_id": {"type": "string"},
             "source_id": {"type": "string"},
-            "question_type": {"type": "string"},
+            "question_type": {"type": "string", "description": "精确登记类型；开放／闭馆时间用hours。"},
             "when": {"type": "string"},
             "supplement": {"type": "boolean"},
         },
@@ -306,7 +307,8 @@ class TextLookup:
             if current is None or current.request_id != intent.request_id or current.status == "cancelled":
                 return {"accepted": False, "status": "cancelled", "conclusion": None, "detail": "stale"}, None
             hint = payload.get("time_hint")
-            return _from_card(current, extra={"time_hint": hint}), current
+            detail = payload.get("detail") if payload.get("status") == current.status else None
+            return _from_card(current, extra={"time_hint": hint, "detail": detail}), current
         if name == _CANCEL:
             current = self.channel.card(session_id)
             if current is not None and current.status == "cancelled":
@@ -355,6 +357,12 @@ class TextLookup:
         properties = definitions[0]["function"]["parameters"]["properties"]
         properties["place_id"]["enum"] = sorted(self.bundle.catalog.by_id)
         properties["area"]["enum"] = sorted({entry.area for entry in self.bundle.catalog.entries})
+        check_properties = definitions[1]["function"]["parameters"]["properties"]
+        check_properties["place_id"]["enum"] = sorted(self.bundle.catalog.by_id)
+        check_properties["source_id"]["enum"] = sorted(self.bundle.registry.by_id)
+        check_properties["question_type"]["enum"] = sorted({
+            topic for source in self.bundle.registry.sources for topic in source.question_types
+        })
         return definitions
 
     def _search(self, arguments):
@@ -385,6 +393,9 @@ class TextLookup:
             "area": hit.area,
             "summary": hit.summary,
             "source_ids": list(hit.source_ids),
+            "sources": [{"source_id": source_id,
+                         "question_types": list(self.bundle.registry.get(source_id).question_types)}
+                        for source_id in hit.source_ids],
             "volatile": hit.volatile,
         } for hit in outcome.hits]
         return {
@@ -472,7 +483,8 @@ class TextLookup:
                 "conclusion": None,
                 "detail": outcome.reason,
             }, None, intent
-        return _from_card(outcome.card, extra={"time_hint": resolution.time_hint}), outcome.card, intent
+        return _from_card(outcome.card, extra={"time_hint": resolution.time_hint,
+                                             "detail": event.detail}), outcome.card, intent
 
     def guard_speech(self, session_id, text):
         if CHANNEL in text:

@@ -261,6 +261,36 @@ class LookupLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["needs_clarification"])
         self.assertEqual({h["place_id"] for h in result["hits"]}, {"place.fisher", "place.nhm"})
 
+    async def test_check_type_is_declared_and_wrong_type_keeps_the_reason(self):
+        from her_agent.live_sources import LiveChecker
+        class NoRead:
+            async def read(self, source):
+                raise AssertionError("Invalid type must not read a source")
+        self.lookup.checker = LiveChecker(self.bundle.catalog, self.bundle.registry, CLOCK,
+                                          channel=self.lookup.channel, reader=NoRead())
+        turn, _ = await self.say(
+            "NHM今天开放吗？",
+            [call("place_search", {"query": "NHM"})],
+            [call("place_check", {"place_id": "place.nhm", "source_id": "src.nhm.visit",
+                                  "question_type": "opening_hours", "when": "2026-10-31"})],
+            [TextDelta("这次请求类型超出支持范围，无法核实。")],
+        )
+        search = json.loads(self.scripted.sent[1][-1]["content"])
+        self.assertEqual(search["hits"][0]["sources"],
+                         [{"source_id": "src.nhm.visit", "question_types": ["hours", "event", "access"]}])
+        tool = next(t["function"] for t in self.scripted.tool_schemas[1] if t["function"]["name"] == "place_check")
+        properties = tool["parameters"]["properties"]
+        self.assertIn("hours", properties["question_type"]["enum"])
+        self.assertNotIn("opening_hours", properties["question_type"]["enum"])
+        self.assertIn("src.nhm.visit", properties["source_id"]["enum"])
+        self.assertIn("place.nhm", properties["place_id"]["enum"])
+        result = json.loads(self.scripted.sent[2][-1]["content"])
+        self.assertEqual(result["status"], "out_of_scope")
+        self.assertEqual(result["detail"], "source_scope")
+        self.assertIsNone(result["conclusion"])
+        self.assertEqual(turn.source_card["status"], "out_of_scope")
+        self.assertEqual(turn.source_card["citations"], [])
+
     async def test_cancelled_result_never_enters_the_next_turn(self):
         self.scripted.cancel_after_check = True
         self.scripted.rounds.extend([
