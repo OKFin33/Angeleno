@@ -19,7 +19,7 @@ from her_agent.provider import TextDelta, ToolCalls
 from her_agent.runtime import ConversationRuntime, open_store
 from her_agent.voice import VoiceBridge, HerVoiceLLM
 from her_agent.voice_cards import VoiceCards
-from her_agent.web_lookup import (DeepSeekWeb, DNSRefused, WebFailure, WebLookup,
+from her_agent.web_lookup import (DeepSeekWeb, DNSRefused, RecordedWebResult, WebFailure, WebLookup,
     PublicQuery, configured_web_lookup, parse_web_call, public_dns, public_url)
 from test_budget import budget_env, balance_response, mocked_providers
 from test_lookup import CLOCK, PACK, Scripted, IdleWriter, call, check_args
@@ -64,6 +64,90 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
                                     call_id="s"+str(n)).calls[0]
                                for n,topic in enumerate(("architecture","small_art_exhibitions"))))
 
+    async def test_recorded_uncovered_query_and_body_are_not_empty_live_searches(self):
+        planned = {**RESULT, 'summary': 'It is scheduled to open on September 22, 2026.',
+                   'date': '2026-09-01T16:00:00+00:00'}
+        class Replay:
+            async def search(self, query):
+                if query.topic == 'architecture':
+                    return RecordedWebResult({'results': [planned]}, '2026-10-31T14:47:17+00:00', 'a'*64)
+                return RecordedWebResult(None, None, 'a'*64)
+            async def fetch(self, url):
+                return RecordedWebResult(None, None, 'b'*64)
+        actor, turn, _ = await self.batch_run(Replay(), [[self.search_batch()],
+            [call('web_fetch', {'result_id': 'rq-2-0'})], [TextDelta('输入捕获占位，不判定模型行为。')]])
+        bodies = [json.loads(m['content']) for m in actor.sent[-1] if m['role'] == 'tool']
+        self.assertEqual([b['status'] for b in bodies], ['evidence', 'unavailable', 'unavailable'])
+        self.assertEqual(bodies[1]['detail'], 'replay_query_uncovered')
+        self.assertEqual(bodies[2]['detail'], 'replay_body_unobserved')
+        self.assertNotIn('results', bodies[1], 'No observation is not an observed empty result')
+        self.assertEqual([b['replay']['coverage'] for b in bodies], ['recorded', 'uncovered', 'uncovered'])
+        self.assertFalse(any(b['replay']['live_http'] for b in bodies))
+        self.assertIsNone(bodies[1]['replay']['recorded_at'])
+        self.assertEqual(bodies[0]['results'][0]['summary'], planned['summary'])
+        self.assertEqual(bodies[0]['results'][0]['published_at'], planned['date'])
+        self.assertEqual(bodies[0]['results'][0]['published_at_kind'], 'source_publication')
+        self.assertTrue(all(b['event_occurrence'] == 'not_established_by_tool' for b in bodies))
+        system = actor.sent[-1][0]['content']
+        self.assertIn('即使计划日期已经过去', system)
+        self.assertIn('不能把未观察说成现实没搜到', system)
+        self.assertEqual(bodies[1]['evidence_reading']['observation_scope'], 'replay_query_unobserved')
+        self.assertIsNone(turn.source_card['conclusion'])
+        self.assertIsNone(turn.source_card['applicable_date'])
+
+    async def test_recorded_empty_query_is_distinct_from_uncovered_and_live_empty(self):
+        for result, status, coverage in [
+                (RecordedWebResult({'results': []}, '2026-10-31T14:47:17+00:00', 'a'*64), 'insufficient', 'recorded'),
+                (RecordedWebResult(None, None, 'a'*64), 'unavailable', 'uncovered'),
+                ({'results': [], 'replay': {'coverage': 'uncovered'}, 'event_occurrence': 'opened'}, 'insufficient', None)]:
+            api = FakeWeb(); api.search = AsyncMock(return_value=result)
+            lookup = WebLookup(api, CLOCK); lookup.begin_turn('replay', 1)
+            body, _, _ = await lookup.execute_async('web_search',
+                {'area': 'usc_exposition', 'topic': 'architecture'},
+                session_id='replay', user_turn=1, utterance='附近建筑？')
+            self.assertEqual(body['status'], status)
+            self.assertEqual(body.get('replay', {}).get('coverage'), coverage)
+            self.assertEqual(body['event_occurrence'], 'not_established_by_tool')
+            if coverage != 'uncovered':
+                self.assertEqual(body['results'], [])
+
+    async def test_recorded_fetch_preserves_plan_text_without_confirming_occurrence(self):
+        api = FakeWeb()
+        api.fetch = AsyncMock(return_value=RecordedWebResult(
+            {'content': 'The venue will open on September 22, 2026.'},
+            '2026-10-31T15:49:42+00:00', 'b'*64))
+        actor, turn, _ = await self.batch_run(api, [[call('web_search',
+            {'area': 'usc_exposition', 'topic': 'architecture'})],
+            [call('web_fetch', {'result_id': 'rq-2-0'})], [TextDelta('输入捕获占位。')]])
+        bodies = [json.loads(m['content']) for m in actor.sent[-1] if m['role'] == 'tool']
+        self.assertEqual(bodies[-1]['content'], 'The venue will open on September 22, 2026.')
+        self.assertEqual(bodies[-1]['replay']['mode'], 'recorded_fetch_not_live')
+        self.assertEqual(bodies[-1]['event_occurrence'], 'not_established_by_tool')
+        self.assertIsNone(turn.source_card['conclusion'])
+        self.assertIsNone(turn.source_card['applicable_date'])
+
+    async def test_cancelled_replay_does_not_restore_source_or_observation_metadata(self):
+        api = FakeWeb(); api.search = AsyncMock(return_value=RecordedWebResult(
+            {'results': [RESULT]}, '2026-10-31T14:47:17+00:00', 'a'*64))
+        lookup = WebLookup(api, CLOCK); lookup.begin_turn('replay', 1)
+        body, card, intent = await lookup.execute_async('web_search',
+            {'area': 'usc_exposition', 'topic': 'architecture'},
+            session_id='replay', user_turn=1, utterance='附近建筑？')
+        lookup.channel.cancel(intent.lineage_id)
+        reconciled, _ = lookup.reconcile('replay', 'web_search', body, card, intent)
+        self.assertFalse(reconciled['accepted'])
+        self.assertNotIn('replay', reconciled)
+        self.assertNotIn('results', reconciled)
+        self.assertNotIn('evidence_reading', reconciled)
+
+    def test_replay_observation_requires_matching_time_and_source_hash(self):
+        with self.assertRaises(ValueError):
+            RecordedWebResult(None, '2026-10-31T14:47:17+00:00', 'a'*64)
+        with self.assertRaises(ValueError):
+            RecordedWebResult({'results': []}, None, 'a'*64)
+        with self.assertRaises(ValueError):
+            RecordedWebResult(None, None, 'not-a-source-hash')
+
     async def test_two_searches_then_bound_fetch_are_serial_and_addressed(self):
         api = FakeWeb()
         actor, turn, text = await self.batch_run(api, [[self.search_batch()],
@@ -95,19 +179,24 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(api.requests[-1],('fetch',URL))
 
     async def test_batch_validated_before_any_dispatch(self):
-        for kind in ('duplicate_id','malformed','over_cap'):
+        for kind in ('duplicate_id','malformed','malformed_excess'):
             api=FakeWeb();calls=list(self.search_batch().calls)
             if kind=='duplicate_id': calls[1]={**calls[1],'id':calls[0]['id']}
             elif kind=='malformed': calls[1]={**calls[1],'function':{'name':'web_search','arguments':'{}'}}
-            else: calls += [call('web_search',{'area':'usc_exposition','topic':'architecture'},call_id='x'+str(n)).calls[0] for n in range(2)]
+            else: calls += [call('web_search',{'area':'usc_exposition','topic':'architecture'},call_id='x0').calls[0],
+                            call('web_search',{},call_id='invalid-excess').calls[0]]
             with self.assertRaises(ValueError): await self.batch_run(api,[[ToolCalls(tuple(calls))]])
             self.assertEqual(api.requests,[])
 
     async def test_three_tools_across_batches_remain_total_cap(self):
         api=FakeWeb()
-        with self.assertRaises(ValueError):
-            await self.batch_run(api,[[self.search_batch()],[self.search_batch()]])
-        self.assertEqual(len(api.requests),2)
+        actor,_,_=await self.batch_run(api,[[self.search_batch()],[self.search_batch()],
+            [TextDelta('工具额度已用完，沿已有资料说明。')]])
+        self.assertEqual(len(api.requests),3)
+        bodies=[json.loads(m['content']) for m in actor.sent[-1] if m['role']=='tool']
+        self.assertEqual(bodies[-1]['status'],'not_executed')
+        self.assertEqual(bodies[-1]['detail'],'tool_limit_reached')
+        self.assertIsNone(actor.tool_schemas[-1])
 
     async def test_cancel_first_search_does_not_execute_second_and_next_turn_recovers(self):
         api=FakeWeb();actor=Scripted();service=WebLookup(api,CLOCK)

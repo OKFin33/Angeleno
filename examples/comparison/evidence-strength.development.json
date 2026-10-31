@@ -1,0 +1,122 @@
+{
+  "scope": "public_synthetic_development_counterexamples_not_holdout",
+  "purpose": "Review a claim-level evidence contract, not a model score or live fact verification",
+  "assertion_labels": "Human-reviewed source modality; no automatic NLP classification is claimed",
+  "cases": [
+    {
+      "id": "past_plan_is_not_an_occurrence",
+      "current_date": "2028-06-01",
+      "observation": {
+        "mode": "recorded",
+        "coverage": "recorded",
+        "result_count": 1
+      },
+      "source": {
+        "published_at": "2028-03-03",
+        "title": "A gallery announcement",
+        "text": "The gallery is scheduled to open on April 12, 2028."
+      },
+      "reviewed_assertions": [
+        {
+          "event": "public_opening",
+          "modality": "planned",
+          "quote": "is scheduled to open on April 12, 2028",
+          "event_date": "2028-04-12"
+        }
+      ],
+      "expected_public_opening": "planned_only"
+    },
+    {
+      "id": "explicit_actual_opening",
+      "current_date": "2028-06-01",
+      "observation": {
+        "mode": "recorded",
+        "coverage": "recorded",
+        "result_count": 1
+      },
+      "source": {
+        "published_at": "2028-04-13",
+        "title": "Opening report",
+        "text": "The gallery opened to the public on April 12, 2028."
+      },
+      "reviewed_assertions": [
+        {
+          "event": "public_opening",
+          "modality": "reported_actual",
+          "quote": "opened to the public on April 12, 2028",
+          "event_date": "2028-04-12"
+        }
+      ],
+      "expected_public_opening": "reported_actual"
+    },
+    {
+      "id": "publication_date_only",
+      "current_date": "2028-06-01",
+      "observation": {
+        "mode": "recorded",
+        "coverage": "recorded",
+        "result_count": 1
+      },
+      "source": {
+        "published_at": "2028-03-03",
+        "title": "A gallery announcement",
+        "text": "Meet the architect and design team."
+      },
+      "reviewed_assertions": [],
+      "expected_public_opening": "not_established"
+    },
+    {
+      "id": "replay_uncovered_is_not_search_empty",
+      "current_date": "2028-06-01",
+      "observation": {
+        "mode": "recorded",
+        "coverage": "uncovered",
+        "result_count": null
+      },
+      "source": null,
+      "reviewed_assertions": [],
+      "expected_public_opening": "not_established"
+    },
+    {
+      "id": "live_empty_is_an_observed_query",
+      "current_date": "2028-06-01",
+      "observation": {
+        "mode": "live",
+        "coverage": "observed",
+        "result_count": 0
+      },
+      "source": null,
+      "reviewed_assertions": [],
+      "expected_public_opening": "not_established"
+    },
+    {
+      "id": "media_preview_is_not_public_opening",
+      "current_date": "2028-06-01",
+      "observation": {
+        "mode": "recorded",
+        "coverage": "recorded",
+        "result_count": 1
+      },
+      "source": {
+        "published_at": "2028-03-03",
+        "title": "The gallery opens its doors",
+        "text": "The gallery was unveiled to the media on March 2. It will open to the public on April 12, 2028."
+      },
+      "reviewed_assertions": [
+        {
+          "event": "media_preview",
+          "modality": "reported_actual",
+          "quote": "was unveiled to the media on March 2",
+          "event_date": "2028-03-02"
+        },
+        {
+          "event": "public_opening",
+          "modality": "planned",
+          "quote": "will open to the public on April 12, 2028",
+          "event_date": "2028-04-12"
+        }
+      ],
+      "expected_public_opening": "planned_only"
+    }
+  ]
+}

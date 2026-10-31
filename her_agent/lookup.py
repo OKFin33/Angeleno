@@ -576,6 +576,7 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
     produced = False
     requests = 0
     halted = False
+    halt_reason = None
     while requests < _MAX_ACTOR_REQUESTS:
         requests += 1
         tools = None if halted or requests == _MAX_ACTOR_REQUESTS else _remaining(service, used)
@@ -594,7 +595,7 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
                         produced = True
                         yield event.text
                 elif isinstance(event, ToolCalls):
-                    if tools is None:
+                    if tools is None and not getattr(service, "serial_batches", False):
                         raise ValueError("A second tool call is forbidden")
                     if pending is not None:
                         raise ValueError("Repeated tool call event")
@@ -609,8 +610,8 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             break
         # Validate the entire proposal before side effects; each item still uses
         # the original parser, and execution is strictly serial (including billing).
-        if not pending or len(pending) + sum(used.values()) > 3:
-            raise ValueError("Lookup tool call limit")
+        if not pending:
+            raise ValueError("Empty lookup tool proposal")
         if len(pending) > 1 and not getattr(service, "serial_batches", False):
             raise ValueError("One lookup call at a time")
         parsed, ids = [], set()
@@ -626,12 +627,19 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             parsed.append((call, name, arguments))
         current = [*current, {"role": "assistant", "content": "".join(prefix) or None,
                              "tool_calls": pending}]
-        stopped = False
+        stopped_reason = halt_reason or ("actor_request_limit" if requests == _MAX_ACTOR_REQUESTS else None)
         for call, name, arguments in parsed:
-            if stopped:
+            # A valid proposal may exceed the remaining executions. Keep the
+            # model's order, never select a more convenient tool, and explain
+            # every skipped ID without dispatching or inventing a result.
+            if stopped_reason is None and sum(used.values()) >= 3:
+                stopped_reason = "tool_limit_reached"
+                halted = True
+                halt_reason = stopped_reason
+            if stopped_reason is not None:
                 current.append({"role": "tool", "tool_call_id": call["id"],
                                 "content": encoded({"accepted": False, "status": "not_executed",
-                                                    "conclusion": None})})
+                                                    "conclusion": None, "detail": stopped_reason})})
                 continue
             used[name] += 1
             if name in service.check_names and turn is not None:
@@ -662,8 +670,18 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             current.append({"role": "tool", "tool_call_id": call["id"], "content": encoded(payload)})
             if (name == _CANCEL or payload.get("accepted") is False
                     or getattr(service.last_event, "detail", None) == "provider_security_refused"):
-                stopped = True
+                stopped_reason = ("cancelled" if name == _CANCEL else
+                    "provider_security_refused" if getattr(service.last_event, "detail", None) == "provider_security_refused"
+                    else payload.get("detail") or payload.get("status") or "tool_not_accepted")
                 halted = True
+                halt_reason = stopped_reason
+        if requests == _MAX_ACTOR_REQUESTS and getattr(service, "serial_batches", False):
+            # No fifth paid request, even if a model ignored the absent schemas.
+            # This is a bounded stop notice, never a fabricated factual answer.
+            notice = "这轮已停止继续核对，后面的工具没有执行；未核实的部分不能作结论。"
+            service.guard_speech(session_id, notice)
+            yield notice
+            break
     else:
         raise ValueError("Lookup actor request limit")
     service.accepted[(session_id, user_turn)] = shown
