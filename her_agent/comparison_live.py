@@ -25,8 +25,10 @@ def load_manifest(path, config_path):
     """All materials and branch status validated before loading credentials."""
     path = Path(path).resolve()
     m = json.loads(path.read_text())
+    if m.get('execution_hold', False) is not False:
+        raise ValueError('Execution hold remains; do not retry a rejected payload')
     if (m['format'] != 'angeleno-development-models/1' or m['status'] != 'frozen_development_inputs'
-            or m['holdout_included'] is not False or m['branch_policy'] != 'stop_unclassified'
+            or m['holdout_included'] is not False or m['branch_policy'] not in {'stop_unclassified','operator_v1'}
             or m['candidate_commit'] != revision() or m['config_sha256'] != file_hash(config_path)):
         raise ValueError('Explicit current development manifest required')
     for field in ('authorization_reference', 'corpus_acceptance', 'model_version_limitation'):
@@ -46,6 +48,36 @@ def load_manifest(path, config_path):
     if {k: digest(p.provenance()) for k, p in roles.items()} != m['roles_sha256']:
         raise ValueError('Frozen role/material fingerprint mismatch')
     return m, pack
+
+
+class OperatorBranches:
+    """Execution operator applies the same frozen rule, not Owner scoring/NLP."""
+    def __init__(self, read=None, emit=print):
+        self.read, self.emit = read or self._read, emit
+
+    @staticmethod
+    def _read():
+        import select, sys
+        if not select.select([sys.stdin], [], [], 60)[0]:
+            raise RunStopped('branch_operator_timeout')
+        return sys.stdin.readline()
+
+    def __call__(self, anchor, row, turn):
+        self.emit(json.dumps({'private_operator_prompt': True, 'anchor': anchor['id'],
+            'turn': turn, 'user': row['user'], 'output': row['output'],
+            'output_sha256': digest(row['output']), 'used': row['used_clarifications'],
+            'choices': anchor['clarifications'],
+            'rule': 'Only continue when answer is not asking a clarification; choose listed ID once; '
+                    'unknown/ambiguous stops. Dynamic D1: choose first unambiguous concrete place '
+                    'in THIS delivered output, copy exact first-occurrence span; never optimize either arm.'},
+            ensure_ascii=False), flush=True)
+        try:
+            command = json.loads(self.read())
+        except (ValueError, EOFError):
+            raise RunStopped('branch_uncovered') from None
+        if not isinstance(command, dict):
+            raise RunStopped('branch_uncovered')
+        return command
 
 
 class Receipt:
@@ -81,6 +113,10 @@ async def run_models(c, anchors, corpus, pack, env, manifest, *, output,
     Unknown branch is conservatively stopped. A later reviewed operator adapter
     may supply the existing selector seam; no model judge infers clarifications.
     """
+    if manifest.get('execution_hold', False) is not False:
+        raise ValueError('Execution hold remains; do not retry a rejected payload')
+    if manifest.get('branch_policy') == 'operator_v1' and branch_selector is None:
+        raise ValueError('Frozen operator policy requires an operator interface')
     if manifest['model_alias'] != c['model']:
         raise ValueError('Model differs from frozen configuration')
     runtime_root = Path(manifest['runtime_root']).resolve()
@@ -142,11 +178,14 @@ async def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run', action='store_true', help='Explicit paid models; never live Web')
+    parser.add_argument('--operator', action='store_true', help='Local execution operator classifies branches; no scoring')
     parser.add_argument('--config', type=Path, default=ROOT/'examples/comparison/development.json')
     parser.add_argument('--manifest', type=Path)
     parser.add_argument('--env-file', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.operator and not args.run:
+        parser.error('--operator requires --run')
     if not args.run:
         # Keep default dry-run behavior and its complete network/config fences.
         from .comparison import run_development
@@ -162,10 +201,13 @@ async def main(argv=None):
             raise ValueError('Tracked candidate is dirty')
         c, anchors, corpus = load_config(args.config)
         m, pack = load_manifest(args.manifest, args.config)
+        if args.operator != (m['branch_policy'] == 'operator_v1'):
+            raise ValueError('Operator flag must match frozen branch policy')
         # Necessary existing runtime consumption only; never print/export keys.
         env = load_env(environ={}, env_file=args.env_file, root=Path(m['runtime_root']).resolve())
         env['ANGELENO_PAID_ENABLED'] = '1' # explicit --run, process only
-        report = await run_models(c, anchors, corpus, pack, env, m, output=args.output)
+        report = await run_models(c, anchors, corpus, pack, env, m, output=args.output,
+                                  branch_selector=OperatorBranches() if args.operator else None)
     print(json.dumps({'status': report['status'], 'mode': report['mode'], 'owner_calibration': None}))
     return 0 if report['status'] == 'completed' else 1
 

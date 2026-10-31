@@ -357,8 +357,17 @@ async def _run_segments(c, anchors, corpus, pack, *, provider_factory=None, bran
             actor = GuardedProvider(factory('actor', aid, role), guard, aid, role, 'actor', max_turns)
             writer = GuardedProvider(factory('writer', aid, role), guard, aid, role, 'writer', max_turns)
             web = CorpusWeb(corpus, c['case'])
+            class FrozenLookup(WebLookup):
+                @staticmethod
+                def prepare_messages(messages):
+                    result = WebLookup.prepare_messages(messages)
+                    if real_models:
+                        result[0]['content'] += ('\n[受控开发资料] 本次工具只匹配双方同一冻结本地资料集，'
+                            '不是本轮实时搜索或读取。合成资料不是现实场所证据，空匹配只表示该集合无匹配；'
+                            '不能据此声称现实没有展览，不能把资料当亲历。')
+                    return result
             runtime = ConversationRuntime(fixed, actor, store=store, writer=writer,
-                variant=c['variant'], memory_tools=True, lookup=WebLookup(web, FixedClock(now)))
+                variant=c['variant'], memory_tools=True, lookup=FrozenLookup(web, FixedClock(now)))
             segment = dict(anchor=aid, role=role, status='running', transcript=[], web_calls=web.calls,
                 owner_preference=None, state='fresh_per_arm_and_segment', clock=c['clock_utc'])
             report['segments'].append(segment)
@@ -384,15 +393,49 @@ async def _run_segments(c, anchors, corpus, pack, *, provider_factory=None, bran
                     row.update(delivery='complete', card=getattr(turn, 'source_card', None))
                     await maintenance_barrier(runtime, c['maintenance_timeout_seconds'])
                     changed()
+                    row['used_clarifications'] = sorted(used)
                     decision = branch_selector(anchor, deepcopy(row), actor.turn) if branch_selector else None
-                    row['branch_decision'] = decision
+                    row['branch_decision'] = deepcopy(decision)
                     changed()
+                    command = decision if isinstance(decision, dict) else None
+                    if command is not None:
+                        if (not {'decision','output_sha256'} <= set(command)
+                                or command['output_sha256'] != digest(row['output'])
+                                or not isinstance(command['decision'], str)):
+                            raise RunStopped('branch_uncovered')
+                        decision = command['decision']
+                        if decision == 'continue':
+                            if set(command) != {'decision','output_sha256'}:
+                                raise RunStopped('branch_uncovered')
+                            decision = None
                     if decision is not None:
                         branch = next((b for b in anchor['clarifications'] if b['id'] == decision), None)
-                        if branch is None or decision in used or 'reply' not in branch:
+                        if branch is None or decision in used:
                             raise RunStopped('branch_uncovered')
+                        if 'reply' in branch:
+                            if command is not None and set(command) != {'decision','output_sha256'}:
+                                raise RunStopped('branch_uncovered')
+                            answer = branch['reply']
+                        else:
+                            # The operator identifies the first concrete place, never
+                            # supplies a rewritten or more helpful answer. Copy only
+                            # an exact span from this arm's delivered output.
+                            if (command is None or set(command) != {'decision','output_sha256','span','rule'}
+                                    or command['rule'] != 'first_concrete_place_v1'
+                                    or 'reply_rule' not in branch or row['delivery'] != 'complete'):
+                                raise RunStopped('branch_uncovered')
+                            span = command['span']
+                            if (not isinstance(span, list) or len(span) != 2
+                                    or any(type(n) is not int for n in span)
+                                    or not 0 <= span[0] < span[1] <= len(row['output'])
+                                    or span[1]-span[0] > 128):
+                                raise RunStopped('branch_uncovered')
+                            answer = row['output'][span[0]:span[1]]
+                            if answer.strip() != answer or row['output'].find(answer) != span[0]:
+                                raise RunStopped('branch_uncovered')
                         used.add(decision)
-                        queue.insert(0, (branch['reply'], 'clarification:' + decision))
+                        row['branch_reply'] = answer
+                        queue.insert(0, (answer, 'clarification:' + decision))
                 await maintenance_barrier(runtime, c['maintenance_timeout_seconds'], flush=True)
                 segment.update(status='completed', pending_events=len(store.pending()),
                     memory_revision=store.revision, memory_watermark=store.watermark)

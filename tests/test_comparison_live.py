@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from her_agent.author import assistant_control_pack, load_pack
 from her_agent.comparison import digest, file_hash, load_config
-from her_agent.comparison_live import ROOT, Receipt, load_manifest, main, revision, run_models
+from her_agent.comparison_live import ROOT, OperatorBranches, Receipt, load_manifest, main, revision, run_models
 from test_budget import budget_env, balance_response, mocked_providers
 from test_provider import response, event
 
@@ -21,6 +21,7 @@ PACK=load_pack(PACK_PATH)
 
 class RealEntryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        (ROOT/'tmp').mkdir(exist_ok=True)
         self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'tmp')
         self.root=Path(self.tmp.name);self.env=budget_env(self.root)
         self.c,self.anchors,self.corpus=load_config(CONFIG)
@@ -132,6 +133,63 @@ class RealEntryTests(unittest.IsolatedAsyncioTestCase):
         web=CorpusWeb(corpus,'normal')
         with self.assertRaises(RunStopped): await web.search(PublicQuery('usc_exposition','architecture'))
         self.assertEqual(web.calls,[])
+
+    async def test_operator_routes_six_segments_and_copies_dynamic_reply_from_same_arm(self):
+        prompts=[]
+        def emit(text, **kw): prompts.append(json.loads(text))
+        def read():
+            prompt=prompts[-1]
+            choice='2' if prompt['anchor']=='DEV-D1' and prompt['turn']==1 else 'continue'
+            command={'decision':choice,'output_sha256':prompt['output_sha256']}
+            if choice=='2': command.update(span=[0,6],rule='first_concrete_place_v1')
+            return json.dumps(command)
+        original=self.handle
+        def handle(req):
+            if req.method=='POST' and not json.loads(req.content).get('response_format'):
+                self.http.append(req);return response('Fisher更有意思。也可以看NHM。')
+            return original(req)
+        self.handle=handle;self.m['branch_policy']='operator_v1'
+        r=await self.run_entry(branch_selector=OperatorBranches(read,emit))
+        self.assertEqual(r['status'],'completed');self.assertEqual(len(r['segments']),6)
+        for s in [s for s in r['segments'] if s['anchor']=='DEV-D1']:
+            self.assertEqual(s['transcript'][1]['user'],'Fisher')
+            self.assertEqual(s['transcript'][0]['branch_reply'],'Fisher')
+            self.assertEqual(s['transcript'][0]['branch_decision']['span'],[0,6])
+
+    async def test_operator_unknown_wrong_hash_or_rewritten_span_stops_before_next_arm(self):
+        for command in ({'decision':'uncovered'}, {'decision':'continue','output_sha256':'wrong'},
+                        {'decision':'2','span':[0,9999],'rule':'first_concrete_place_v1'}):
+            prompts=[]
+            def emit(text, **kw): prompts.append(json.loads(text))
+            def read(): return json.dumps({'output_sha256':prompts[-1]['output_sha256'],**command})
+            if self.out.exists(): self.out=self.out.with_name(self.out.stem+'-next.json')
+            r=await self.run_entry(branch_selector=OperatorBranches(read,emit))
+            self.assertEqual(len(r['segments']),1)
+            self.assertEqual(r['segments'][0]['reason'],'branch_uncovered')
+            self.assertEqual(len(r['segments'][0]['transcript']),1)
+
+    async def test_static_operator_branch_uses_only_listed_reply_once(self):
+        prompts=[]
+        def emit(text, **kw): prompts.append(json.loads(text))
+        def read():
+            p=prompts[-1]
+            return json.dumps({'output_sha256':p['output_sha256'],
+                'decision':'1' if p['anchor']=='DEV-D1' else 'continue'})
+        r=await self.run_entry(branch_selector=OperatorBranches(read,emit))
+        self.assertEqual(r['status'],'incomplete');self.assertEqual(len(r['segments']),1)
+        rows=r['segments'][0]['transcript']
+        self.assertEqual(rows[1]['user'],self.anchors[0]['clarifications'][0]['reply'])
+        self.assertEqual(r['segments'][0]['reason'],'branch_uncovered')
+
+    async def test_hold_and_operator_flag_cannot_silently_open_real_mode(self):
+        p=self.root/'held.json';held={**self.m,'execution_hold':True};p.write_text(json.dumps(held))
+        with self.assertRaises(ValueError): load_manifest(p,CONFIG)
+        self.m['execution_hold']=True
+        with self.assertRaises(ValueError): await self.run_entry()
+        self.m.pop('execution_hold')
+        self.m['branch_policy']='operator_v1'
+        with self.assertRaises(ValueError): await self.run_entry()
+        self.assertEqual(self.http,[])
 
     async def test_existing_ledger_and_same_output_caps_are_required_before_http(self):
         self.m['ledger_path']=str(self.root/'new.sqlite3')

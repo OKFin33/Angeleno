@@ -1,5 +1,7 @@
 # 独立开发与运行
 
+当前累计候选、栈状态及启动／停止／恢复的单一交接见[试运行交接](trial.md)。本页保留通用运行说明。
+
 本仓包含人物／记忆核心、DeepSeek provider 与费用保护、LiveKit 音频适配、Paraformer ASR、VoxCPM2 HTTP TTS、通话页和启动器。运行只依赖本仓、声明的公开软件包及操作者显式提供的资源；不需要另一个私有代码仓或旧 patched checkout。
 
 这里说明启动路径，不宣称已经完成真实设备通话验收。实测范围见 [baseline](baseline.md)，产品能力与验收见 [Spec](spec.md)。
