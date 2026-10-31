@@ -535,7 +535,10 @@ class TextLookup:
 
 def _remaining(service, used):
     from .memory_tools import TOOLS as memory_definitions
-    names = {name for name, count in used.items() if count == 0}
+    names = {name for name, count in used.items()
+             if count == 0 or name in getattr(service, "repeatable_classes", ())}
+    if sum(used.values()) >= 3:
+        return None
     if not names:
         return None
     return [tool for tool in [*service.tool_definitions(), *memory_definitions]
@@ -544,7 +547,7 @@ def _remaining(service, used):
 
 async def reply(service, provider, messages, *, session_id, user_turn, utterance, turn=None,
                 store=None, user_seq=None):
-    """At most three calls total, each class once, with four actor requests."""
+    """At most three serial tools and four actor requests; batches are opt-in."""
     from .provider import TextDelta, ToolCalls
 
     if not isinstance(session_id, str) or not session_id:
@@ -603,43 +606,62 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             if not produced:
                 raise ValueError("Provider returned no spoken text")
             break
-        name, arguments = service.parse_call(pending, allow_memory=store is not None)
-        if used[name]:
-            raise ValueError("One lookup call per class")
-        used[name] += 1
-        if name in service.check_names and turn is not None:
-            turn.speech_phase = "waiting"
-            if service.on_check_started is not None:
-                service.on_check_started(turn)
-        if name == _MEMORY:
-            from .memory_tools import fill_search
-            await asyncio.sleep(0)
-            call = pending[0]
-            tool = {"role": "tool", "tool_call_id": call["id"], "content": ""}
-            current = [*current, {"role": "assistant", "content": "".join(prefix) or None,
-                                 "tool_calls": [call]}, tool]
-            next_tools = _remaining(service, used) if requests + 1 < _MAX_ACTOR_REQUESTS else None
-            fill_search(provider, current, store, arguments["query"], tool,
-                        user_seq=user_seq, tools=next_tools)
-            await asyncio.sleep(0)
-            continue
-        payload, card, intent = await service.execute_async(
-            name, arguments, session_id=session_id, user_turn=user_turn, utterance=utterance,
-        )
-        await service.checkpoint(session_id, arm=name in service.check_names and intent is not None)
-        payload, card = service.reconcile(session_id, name, payload, card, intent)
-        if name in service.check_names and turn is not None:
-            turn.speech_phase = "answer"
-            if service.on_check_finished is not None:
-                service.on_check_finished(turn)
-        if name not in service.search_names:
-            shown = card
-        call = pending[0]
-        current = [
-            *current,
-            {"role": "assistant", "content": "".join(prefix) or None, "tool_calls": [call]},
-            {"role": "tool", "tool_call_id": call["id"], "content": encoded(payload)},
-        ]
+        # Validate the entire proposal before side effects; each item still uses
+        # the original parser, and execution is strictly serial (including billing).
+        if not pending or len(pending) + sum(used.values()) > 3:
+            raise ValueError("Lookup tool call limit")
+        if len(pending) > 1 and not getattr(service, "serial_batches", False):
+            raise ValueError("One lookup call at a time")
+        parsed, ids = [], set()
+        counts = dict(used)
+        for call in pending:
+            name, arguments = service.parse_call([call], allow_memory=store is not None)
+            if call["id"] in ids:
+                raise ValueError("Duplicate tool call ID")
+            ids.add(call["id"])
+            if counts[name] and name not in getattr(service, "repeatable_classes", ()):
+                raise ValueError("One lookup call per class")
+            counts[name] += 1
+            parsed.append((call, name, arguments))
+        current = [*current, {"role": "assistant", "content": "".join(prefix) or None,
+                             "tool_calls": pending}]
+        stopped = False
+        for call, name, arguments in parsed:
+            if stopped:
+                current.append({"role": "tool", "tool_call_id": call["id"],
+                                "content": encoded({"accepted": False, "status": "not_executed",
+                                                    "conclusion": None})})
+                continue
+            used[name] += 1
+            if name in service.check_names and turn is not None:
+                turn.speech_phase = "waiting"
+                if service.on_check_started is not None:
+                    service.on_check_started(turn)
+            if name == _MEMORY:
+                from .memory_tools import fill_search
+                await asyncio.sleep(0)
+                tool = {"role": "tool", "tool_call_id": call["id"], "content": ""}
+                current.append(tool)
+                next_tools = _remaining(service, used) if requests + 1 < _MAX_ACTOR_REQUESTS else None
+                fill_search(provider, current, store, arguments["query"], tool,
+                            user_seq=user_seq, tools=next_tools)
+                await asyncio.sleep(0)
+                continue
+            payload, card, intent = await service.execute_async(
+                name, arguments, session_id=session_id, user_turn=user_turn, utterance=utterance,
+            )
+            await service.checkpoint(session_id, arm=name in service.check_names and intent is not None)
+            payload, card = service.reconcile(session_id, name, payload, card, intent)
+            if name in service.check_names and turn is not None:
+                turn.speech_phase = "answer"
+                if service.on_check_finished is not None:
+                    service.on_check_finished(turn)
+            if name not in service.search_names:
+                shown = card
+            current.append({"role": "tool", "tool_call_id": call["id"], "content": encoded(payload)})
+            if (name == _CANCEL or payload.get("accepted") is False
+                    or getattr(service.last_event, "detail", None) == "provider_security_refused"):
+                stopped = True
     else:
         raise ValueError("Lookup actor request limit")
     service.accepted[(session_id, user_turn)] = shown

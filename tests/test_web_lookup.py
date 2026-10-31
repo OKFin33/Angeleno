@@ -15,7 +15,7 @@ from livekit.agents import AgentSession
 from her_agent.budget import BudgetExceeded
 from her_agent.lookup import TextLookup
 from her_agent.places import load_bundle
-from her_agent.provider import TextDelta
+from her_agent.provider import TextDelta, ToolCalls
 from her_agent.runtime import ConversationRuntime, open_store
 from her_agent.voice import VoiceBridge, HerVoiceLLM
 from her_agent.voice_cards import VoiceCards
@@ -47,6 +47,98 @@ class FakeWeb:
 
 
 class WebLoopTests(unittest.IsolatedAsyncioTestCase):
+    async def batch_run(self, api, rounds):
+        actor = Scripted(); actor.rounds = rounds
+        service = WebLookup(api, CLOCK)
+        runtime = ConversationRuntime(PACK, actor, lookup=service)
+        try:
+            turn = runtime.begin("附近最近有什么建筑和小展？")
+            text = "".join([p async for p in runtime.stream(turn)])
+            return actor, turn, text
+        finally:
+            await runtime.close(flush=False)
+
+    @staticmethod
+    def search_batch():
+        return ToolCalls(tuple(call("web_search", {"area":"usc_exposition", "topic":topic},
+                                    call_id="s"+str(n)).calls[0]
+                               for n,topic in enumerate(("architecture","small_art_exhibitions"))))
+
+    async def test_two_searches_then_bound_fetch_are_serial_and_addressed(self):
+        api = FakeWeb()
+        actor, turn, text = await self.batch_run(api, [[self.search_batch()],
+            [call("web_fetch", {"result_id":"rq-2-0"}, call_id="f")], [TextDelta("资料还需核实。")]])
+        self.assertEqual([r[0] for r in api.requests], ["search","search","fetch"])
+        messages = actor.sent[1]
+        self.assertEqual([m['tool_call_id'] for m in messages if m['role']=='tool'], ['s0','s1'])
+        bodies=[json.loads(m['content']) for m in messages if m['role']=='tool']
+        self.assertEqual(len(bodies[1]['results']),2)
+        self.assertNotEqual(bodies[0]['results'][0]['result_id'], bodies[1]['results'][-1]['result_id'])
+        self.assertEqual(turn.source_card['status'],'evidence')
+        self.assertEqual(text,'资料还需核实。')
+        self.assertIsNone(actor.tool_schemas[-1]) # three individual tools exhaust the turn
+
+    async def test_batch_validated_before_any_dispatch(self):
+        for kind in ('duplicate_id','malformed','over_cap'):
+            api=FakeWeb();calls=list(self.search_batch().calls)
+            if kind=='duplicate_id': calls[1]={**calls[1],'id':calls[0]['id']}
+            elif kind=='malformed': calls[1]={**calls[1],'function':{'name':'web_search','arguments':'{}'}}
+            else: calls += [call('web_search',{'area':'usc_exposition','topic':'architecture'},call_id='x'+str(n)).calls[0] for n in range(2)]
+            with self.assertRaises(ValueError): await self.batch_run(api,[[ToolCalls(tuple(calls))]])
+            self.assertEqual(api.requests,[])
+
+    async def test_three_tools_across_batches_remain_total_cap(self):
+        api=FakeWeb()
+        with self.assertRaises(ValueError):
+            await self.batch_run(api,[[self.search_batch()],[self.search_batch()]])
+        self.assertEqual(len(api.requests),2)
+
+    async def test_cancel_first_search_does_not_execute_second_and_next_turn_recovers(self):
+        api=FakeWeb();actor=Scripted();service=WebLookup(api,CLOCK)
+        original=api.search
+        async def cancel(query):
+            data=await original(query);service.request_cancel();return data
+        api.search=cancel
+        actor.rounds=[[self.search_batch()],[TextDelta('好，停下。')]]
+        runtime=ConversationRuntime(PACK,actor,lookup=service)
+        try:
+            turn=runtime.begin('找小展'); _=[p async for p in runtime.stream(turn)]
+            self.assertEqual(len(api.requests),1)
+            payloads=[json.loads(m['content']) for m in actor.sent[1] if m['role']=='tool']
+            self.assertFalse(payloads[0]['accepted']);self.assertEqual(payloads[1]['status'],'not_executed')
+            runtime.delivered(turn,'',complete=False)
+            api.search=original;actor.rounds=[[call('web_search',{'area':'usc_exposition','topic':'architecture'})],[TextDelta('新一轮资料。')]]
+            turn=runtime.begin('换个建筑');_=[p async for p in runtime.stream(turn)]
+            self.assertEqual(len(api.requests),2)
+            self.assertEqual(turn.source_card['status'],'evidence')
+        finally: await runtime.close(flush=False)
+
+    async def test_task_cancellation_during_first_item_never_starts_queued_item(self):
+        api=FakeWeb();started=asyncio.Event();blocked=asyncio.Event()
+        async def search(query):
+            api.requests.append(('search',query.text()));started.set();await blocked.wait()
+        api.search=search
+        task=asyncio.create_task(self.batch_run(api,[[self.search_batch()]]))
+        await started.wait();task.cancel()
+        with self.assertRaises(asyncio.CancelledError): await task
+        self.assertEqual(len(api.requests),1)
+
+    async def test_provider_refusal_stops_queued_tools_but_ordinary_failure_is_reported(self):
+        for failure, expected in [('provider_security_refused',1),('web_unavailable',2)]:
+            api=FakeWeb();original=api.search;n=0
+            async def search(query):
+                nonlocal n
+                n+=1
+                if n==1:
+                    api.requests.append(('search',query.text()));raise WebFailure(failure)
+                return await original(query)
+            api.search=search
+            actor,_,_=await self.batch_run(api,[[self.search_batch()],[TextDelta('有些资料未取得，不能确认。')]])
+            self.assertEqual(len(api.requests),expected)
+            payloads=[json.loads(m['content']) for m in actor.sent[1] if m['role']=='tool']
+            self.assertEqual(payloads[0]['status'],'unavailable')
+            self.assertEqual(payloads[1]['status'],'not_executed' if expected==1 else 'evidence')
+
     async def test_uncertain_single_date_is_absent_from_actual_card(self):
         for text in ('不是11月3日去，时间还没定。', '11月3日到5日都有空。'):
             service = WebLookup(FakeWeb(), CLOCK)
