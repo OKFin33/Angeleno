@@ -575,9 +575,10 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
     shown = None
     produced = False
     requests = 0
+    halted = False
     while requests < _MAX_ACTOR_REQUESTS:
         requests += 1
-        tools = None if requests == _MAX_ACTOR_REQUESTS else _remaining(service, used)
+        tools = None if halted or requests == _MAX_ACTOR_REQUESTS else _remaining(service, used)
         if request_chars(provider, current, tools) > MAX_REQUEST_CHARS:
             raise ValueError("Lookup request exceeds the input budget")
         prefix, pending = [], None
@@ -662,6 +663,7 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             if (name == _CANCEL or payload.get("accepted") is False
                     or getattr(service.last_event, "detail", None) == "provider_security_refused"):
                 stopped = True
+                halted = True
     else:
         raise ValueError("Lookup actor request limit")
     service.accepted[(session_id, user_turn)] = shown

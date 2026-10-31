@@ -122,6 +122,7 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(api.requests),1)
             payloads=[json.loads(m['content']) for m in actor.sent[1] if m['role']=='tool']
             self.assertFalse(payloads[0]['accepted']);self.assertEqual(payloads[1]['status'],'not_executed')
+            self.assertIsNone(actor.tool_schemas[-1]) # no same-turn restart after cancellation
             runtime.delivered(turn,'',complete=False)
             api.search=original;actor.rounds=[[call('web_search',{'area':'usc_exposition','topic':'architecture'})],[TextDelta('新一轮资料。')]]
             turn=runtime.begin('换个建筑');_=[p async for p in runtime.stream(turn)]
@@ -154,6 +155,7 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
             payloads=[json.loads(m['content']) for m in actor.sent[1] if m['role']=='tool']
             self.assertEqual(payloads[0]['status'],'unavailable')
             self.assertEqual(payloads[1]['status'],'not_executed' if expected==1 else 'evidence')
+            if expected==1: self.assertIsNone(actor.tool_schemas[-1])
 
     async def test_uncertain_single_date_is_absent_from_actual_card(self):
         for text in ('不是11月3日去，时间还没定。', '11月3日到5日都有空。'):
