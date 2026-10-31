@@ -22,6 +22,7 @@ class TimedTurn:
     lookup: bool = False
     first_audio_at: float | None = None
     answer_audio_at: float | None = None
+    generation_finished: bool = False
     expired: bool = False
     finished: bool = False
     timeout_task: asyncio.Task | None = None
@@ -80,12 +81,31 @@ class TurnDeadlines:
         turn = self.current
         return bool(turn and turn.request_id == request_id and not turn.expired and not turn.finished)
 
+    def generation_done(self, request_id):
+        if self.accepts(request_id):
+            self.current.generation_finished = True
+            self.current.mark("generation_finished", time.monotonic())
+            self.current.changed.set()
+
+    def _deadline(self, turn):
+        if turn.lookup and turn.answer_audio_at is None:
+            return turn.confirmed_at + self.lookup
+        if turn.first_audio_at is None:
+            return turn.confirmed_at + self.ordinary
+        if not turn.generation_finished:
+            # An ordinary-sounding prefix can precede a tool call whose name
+            # or arguments have not arrived yet. Bound unresolved generation
+            # by the existing outer deadline, without guessing the words'
+            # meaning or restarting the clock when the tool finally arrives.
+            return turn.confirmed_at + self.lookup
+        return None
+
     def allows_audio(self, request_id):
         if not self.accepts(request_id):
             return False
         turn = self.current
-        first = turn.answer_audio_at if turn.lookup else turn.first_audio_at
-        if first is None and time.monotonic() >= turn.confirmed_at + (self.lookup if turn.lookup else self.ordinary):
+        deadline = self._deadline(turn)
+        if deadline is not None and time.monotonic() >= deadline:
             self._expire_now(turn)
             return False
         return True
@@ -112,12 +132,10 @@ class TurnDeadlines:
     async def _watch(self, turn):
         while not turn.finished and not turn.expired:
             turn.changed.clear()
-            audio = turn.answer_audio_at if turn.lookup else turn.first_audio_at
-            if audio is not None:
-                # A later lookup may supersede an early spoken waiting prompt.
+            deadline = self._deadline(turn)
+            if deadline is None:
                 await turn.changed.wait()
                 continue
-            deadline = turn.confirmed_at + (self.lookup if turn.lookup else self.ordinary)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 self._expire_now(turn)

@@ -261,6 +261,8 @@ class HerVoiceStream(llm.LLMStream):
                 bridge.record_speech(turn, piece)
                 self._event_ch.send_nowait(llm.ChatChunk(
                     id=request_id, delta=llm.ChoiceDelta(role="assistant", content=piece)))
+            if turn.generation_complete:
+                bridge.deadlines.generation_done(request_id)
         except asyncio.CancelledError:
             raise
         except Exception:

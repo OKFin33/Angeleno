@@ -166,6 +166,35 @@ class DeadlineTests(unittest.IsolatedAsyncioTestCase):
         self.actor.chat_events = original
         await self.resumes()
 
+    async def test_spoken_prompt_before_incomplete_tool_call_remains_bounded(self):
+        stopped = asyncio.Event()
+        original = self.actor.chat_events
+        async def prompt_then_stall(*args, **kwargs):
+            try:
+                yield TextDelta("让我核对。")
+                # No completed ToolCalls event: arguments or the upstream
+                # stream can stall after audible text but before place_check.
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+        self.actor.chat_events = prompt_then_stall
+        speech = await self.reply()
+        timed = self.bridge.deadlines.evidence[-1]
+        self.assertIsNotNone(timed.first_audio_at)
+        self.assertFalse(timed.lookup)
+        self.assertTrue(timed.expired)
+        self.assertTrue(stopped.is_set())
+        expired_at = next(e["after_confirmed_ms"] for e in timed.events
+                          if e["event"] == "response_timeout")
+        self.assertGreaterEqual(expired_at, 290)
+        self.assertLess(expired_at, 500)
+        self.assertTrue(speech.interrupted)
+        self.assertFalse(self.bridge.last_complete)
+        self.assertEqual(self.lookup.checked_events, [])
+        self.assertEqual(self.runtime.store.lookup_results(), [])
+        self.actor.chat_events = original
+        await self.resumes()
+
     async def test_actual_voxcpm_http_stall_closes_response_before_retry_and_resumes(self):
         closed = asyncio.Event()
         class Response:
