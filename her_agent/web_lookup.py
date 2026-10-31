@@ -385,6 +385,7 @@ class WebLookup(TextLookup):
                                "date_binding": self.date_binding, "date_sent": False}
         incomplete = False
         if name == SEARCH:
+            found = []
             for number, row in enumerate(data.get("results", [])[:5]):
                 if not isinstance(row, dict):
                     continue
@@ -398,9 +399,10 @@ class WebLookup(TextLookup):
                 item = {"result_id": source_id, "title": row["title"][:200], "url": url,
                         "summary": row["summary"][:800], "published_at": row.get("date") if isinstance(row.get("date"), str) else None}
                 self.results[source_id] = item
+                found.append(item)
                 self.source_names[source_id] = (url, item["title"])
                 citations.append(Citation(source_id, url, item["summary"], "search_summary"))
-            extra["results"] = list(self.results.values())
+            extra["results"] = found
         else:
             content = data.get("content", "")
             if not isinstance(content, str):

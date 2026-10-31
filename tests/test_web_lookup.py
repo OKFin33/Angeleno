@@ -72,11 +72,27 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
         messages = actor.sent[1]
         self.assertEqual([m['tool_call_id'] for m in messages if m['role']=='tool'], ['s0','s1'])
         bodies=[json.loads(m['content']) for m in messages if m['role']=='tool']
-        self.assertEqual(len(bodies[1]['results']),2)
+        self.assertEqual(len(bodies[1]['results']),1)
         self.assertNotEqual(bodies[0]['results'][0]['result_id'], bodies[1]['results'][-1]['result_id'])
         self.assertEqual(turn.source_card['status'],'evidence')
         self.assertEqual(text,'资料还需核实。')
         self.assertIsNone(actor.tool_schemas[-1]) # three individual tools exhaust the turn
+
+    async def test_empty_second_search_does_not_relabel_first_query_candidates(self):
+        api=FakeWeb();original=api.search;n=0
+        async def search(query):
+            nonlocal n
+            n+=1
+            if n==2:
+                api.requests.append(('search',query.text()));return {'results':[]}
+            return await original(query)
+        api.search=search
+        actor,_,_=await self.batch_run(api,[[self.search_batch()],
+            [call('web_fetch',{'result_id':'rq-2-0'})],[TextDelta('第一组正文可读，第二组没有线索。')]])
+        bodies=[json.loads(m['content']) for m in actor.sent[1] if m['role']=='tool']
+        self.assertEqual(len(bodies[0]['results']),1)
+        self.assertEqual(bodies[1]['results'],[])
+        self.assertEqual(api.requests[-1],('fetch',URL))
 
     async def test_batch_validated_before_any_dispatch(self):
         for kind in ('duplicate_id','malformed','over_cap'):
