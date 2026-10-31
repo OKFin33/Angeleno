@@ -140,6 +140,8 @@ class _Sections(HTMLParser):
                 or attrs.get("aria-hidden") == "true"
                 or attrs.get("id", "").startswith("sb_instagram"))
         if tag not in self.VOID:
+            if len(self.stack) >= 128:
+                raise ValueError("HTML nesting limit")
             notice = (bool(self.stack and self.stack[-1][2])
                       or "bc-c-info-bar__text__inner" in attrs.get("class", "").split())
             self.stack.append((tag, skip, notice))
@@ -205,8 +207,14 @@ hours/exception text retained. Neither unknown markup nor unknown prose becomes
 a supported claim. Add new rules only from observed source evidence and tests.
 """
     parsed = _Sections()
-    parsed.feed(snapshot.text)
-    parsed.close()
+    try:
+        if snapshot.truncated or len(snapshot.text.encode("utf-8")) > MAX_LIVE_BODY_BYTES:
+            raise ValueError("incomplete body")
+        parsed.feed(snapshot.text)
+        parsed.close()
+    except ValueError:
+        return {"status": "insufficient", "conclusion": None, "citations": (),
+                "detail": "incomplete_or_complex_html", "incomplete": True}
     modified = None
     if len(set(parsed.modified)) == 1:
         try:
@@ -217,8 +225,14 @@ a supported claim. Add new rules only from observed source evidence and tests.
             pass
     heading = "Hours" if source.id == "src.nhm.visit" else "Hours and Tours"
     sections = [body for title, body in parsed.sections if title == heading]
-    citations = tuple(Citation(source.id, snapshot.url, body[:MAX_EXTRACT_CHARS], "page_hours")
-                      for body in sections[:2])
+    citations = []
+    remaining = MAX_EXTRACT_CHARS
+    for body in sections[:2]:
+        excerpt = body[:remaining]
+        remaining -= len(excerpt)
+        if excerpt:
+            citations.append(Citation(source.id, snapshot.url, excerpt, "page_hours"))
+    citations = tuple(citations)
     result = dict(status="insufficient", conclusion=None, applicable_time=None,
                   citations=citations, page_updated_at=modified,
                   ignored_blocks=parsed.ignored, detail="unrecognized_hours")
@@ -234,7 +248,7 @@ a supported claim. Add new rules only from observed source evidence and tests.
         return {**result, "detail": "calendar_exceptions_unresolved"}
     text = _normal(sections[0])
     if re.search(r"\b(closed|closure|hours|early|late|opening)\b", " ".join(parsed.notices), re.I):
-        notice = " ".join(" ".join(parsed.notices).split())[:MAX_EXTRACT_CHARS]
+        notice = " ".join(" ".join(parsed.notices).split())[:remaining]
         return {**result, "detail": "unresolved_notice",
                 "citations": citations + (Citation(source.id, snapshot.url, notice, "notice"),)}
     pattern = (
