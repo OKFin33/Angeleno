@@ -179,6 +179,25 @@
     #disclosure { position: absolute; top: 62px; left: 24px; color: #b7b7c3; font-size: 13px; }
     #transcript.active { opacity: 1; }
     #transcript.idle   { opacity: 0.3; transition: opacity 1.2s ease; }
+    #sourceCard {
+        position: fixed; top: 100px; left: 24px;
+        width: min(420px, calc(100vw - 48px)); max-height: calc(100vh - 420px);
+        overflow-y: auto; pointer-events: auto; user-select: text; -webkit-user-select: text;
+        border: 1px solid #45454d; border-radius: 16px; padding: 16px;
+        background: rgba(20, 20, 24, .94); font-size: 14px; line-height: 1.6;
+    }
+    #sourceCard h2 { font-size: 15px; font-weight: 600; }
+    #sourceCard p { margin-top: 8px; overflow-wrap: anywhere; }
+    #sourceCard small { color: #b7b7c3; display: block; margin-top: 8px; }
+    #sourceCard summary { cursor: pointer; margin-top: 10px; }
+    #sourceCard a { color: #99caff; }
+    @media (max-width: 600px) {
+        #topBar { padding: 16px; gap: 10px; }
+        #statusPill { font-size: 12px; padding: 9px 12px; }
+        #sourceCard { top: 96px; left: 16px; width: calc(100vw - 32px); max-height: 32vh; }
+        #bottomControls { padding-bottom: 20px; gap: 8px; }
+        #transcript { font-size: 18px; }
+    }
 </style>
 </head>
 <body>
@@ -198,6 +217,7 @@
 
     <p id="disclosure">虚构人物 · 早期版本 · 正在加载人物配置</p>
     <div id="toast"></div>
+    <section id="sourceCard" hidden aria-label="当前查证" aria-live="polite"></section>
 
     <div id="bottomControls">
         <button id="micButton" aria-label="开始对话">
@@ -839,6 +859,61 @@ function bootAngeleno() {
     const TOKEN_URL = window.location.origin + '/token';
     // The server supplies the client URL; localhost is not the phone's server.
 
+    const SOURCE_TOPIC = 'angeleno.source';
+    let sourceSession = '', sourceAgent = '', sourceSequence = 0;
+    let sourcePhase = '', sourceHeading = null;
+    function resetSourceCard() {
+        sourceSession = ''; sourceAgent = ''; sourceSequence = 0;
+        sourcePhase = ''; sourceHeading = null;
+        const panel = document.getElementById('sourceCard');
+        panel.replaceChildren(); panel.hidden = true;
+    }
+    function receiveSourceCard(payload, participant, _kind, topic) {
+        if (topic !== SOURCE_TOPIC || !participant || !participant.isAgent || !participant.identity) return;
+        if (!payload || payload.byteLength > 14000) return;
+        let event;
+        try { event = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(payload)); }
+        catch (_) { return; }
+        if (!event || event.type !== SOURCE_TOPIC || event.recipient !== localIdentity
+            || !Number.isSafeInteger(event.sequence) || event.sequence <= sourceSequence) return;
+        const card = event.card;
+        const labels = {supported: '有依据', insufficient: '信息不足', conflict: '来源冲突',
+            unavailable: '来源暂不可用', out_of_scope: '超出当前范围', cancelled: '已取消'};
+        if (!card || typeof card.session_id !== 'string' || !card.session_id
+            || typeof card.request_id !== 'string' || !card.request_id
+            || typeof card.subject !== 'string' || !Array.isArray(card.citations)
+            || !Array.isArray(card.conflicts) || card.citations.length > 8
+            || !['checking', 'result'].includes(card.phase)
+            || (card.phase === 'result' && !Object.hasOwn(labels, card.status))) return;
+        if (sourceSession && (sourceSession !== card.session_id || sourceAgent !== participant.identity)) return;
+        if (card.status === 'supported' && (typeof card.conclusion !== 'string' || !card.conclusion || !card.citations.length)) return;
+        const panel = document.getElementById('sourceCard');
+        const body = document.createElement('div');
+        const add = (tag, text, parent = body) => {
+            const node = document.createElement(tag); node.textContent = text; parent.appendChild(node); return node;
+        };
+        const heading = add('h2', card.phase === 'checking' ? '正在核对' : labels[card.status]);
+        add('p', card.subject);
+        if (card.phase === 'result' && card.status !== 'cancelled' && typeof card.conclusion === 'string') add('p', card.conclusion);
+        if (typeof card.applicable_date === 'string') add('small', '适用日期 · ' + card.applicable_date);
+        if (typeof card.checked_at === 'string') add('small', '核对时间 · ' + card.checked_at);
+        if (card.phase === 'result' && card.status !== 'cancelled' && card.citations.length) {
+            const details = add('details', ''); add('summary', '查看来源', details);
+            for (const citation of card.citations) {
+                if (!citation || typeof citation.url !== 'string' || typeof citation.name !== 'string') continue;
+                let url; try { url = new URL(citation.url); } catch (_) { continue; }
+                if (url.protocol !== 'https:' || url.username || url.password) continue;
+                const p = add('p', '', details), link = add('a', citation.name, p);
+                link.href = url.href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+                if (typeof citation.excerpt === 'string') add('p', citation.excerpt, details);
+            }
+            for (const conflict of card.conflicts) if (typeof conflict === 'string') add('p', conflict, details);
+        }
+        panel.replaceChildren(body); panel.hidden = false;
+        sourceSession = card.session_id; sourceAgent = participant.identity; sourceSequence = event.sequence;
+        sourcePhase = card.phase; sourceHeading = heading;
+    }
+
     function getRoomName() {
         const sel = document.getElementById('modelSelect');
         const v = sel ? sel.value : 'deepseek';
@@ -882,6 +957,9 @@ function bootAngeleno() {
         const previous = room;
         room = null;
         callGeneration += 1;
+        if (sourcePhase === 'checking' && sourceHeading) {
+            sourceHeading.textContent = '已取消'; sourcePhase = 'result';
+        }
         connected = false;
         connecting = false;
         clearTimeout(agentTimer);
@@ -915,6 +993,7 @@ function bootAngeleno() {
     async function connect() {
         if (connected || connecting) return;
         const generation = ++callGeneration;
+        resetSourceCard();
         connecting = true;
         ensureAudioGraph();
         setStatus('connecting');
@@ -987,6 +1066,7 @@ function bootAngeleno() {
                 const text = segments.map(segment => segment.text).join('');
                 if (text) showTranscript(text);
             });
+            on(LivekitClient.RoomEvent.DataReceived, receiveSourceCard);
             await currentRoom.connect(connection.livekit_url, connection.token, { rtcConfig: { iceServers: [] } });
             if (!isCurrent()) { await currentRoom.disconnect(); return; }
             currentRoom.remoteParticipants.forEach(agentState);

@@ -11,8 +11,12 @@ assert(start >= 0 && end > start);
 const code = html.slice(start, end);
 function harness(fetchOverride, options={}) {
   const rooms = [], states = [], controls = {}, transcripts = [];
+  const node = tag => ({tag, children:[], hidden:true, textContent:'',
+    set innerHTML(_){throw new Error('Source content must not become HTML');},
+    appendChild(child){this.children.push(child);},replaceChildren(...children){this.children=children;}});
+  const sourceCard=node('section');
   const button = name => ({classList:{add(){},remove(){},toggle(){}},setAttribute(){},addEventListener(type,fn){controls[name]=fn;}});
-  const events = Object.fromEntries(['Connected','Disconnected','ParticipantConnected','ParticipantAttributesChanged','ParticipantDisconnected','Reconnecting','Reconnected','TrackSubscribed','TrackUnsubscribed','ActiveSpeakersChanged','TranscriptionReceived'].map(x=>[x,x]));
+  const events = Object.fromEntries(['Connected','Disconnected','ParticipantConnected','ParticipantAttributesChanged','ParticipantDisconnected','Reconnecting','Reconnected','TrackSubscribed','TrackUnsubscribed','ActiveSpeakersChanged','TranscriptionReceived','DataReceived'].map(x=>[x,x]));
   class Room {
     constructor(){this.handlers={};this.actualConnected=false;this.remoteParticipants=new Map();this.micStopped=false;this.localParticipant={identity:'synthetic',isMicrophoneEnabled:true,audioTrackPublications:new Map([['mic',{track:{mediaStreamTrack:{stop:()=>{this.micStopped=true;}}}}]]),setMicrophoneEnabled:async()=>{if(options.micError)throw new Error("synthetic microphone denied");}};rooms.push(this);}
     on(name,fn){this.handlers[name]=fn;}
@@ -20,9 +24,9 @@ function harness(fetchOverride, options={}) {
     disconnect(){if(!this.actualConnected)return Promise.resolve();return new Promise(resolve=>this.finishDisconnect=()=>{this.actualConnected=false;this.handlers.Disconnected();resolve();});}
   }
   const defaultFetch = async url=>({ok:true,json:async()=>url.endsWith('/healthz')?{ready:true}:{token:'synthetic',livekit_url:'ws://synthetic'}});
-  const ctx={document:{getElementById:()=>({value:'deepseek'})},window:{location:{origin:'http://synthetic'}},modelSelect:{value:'deepseek'},micButton:button('call'),muteButton:button('mute'),callLabel:{},remoteAudio:{},LivekitClient:{Room,RoomEvent:events,Track:{Kind:{Audio:'audio'}}},AbortController,setTimeout:()=>1,clearTimeout(){},fetch:fetchOverride||defaultFetch,console:{...console,error(){}},ensureAudioGraph(){},setStatus:(...args)=>states.push(args),startTimer(){},stopTimer(){},disconnectMicFromAnalyser(){},connectMicToAnalyser(){},showTranscript(text){transcripts.push(text);},modelDisplayName:()=>"Jo"};
+  const ctx={document:{getElementById:id=>id==='sourceCard'?sourceCard:{value:'deepseek'},createElement:node},window:{location:{origin:'http://synthetic'}},modelSelect:{value:'deepseek'},micButton:button('call'),muteButton:button('mute'),callLabel:{},remoteAudio:{},LivekitClient:{Room,RoomEvent:events,Track:{Kind:{Audio:'audio'}}},TextDecoder,URL,AbortController,setTimeout:()=>1,clearTimeout(){},fetch:fetchOverride||defaultFetch,console:{...console,error(){}},ensureAudioGraph(){},setStatus:(...args)=>states.push(args),startTimer(){},stopTimer(){},disconnectMicFromAnalyser(){},connectMicToAnalyser(){},showTranscript(text){transcripts.push(text);},modelDisplayName:()=>"Jo"};
   vm.createContext(ctx);vm.runInContext(code,ctx);
-  return {ctx,rooms,states,controls,transcripts,state:()=>vm.runInContext('({connected,connecting,roomPresent:room!==null,callGeneration})',ctx)};
+  return {ctx,rooms,states,controls,transcripts,sourceCard,state:()=>vm.runInContext('({connected,connecting,roomPresent:room!==null,callGeneration})',ctx)};
 }
 (async()=>{
   const h=harness();await h.ctx.connect();
@@ -73,5 +77,43 @@ function harness(fetchOverride, options={}) {
   u.rooms[0].handlers.TranscriptionReceived([{text:'stale'}]);
   u.rooms[1].handlers.TranscriptionReceived([{text:'current'}]);
   assert.deepEqual(u.transcripts,['current'],'late transcript cannot enter new call');
-  console.log('6 page lifecycle regressions passed: redial/stale events, stale health, cancelled token, mic denial, playback failure, late mute/transcript');
+  const c=harness(); await c.ctx.connect();
+  const agent={identity:'agent-current',isAgent:true};
+  const card={session_id:'session-current',request_id:'rq-1',phase:'checking',status:null,
+    subject:'<img src=x onerror=alert(1)>',citations:[],conflicts:[]};
+  const packet=(sequence, changes={}, envelope={})=>new TextEncoder().encode(JSON.stringify({
+    type:'angeleno.source',recipient:'synthetic',sequence,card:{...card,...changes},...envelope}));
+  const send=(data,who=agent,topic='angeleno.source',room=c.rooms[0])=>room.handlers.DataReceived(data,who,0,topic);
+  const flat=n=>[n,...n.children.flatMap(flat)];
+  send(packet(1)); assert.equal(c.sourceCard.hidden,false);
+  assert(flat(c.sourceCard).some(n=>n.textContent===card.subject),'untrusted markup remains literal text');
+  const valid={phase:'result',status:'supported',conclusion:'合成来源支持的结论',citations:[
+    {name:'官方合成来源',url:'https://nhm.org/plan-your-visit',excerpt:'合成摘录'},
+    {name:'恶意链接',url:'javascript:alert(1)'}]};
+  send(packet(2,valid));
+  assert.equal(flat(c.sourceCard).filter(n=>n.tag==='a').length,1,'only safe https links render');
+  assert.equal(c.sourceCard.children.length,1,'result replaces the checking card');
+  assert.deepEqual(c.transcripts,[],'source packets never become transcript or TTS text');
+
+  const shown=c.sourceCard.children[0];
+  send(packet(1)); send(packet(3),{identity:'user-peer',isAgent:false});
+  send(packet(3),agent,'unrelated'); send(packet(3,{}, {recipient:'other-user'}));
+  send(packet(3,{session_id:'old-session'})); send(packet(3),{identity:'other-agent',isAgent:true});
+  send(new TextEncoder().encode('not json')); send(packet(3,{status:'toString',phase:'result'}));
+  assert.equal(c.sourceCard.children[0],shown,'stale, misbound and malformed packets have no effect');
+  send(packet(4,{phase:'result',status:'cancelled',conclusion:'must not display',citations:[]}));
+  assert(!flat(c.sourceCard).some(n=>n.textContent==='must not display'),'cancelled card has no conclusion');
+  const cancelled=c.sourceCard.children[0]; send(packet(2,valid));
+  assert.equal(c.sourceCard.children[0],cancelled,'late conclusion cannot replace cancellation');
+
+  const endingCard=c.ctx.disconnect(); c.rooms[0].finishDisconnect(); await endingCard;
+  assert.equal(c.sourceCard.hidden,false,'last card remains after hangup');
+  await c.ctx.connect(); assert.equal(c.sourceCard.hidden,true,'redial clears last card');
+  send(packet(5,valid)); assert.equal(c.sourceCard.hidden,true,'old-room packet cannot enter redial');
+  send(packet(1,{...valid,session_id:'new-session'}),agent,'angeleno.source',c.rooms[1]);
+  assert.equal(c.sourceCard.hidden,false,'new call can establish its own source session');
+  send(packet(2,{session_id:'new-session'}),agent,'angeleno.source',c.rooms[1]);
+  const cancelChecking=c.ctx.disconnect(); c.rooms[1].finishDisconnect(); await cancelChecking;
+  assert.equal(flat(c.sourceCard).find(n=>n.tag==='h2').textContent,'已取消','hangup must not leave a checking indicator running');
+  console.log('11 page regressions passed: 6 call lifecycle and 5 source card isolation/rendering/cancellation/redial/hangup groups');
 })().catch(error=>{console.error(error);process.exitCode=1;});

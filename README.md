@@ -26,6 +26,6 @@ node tests/test_call_page.js web/index.html
 
 完整环境为 Python 3.12、macOS／Linux。以上使用合成数据，不需要模型账号、GPU或麦克风；公开示例是接线用人物“林”，不代表完整 Jo 人物包或人物体验。真实运行需操作者明确提供模型账户、人物包、LiveKit及GPU服务、参考声音和费用配置。
 
-地方条目、登记来源、独立结果事件与离线文字查询已接入；本分支增加了显式启用的[真实来源读取候选](docs/lookup.md#真实来源读取候选)。默认通话仍未接上查询与来源卡片，真实模型、语音、跨设备路由和整体体验尚未验收。离线检查与网络读取证据、限制见 [baseline](docs/baseline.md)。
+地方条目、登记来源、共用记忆／查证工具环和独立页面卡片已接入；语音设置 `ANGELENO_PLACE_TOOLS=1` 才启用[真实来源读取候选](docs/lookup.md#真实来源读取候选)，默认关闭。真实模型、语音、跨设备路由和整体体验尚未验收。离线检查与网络读取证据、限制见 [baseline](docs/baseline.md)。
 
 产品依据为 [Intent](docs/intent.md) 与 [Spec](docs/spec.md)，工作进展见 [Issue #1](https://github.com/OKFin33/Angeleno/issues/1)，独立运行迁移见 [Issue #3](https://github.com/OKFin33/Angeleno/issues/3)。参与实现先读 [AGENTS](AGENTS.md)。第三方来源与许可见 [NOTICE](NOTICE)。

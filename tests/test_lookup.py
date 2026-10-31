@@ -241,17 +241,18 @@ class LookupLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, "那就聊做饭。")
         self.assertNotIn(marker, dumped(self.scripted.sent))
 
-    def test_lookup_and_memory_tools_stay_separate(self):
+    def test_lookup_and_memory_tools_can_share_the_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = MemoryStore(
                 Path(tmp) / "memory.sqlite3", character=PACK.id, user="lookup-test", seed=seed_digest(PACK),
             )
             try:
-                with self.assertRaisesRegex(ValueError, "separate loops"):
-                    ConversationRuntime(
-                        PACK, self.scripted, store=store, writer=IdleWriter(),
-                        memory_tools=True, lookup=self.lookup,
-                    )
+                runtime = ConversationRuntime(
+                    PACK, self.scripted, store=store, writer=IdleWriter(),
+                    memory_tools=True, lookup=self.lookup,
+                )
+                self.assertTrue(runtime.memory_tools)
+                self.assertIs(runtime.lookup, self.lookup)
             finally:
                 store.close()
 

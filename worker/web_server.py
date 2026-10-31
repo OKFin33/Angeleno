@@ -31,7 +31,8 @@ async def create_room_and_token(env):
     async with api.LiveKitAPI(host, env['LIVEKIT_API_KEY'], env['LIVEKIT_API_SECRET']) as client:
         await client.room.create_room(CreateRoomRequest(name=room))
         await client.agent_dispatch.create_dispatch(CreateAgentDispatchRequest(
-            room=room, agent_name=env.get('ANGELENO_AGENT_NAME', 'angeleno-jo')))
+            room=room, agent_name=env.get('ANGELENO_AGENT_NAME', 'angeleno-jo'),
+            metadata=json.dumps({'user_identity': identity})))
     token = (api.AccessToken(env['LIVEKIT_API_KEY'], env['LIVEKIT_API_SECRET'])
              .with_identity(identity).with_name('试用者')
              .with_grants(api.VideoGrants(room_join=True, room=room)).to_jwt())

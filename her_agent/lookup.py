@@ -24,6 +24,7 @@ from .places.model import CHANNEL
 _SEARCH = "place_search"
 _CHECK = "place_check"
 _CANCEL = "place_cancel"
+_MEMORY = "memory_search"
 _CLASSES = (_SEARCH, _CHECK, _CANCEL)
 _MAX_ACTOR_REQUESTS = 4
 
@@ -32,6 +33,7 @@ _MEMORY_NEEDLE = (
     "执行离线任务或完成尚未确认的记忆写入。"
 )
 _PLAIN_NEEDLE = "本候选只提供当前会话文本，不提供持久记忆、搜索或外部操作，也没有通话外自主运行的服务。"
+_MEMORY_TOOLS_NEEDLE = "没有外部操作或通话外自主服务；不得声称已查现实资料、预订、联系或完成尚未确认的记忆写入。"
 _LOOKUP_NOTE = (
     "可用 place_search 检索本地地方条目，每轮最多一次；无命中是资料覆盖不足，不表示地方不存在。"
     "多个地点同时命中时先澄清，不挑选一个。"
@@ -114,6 +116,8 @@ def prepare_messages(messages):
     if _LOOKUP_NOTE not in content:
         if _MEMORY_NEEDLE in content:
             content = content.replace(_MEMORY_NEEDLE, _LOOKUP_NOTE, 1)
+        elif _MEMORY_TOOLS_NEEDLE in content:
+            content = content.replace(_MEMORY_TOOLS_NEEDLE, _LOOKUP_NOTE, 1)
         elif _PLAIN_NEEDLE in content:
             content = content.replace(_PLAIN_NEEDLE, _LOOKUP_NOTE, 1)
         else:
@@ -142,16 +146,20 @@ def _text_argument(arguments, key, *, required):
     return value
 
 
-def parse_call(calls):
+def parse_call(calls, *, allow_memory=False):
     if len(calls) != 1:
         raise ValueError("One lookup call at a time")
     call = calls[0]
     if (set(call) != {"id", "type", "function"} or call["type"] != "function"
             or not isinstance(call["id"], str) or not call["id"] or len(call["id"]) > 256
             or set(call["function"]) != {"name", "arguments"}
-            or call["function"]["name"] not in _CLASSES):
+            or call["function"]["name"] not in (*_CLASSES, *([_MEMORY] if allow_memory else []))):
         raise ValueError("Unknown or malformed lookup tool call")
     name = call["function"]["name"]
+    if name == _MEMORY:
+        from .memory_tools import parse_call as parse_memory
+        _, query = parse_memory(calls)
+        return name, {"query": query}
     try:
         arguments = json.loads(call["function"]["arguments"], object_pairs_hook=_unique_object)
     except (TypeError, ValueError) as exc:
@@ -243,8 +251,18 @@ class TextLookup:
     def request_cancel(self):
         """Ask the checkpoint to drop the current check before the model sees it."""
         self._cancel_requested = True
+        if self.intent is not None and not self.channel.is_cancelled(self.intent.request_id):
+            self.channel.cancel(self.intent.lineage_id)
         if self._inflight is not None:
             self._inflight.cancel()
+
+    def cancel_pending(self):
+        """Invalidate an interrupted read; leave an already displayed result alone."""
+        if self.intent is not None:
+            card = self.channel.card(self.intent.session_id)
+            if card is not None and card.phase == "checking":
+                self.request_cancel()
+                self.channel.cancel(card.lineage_id)
 
     def begin_turn(self, session_id, user_turn):
         self._search_places = None
@@ -311,6 +329,10 @@ class TextLookup:
         self._inflight = asyncio.create_task(self.checker.check_async(intent))
         try:
             event = await self._inflight
+            # An adapter or future reader may suppress its own cancellation.
+            # The containing turn must still refuse its late result.
+            if asyncio.current_task().cancelling():
+                raise asyncio.CancelledError
         except asyncio.CancelledError:
             if not self.channel.is_cancelled(intent.request_id):
                 self.channel.cancel(intent.lineage_id)
@@ -467,14 +489,16 @@ class TextLookup:
 
 
 def _remaining(used):
+    from .memory_tools import TOOLS as memory_definitions
     names = {name for name, count in used.items() if count == 0}
     if not names:
         return None
-    return [tool for tool in TOOLS if tool["function"]["name"] in names]
+    return [tool for tool in [*TOOLS, *memory_definitions] if tool["function"]["name"] in names]
 
 
-async def reply(service, provider, messages, *, session_id, user_turn, utterance, turn=None):
-    """At most one search, one check and one cancel, then ordinary speech."""
+async def reply(service, provider, messages, *, session_id, user_turn, utterance, turn=None,
+                store=None, user_seq=None):
+    """At most three calls total, each class once, with four actor requests."""
     from .provider import TextDelta, ToolCalls
 
     if not isinstance(session_id, str) or not session_id:
@@ -487,6 +511,9 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
     last_user = next((item["content"] for item in reversed(history) if item["role"] == "user"), None)
     if last_user != utterance:
         raise ValueError("Lookup utterance must be the current user turn")
+    if store is not None:
+        from .memory_tools import prepare_messages as prepare_memory
+        history = prepare_memory(history)
     current = prepare_messages(history)
     service.begin_turn(session_id, user_turn)
     if turn is not None:
@@ -494,6 +521,8 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
         turn.lookup_user_turn = user_turn
         turn.source_card = None
     used = {name: 0 for name in _CLASSES}
+    if store is not None:
+        used[_MEMORY] = 0
     shown = None
     produced = False
     requests = 0
@@ -528,10 +557,22 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             if not produced:
                 raise ValueError("Provider returned no spoken text")
             break
-        name, arguments = parse_call(pending)
+        name, arguments = parse_call(pending, allow_memory=store is not None)
         if used[name]:
             raise ValueError("One lookup call per class")
         used[name] += 1
+        if name == _MEMORY:
+            from .memory_tools import fill_search
+            await asyncio.sleep(0)
+            call = pending[0]
+            tool = {"role": "tool", "tool_call_id": call["id"], "content": ""}
+            current = [*current, {"role": "assistant", "content": "".join(prefix) or None,
+                                 "tool_calls": [call]}, tool]
+            next_tools = _remaining(used) if requests + 1 < _MAX_ACTOR_REQUESTS else None
+            fill_search(provider, current, store, arguments["query"], tool,
+                        user_seq=user_seq, tools=next_tools)
+            await asyncio.sleep(0)
+            continue
         payload, card, intent = await service.execute_async(
             name, arguments, session_id=session_id, user_turn=user_turn, utterance=utterance,
         )

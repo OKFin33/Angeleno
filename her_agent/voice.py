@@ -5,6 +5,8 @@ Playback events describe server-side playout, not proof of human attention.
 """
 
 import asyncio
+import json
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -30,7 +32,7 @@ def voice_configuration(env, *, root=ROOT):
     variant = env.get("ANGELENO_AUTHOR_VARIANT", "guided")
     if variant not in {"raw", "guided"}:
         raise ValueError("Unknown ANGELENO_AUTHOR_VARIANT")
-    for key in ("ANGELENO_MEMORY_CREATE", "ANGELENO_MEMORY_TOOLS"):
+    for key in ("ANGELENO_MEMORY_CREATE", "ANGELENO_MEMORY_TOOLS", "ANGELENO_PLACE_TOOLS"):
         if env.get(key, "0") not in {"0", "1"}:
             raise ValueError(f"{key} must be 0 or 1")
     return pack, user, variant
@@ -49,8 +51,10 @@ def create_voice_runtime(env, *, root=ROOT, provider_factory=None):
                        data_dir=env.get("ANGELENO_DATA_DIR", "private/state"))
     try:
         actor, writer = (provider_factory(env) if provider_factory else configured_providers(env, root=root))
+        from .live_sources import live_lookup
         return ConversationRuntime(pack, actor, store=store, writer=writer, variant=variant,
-                                   memory_tools=env.get("ANGELENO_MEMORY_TOOLS") == "1")
+                                   memory_tools=env.get("ANGELENO_MEMORY_TOOLS") == "1",
+                                   lookup=live_lookup() if env.get("ANGELENO_PLACE_TOOLS") == "1" else None)
     except BaseException:
         store.close()
         raise
@@ -179,15 +183,30 @@ class HerVoiceStream(llm.LLMStream):
 
 async def start_voice_session(ctx, agent_factory, env):
     runtime = create_voice_runtime(env)
+    cards = None
+    if runtime.lookup is not None:
+        from .voice_cards import VoiceCards
+        try:
+            identity = json.loads(ctx.job.metadata)["user_identity"]
+            if not isinstance(identity, str) or not re.fullmatch(r"user-[0-9a-f]{16}", identity):
+                raise ValueError("Missing card recipient")
+            cards = VoiceCards(runtime.lookup, ctx.room.local_participant, identity)
+        except BaseException:
+            await runtime.close(flush=False)
+            raise
     bridge = VoiceBridge(runtime)
     session = AgentSession(turn_handling={
         "interruption": {"enabled": True}, "preemptive_generation": {"enabled": False},
     })
     bridge.bind(session)
+    if cards is not None:
+        cards.on_error = bridge.fail
     cleanup_task = None
 
     async def cleanup():
         try:
+            if cards is not None:
+                await cards.close()
             await session.aclose()  # cancels generation and clears playout first
         finally:
             bridge.settle_unconfirmed()

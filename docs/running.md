@@ -54,7 +54,7 @@ chmod 600 private/runtime.env
 .venv/bin/python -m her_agent chat
 ```
 
-`ANGELENO_MEMORY_TOOLS=1` 恢复每轮最多一次记忆查询、最多两次actor请求；这只查询当前身份的记忆，不是尚未实现的LA地方查询。普通聊天不强制调用工具。维护使用同一provider的JSON输出，失败保留原文和旧状态。
+文字 CLI 的 `ANGELENO_MEMORY_TOOLS=1` 恢复每轮最多一次记忆查询、最多两次 actor 请求，只查询当前身份的记忆。语音同时启用地方核对时的共用限额见下节。普通聊天不强制调用工具。维护使用同一 provider 的 JSON 输出，失败保留原文和旧状态。
 
 CLI保留 `/memory`、`/sync`、`/private`、`/public`、`/forget ID` 与 `/exit`。`/sync` 可能收费；`/private` 停止保存新交流。删除已有内容必须显式操作，单独备份不会随删除自动消失。
 
@@ -81,7 +81,9 @@ CLI保留 `/memory`、`/sync`、`/private`、`/public`、`/forget ID` 与 `/exit
 
 跨设备访问需操作者已有的HTTPS与媒体网络配置：设置 `LIVEKIT_PUBLIC_URL`、`LIVEKIT_NODE_IP` 和明确的网页Origin；非本机配置拒绝演示key和弱secret。浏览器麦克风需要可信来源。当前仓库不自动配置Tailnet、开放公网或启用远端设备。
 
-页面显示配置状态，不把它当作GPU／模型在线证明；拨号失败、识别／回复／播放错误和挂断均有停止路径。完整播放、打断、重拨和具体设备表现仍须真实验证。来源卡片与地方查证属于后续产品增量。
+页面显示配置状态，不把它当作 GPU／模型在线证明；拨号失败、识别／回复／播放错误和挂断均有停止路径。完整播放、打断、重拨和具体设备表现仍须真实验证。
+
+语音地方查询需显式 `ANGELENO_PLACE_TOOLS=1`（默认 `0`）。它使用真实来源读取器，不回退人工 fixture；可以与记忆工具同时开启，每轮总计最多三次工具调用、每类一次、四次模型请求。来源卡片经独立、定向通道送到本次拨号的页面，不能代表完整语音交付。实际公网读取和真实语音仍有验收缺项，详见 [lookup](lookup.md) 与 [baseline](baseline.md)。从旧版页面服务直接 dispatch 且缺少接收者 metadata 的工作不能启用卡片通道，应使用本版 token 入口。
 
 ## GPU与声音资源
 

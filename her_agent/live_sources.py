@@ -325,10 +325,15 @@ class LiveChecker(Checker):
 
 
 def live_lookup():
-    """Fresh turn clock plus live-only checker for the opt-in one-turn model CLI."""
+    """Live-only checker with an LA date anchor refreshed at each user turn."""
     from .lookup import TextLookup
+    class LiveLookup(TextLookup):
+        def begin_turn(self, session_id, user_turn):
+            self.clock = FixedClock(datetime.now(timezone.utc))
+            self.checker.clock = self.clock
+            super().begin_turn(session_id, user_turn)
     bundle = load_bundle()
-    service = TextLookup(bundle, FixedClock(datetime.now(timezone.utc)))
+    service = LiveLookup(bundle, FixedClock(datetime.now(timezone.utc)))
     service.checker = LiveChecker(bundle.catalog, bundle.registry, service.clock, channel=service.channel)
     return service
 

@@ -53,8 +53,6 @@ class ConversationRuntime:
                  memory_tools=False, lookup=None):
         if memory_tools and store is None:
             raise ValueError("Memory tools require a persistent identity")
-        if lookup is not None and memory_tools:
-            raise ValueError("Text lookup and memory tools stay on separate loops")
         if store is not None and writer is None:
             raise ValueError("Persistent conversation requires a maintenance provider")
         self.pack, self.provider, self.store, self.writer = pack, provider, store, writer
@@ -113,6 +111,7 @@ class ConversationRuntime:
             iterator = lookup_reply(
                 self.lookup, self.provider, turn.messages, session_id=session_id,
                 user_turn=user_turn, utterance=utterance, turn=turn,
+                store=self.store if self.memory_tools else None, user_seq=turn.user_seq,
             )
         elif self.memory_tools:
             from .memory_tools import reply
@@ -131,6 +130,8 @@ class ConversationRuntime:
             turn.generation_complete = True
         finally:
             await iterator.aclose()
+            if self.lookup is not None and not turn.generation_complete:
+                self.lookup.cancel_pending()
 
     def delivered(self, turn, text, *, complete=False):
         if turn.settled:

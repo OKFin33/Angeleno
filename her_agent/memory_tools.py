@@ -66,6 +66,25 @@ def parse_call(calls):
     return call, arguments["query"]
 
 
+def fill_search(provider, messages, store, query, tool, *, user_seq=None, tools=None):
+    """Fit whole memory evidence in the next request and record its exact exposure.
+
+    Shared by the memory-only and combined place/memory loops. There is no await
+    between selection and exposure, and temporary turns never write exposure.
+    """
+    budget = MAX_REQUEST_CHARS - request_chars(provider, messages, tools)
+    result = store.search(query, budget=budget)
+    tool["content"] = encoded(result)
+    while request_chars(provider, messages, tools) > MAX_REQUEST_CHARS:
+        excess = request_chars(provider, messages, tools) - MAX_REQUEST_CHARS
+        budget -= max(excess, 1)
+        result = store.search(query, budget=budget)
+        tool["content"] = encoded(result)
+    if user_seq is not None:
+        store.extend_input(user_seq, result["records"],
+                           (e["seq"] for e in result.get("source_readback", {}).get("events", [])))
+
+
 async def reply(provider, messages, store, *, user_seq=None):
     """At most two actor requests, no retry. user_seq=None is read-only temporary chat."""
     # Deferred so the standard-library preview remains offline.
@@ -98,19 +117,7 @@ async def reply(provider, messages, store, *, user_seq=None):
     assistant = {"role": "assistant", "content": "".join(prefix) or None, "tool_calls": [call]}
     tool = {"role": "tool", "tool_call_id": call["id"], "content": ""}
     followup = [*current, assistant, tool]
-    budget = MAX_REQUEST_CHARS - request_chars(provider, followup)
-    # JSON tool content lives inside another JSON string. Compute its actual
-    # escaped cost, and retry only local selection with a smaller whole-item budget.
-    result = store.search(query, budget=budget)
-    tool["content"] = encoded(result)
-    while request_chars(provider, followup) > MAX_REQUEST_CHARS:
-        excess = request_chars(provider, followup) - MAX_REQUEST_CHARS
-        budget -= max(excess, 1)
-        result = store.search(query, budget=budget)
-        tool["content"] = encoded(result)
-    if user_seq is not None:
-        store.extend_input(user_seq, result["records"],
-                           (e["seq"] for e in result.get("source_readback", {}).get("events", [])))
+    fill_search(provider, followup, store, query, tool, user_seq=user_seq)
     # There was no await between querying the SQLite versions and saving exposure.
     await asyncio.sleep(0)
     iterator = provider.chat_events(followup)

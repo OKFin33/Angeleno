@@ -34,7 +34,8 @@ class PublishOutcome:
 
 
 class ResultChannel:
-    def __init__(self):
+    def __init__(self, *, on_card=None):
+        self.on_card = on_card
         self._lineages = {}
         self._requests = {}
         self._cards = {}
@@ -57,6 +58,7 @@ class ResultChannel:
         )
         self._store(intent)
         self._cards[session_id] = self._checking_card(intent)
+        self._notify(session_id)
         return intent
 
     def revise(self, intent, *, question, applicable_date, user_turn=None):
@@ -78,6 +80,7 @@ class ResultChannel:
         )
         self._store(revised)
         self._cards[intent.session_id] = self._checking_card(revised)
+        self._notify(intent.session_id)
         return revised
 
     def cancel(self, lineage_id):
@@ -96,6 +99,7 @@ class ResultChannel:
                 phase="result", status="cancelled", subject=card.subject, conclusion=None,
                 applicable_date=None, checked_at=None, citations=(), conflicts=(),
             )
+            self._notify(lineage.session_id)
         return event
 
     def publish(self, event):
@@ -120,7 +124,12 @@ class ResultChannel:
         )
         self._cards[event.session_id] = card
         self.events.append(event)
+        self._notify(event.session_id)
         return PublishOutcome(True, None, card)
+
+    def _notify(self, session_id):
+        if self.on_card is not None:
+            self.on_card(self._cards[session_id])
 
     def card(self, session_id):
         return self._cards.get(session_id)
