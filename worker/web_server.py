@@ -90,8 +90,8 @@ def handler_for(env):
             except Exception:
                 self.send_json(503, {'error': 'call service unavailable'})
                 return
-            if self.headers.get('Host', '').split(':')[0] in {'localhost', '127.0.0.1'}:
-                result['livekit_url'] = env['LIVEKIT_URL']
+            # The configured client URL also applies behind a loopback proxy.
+            # Request Host / forwarded headers do not select media endpoints.
             self.send_json(200, result)
 
         def do_OPTIONS(self):
