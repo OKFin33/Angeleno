@@ -59,6 +59,8 @@ class RealEntryTests(unittest.IsolatedAsyncioTestCase):
         rows=self.ledger.summary()['rows']
         self.assertEqual(len(rows),len(r['requests']))
         self.assertTrue(any(x['purpose']=='maintenance' for x in rows))
+        self.assertTrue(all(x['output'] for x in r['requests']))
+        self.assertTrue(all(json.loads(x['output'])=={'retire':[],'updates':[]} for x in r['requests'] if x['kind']=='writer'))
         self.assertEqual([x.method for x in self.http],['GET','POST']*len(rows))
         self.assertTrue(all(x.url.host=='api.deepseek.com' for x in self.http))
         self.assertTrue(all(s['pending_events']==0 for s in r['segments']))

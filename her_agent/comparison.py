@@ -201,7 +201,7 @@ class RequestGuard:
             raise RunStopped('turn_request_cap')
         row = dict(anchor=anchor, role=role, kind=kind, turn=turn, status='attempted',
                    input_sha256=digest(messages), input_chars=sum(len(m.get('content') or '') for m in messages),
-                   tools=[t['function']['name'] for t in tools or []])
+                   tools=[t['function']['name'] for t in tools or []], output='', tool_calls=[])
         self.rows.append(row)
         self.changed()
         return row
@@ -227,6 +227,13 @@ class GuardedProvider:
                 kwargs['tools'] = tools
             iterator = getattr(self.provider, method)(messages, **kwargs)
             async for piece in iterator:
+                if isinstance(piece, str):
+                    row['output'] += piece
+                elif isinstance(piece, TextDelta):
+                    row['output'] += piece.text
+                elif isinstance(piece, ToolCalls):
+                    row['tool_calls'].extend(deepcopy(piece.calls))
+                self.guard.changed()
                 yield piece
             self.guard.verify()
             row['status'] = 'completed'
