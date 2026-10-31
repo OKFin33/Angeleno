@@ -296,7 +296,7 @@ function bootAngeleno() {
         if (!event || event.type !== SOURCE_TOPIC || event.recipient !== localIdentity
             || !Number.isSafeInteger(event.sequence) || event.sequence <= sourceSequence) return;
         const card = event.card;
-        const labels = {supported: '有依据', insufficient: '信息不足', conflict: '来源冲突',
+        const labels = {evidence: '已取得资料', supported: '有依据', insufficient: '信息不足', conflict: '来源冲突',
             unavailable: '来源暂不可用', out_of_scope: '超出当前范围', cancelled: '已取消'};
         if (!card || typeof card.session_id !== 'string' || !card.session_id
             || typeof card.request_id !== 'string' || !card.request_id

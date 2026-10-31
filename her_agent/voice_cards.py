@@ -75,10 +75,7 @@ class VoiceCards:
     def _payload(self, sequence, card):
         value = card_public(card)
         for citation in value["citations"]:
-            source = self.lookup.bundle.registry.get(citation["source_id"])
-            if citation["url"] not in source.allowed_urls:
-                raise ValueError("Unregistered card link")
-            citation["name"] = source.institution
+            citation["name"] = self.lookup.citation_name(citation)
         envelope = {"type": TOPIC, "recipient": self.identity, "sequence": sequence, "card": value}
         payload = json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()
         if len(payload) > 14000:

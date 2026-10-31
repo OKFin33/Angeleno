@@ -118,8 +118,24 @@ class Ledger:
         input_bound = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 4096
         rate = max(self.prices.input, self.prices.cache_hit)
         reserved = int((input_bound * rate + output * self.prices.output).to_integral_value(rounding=ROUND_CEILING))
+        return self._reserve(reserved, purpose, balance, settled_before)
+
+    def reserve_web(self, purpose, balance, settled_before, request_limit):
+        if purpose not in {"web_search", "web_fetch"} or self.prices.currency != "CNY":
+            raise ValueError("Web requests require explicit CNY pricing")
+        if type(request_limit) is not int or not 1 <= request_limit <= 6:
+            raise ValueError("Initial web request batch limit must be 1..6")
+        # Official 2026-10-31 tariff: CNY .005 per nonempty response. Unknown
+        # outcomes retain the full reserve; the existing account ledger is used.
+        return self._reserve(5000, purpose, balance, settled_before, request_limit)
+
+    def _reserve(self, reserved, purpose, balance, settled_before, web_limit=None):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if web_limit is not None:
+                count = db.execute("SELECT count(*) FROM requests WHERE purpose IN ('web_search','web_fetch')").fetchone()[0]
+                if count >= web_limit:
+                    raise BudgetExceeded("Authorized web request batch exhausted; no request sent")
             # The provider's fresh balance is the source for already billed work.
             # Deduct unknown/cancelled usage plus requests that were not settled
             # before this GET. Known usage is an estimate for audit, never a
@@ -133,6 +149,17 @@ class Ledger:
             result = db.execute("INSERT INTO requests(created,purpose,reserved_micros,status) VALUES(?,?,?,?)",
                                 (datetime.now(timezone.utc).isoformat(), purpose, reserved, "reserved"))
             return result.lastrowid
+
+    def finish_web(self, request_id, *, charged, status, http_status=None):
+        # No prompt or URL is stored. Zero tokens indicate request pricing,
+        # while estimated_micros NULL preserves uncertain billing after cancel.
+        with self.connect() as db:
+            row = db.execute("SELECT purpose,reserved_micros FROM requests WHERE id=?", (request_id,)).fetchone()
+            if row is None or row[0] not in {"web_search", "web_fetch"}:
+                raise ValueError("Not a web reservation")
+            cost = None if charged is None else row[1] if charged else 0
+            db.execute("UPDATE requests SET estimated_micros=?,status=?,http_status=?,prompt_tokens=?,completion_tokens=?,cache_hit_tokens=? WHERE id=?",
+                       (cost,status,http_status,*((None,)*3 if charged is None else (0,)*3),request_id))
 
     def finish(self, request_id, usage, status, http_status=None):
         fields = None
@@ -165,6 +192,14 @@ class PaidBudget:
         self.ledger, self.api_key = ledger, api_key
 
     async def reserve(self, client, payload, purpose):
+        balance, settled = await self._balance(client)
+        return self.ledger.reserve(payload, purpose, balance, settled)
+
+    async def reserve_web(self, client, purpose, request_limit):
+        balance, settled = await self._balance(client)
+        return self.ledger.reserve_web(purpose, balance, settled, request_limit)
+
+    async def _balance(self, client):
         settled = self.ledger.settled_before_check()
         try:
             response = await client.get("https://api.deepseek.com/user/balance",
@@ -181,7 +216,7 @@ class PaidBudget:
         except Exception:
             # HTTP errors may contain account information. Never emit their body.
             raise BudgetExceeded("Account balance is unknown or unavailable; no paid request sent") from None
-        return self.ledger.reserve(payload, purpose, balance, settled)
+        return balance, settled
 
     def finish(self, *args, **kwargs):
         self.ledger.finish(*args, **kwargs)

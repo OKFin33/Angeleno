@@ -100,6 +100,10 @@ function harness(fetchOverride, options={}) {
   assert.equal(flat(c.sourceCard).filter(n=>n.tag==='a').length,1,'only safe https links render');
   assert.equal(c.sourceCard.children.length,1,'result replaces the checking card');
   assert.deepEqual(c.transcripts,[],'source packets never become transcript or TTS text');
+  const ev=harness(); await ev.ctx.connect();
+  ev.rooms[0].handlers.DataReceived(packet(1,{phase:'result',status:'evidence',conclusion:null,citations:[{name:'新发现的网页',url:'https://example.org/exhibit',excerpt:'网页资料，并非已核实结论'}]}),agent,0,'angeleno.source');
+  assert.equal(flat(ev.sourceCard).find(n=>n.tag==='h2').textContent,'已取得资料');
+  assert(!flat(ev.sourceCard).some(n=>n.textContent==='有依据'),'fetched page does not become a verified fact');
 
   const shown=c.sourceCard.children[0];
   send(packet(1)); send(packet(3),{identity:'user-peer',isAgent:false});
@@ -141,5 +145,5 @@ function harness(fetchOverride, options={}) {
   assert.equal(t.toasts.length,1,'old room status cannot enter a redial');
   sendStatus(status(1,'response_timeout',{session_id:'new-session'}),t.rooms[1]);
   assert.equal(t.toasts.length,2,'new dial establishes its own turn status sequence');
-  console.log('14 page regressions passed: 7 call lifecycle, 5 source card and 2 turn-status groups');
+  console.log('15 page regressions passed: 7 call lifecycle, 6 source card and 2 turn-status groups');
 })().catch(error=>{console.error(error);process.exitCode=1;});

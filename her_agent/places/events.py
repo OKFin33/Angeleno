@@ -62,6 +62,8 @@ class ResultChannel:
         return intent
 
     def revise(self, intent, *, question, applicable_date, user_turn=None):
+        if not self.can_revise(intent):
+            raise PlacesError("query is cancelled or superseded")
         lineage = self._lineages[intent.lineage_id]
         if lineage.utterance != intent.utterance:
             raise PlacesError("original utterance is immutable")
@@ -82,6 +84,31 @@ class ResultChannel:
         self._cards[intent.session_id] = self._checking_card(revised)
         self._notify(intent.session_id)
         return revised
+
+    def can_revise(self, intent):
+        lineage = self._lineages.get(intent.lineage_id)
+        card = self._cards.get(intent.session_id)
+        return (lineage is not None and not lineage.cancelled and card is not None
+                and card.request_id == intent.request_id)
+
+    def interrupt(self, request_id):
+        """Stop one read, retaining its original question for a later correction.
+
+        Explicit cancel/new topic closes the lineage; interrupted transport does
+        not. Previously cancelled requests remain rejected after revision.
+        """
+        request = self._requests[request_id]
+        request.cancelled = True
+        intent = request.intent
+        card = self._cards.get(intent.session_id)
+        if card is not None and card.request_id == request_id:
+            self._cards[intent.session_id] = Card(
+                session_id=intent.session_id, lineage_id=intent.lineage_id,
+                request_id=request_id, phase="result", status="cancelled",
+                subject=card.subject, conclusion=None, applicable_date=None,
+                checked_at=None, citations=(), conflicts=(),
+            )
+            self._notify(intent.session_id)
 
     def cancel(self, lineage_id):
         lineage = self._lineages[lineage_id]
@@ -107,7 +134,7 @@ class ResultChannel:
         if reason is not None:
             self.rejected.append((reason, event))
             return PublishOutcome(False, reason, self._cards.get(event.session_id))
-        if event.status in {"supported", "conflict"} and not event.citations:
+        if event.status in {"supported", "conflict", "evidence"} and not event.citations:
             self.rejected.append(("missing_evidence", event))
             return PublishOutcome(False, "missing_evidence", self._cards.get(event.session_id))
         if event.status == "supported" and not any(item.excerpt.strip() for item in event.citations):

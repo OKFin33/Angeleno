@@ -234,6 +234,12 @@ def _from_card(card, *, extra=None):
 class TextLookup:
     """Session-scoped place loop. The clock is injected; this object has no wall clock."""
 
+    tool_classes = _CLASSES
+    check_names = frozenset({_CHECK})
+    search_names = frozenset({_SEARCH})
+    prepare_messages = staticmethod(prepare_messages)
+    parse_call = staticmethod(parse_call)
+
     def __init__(self, bundle, clock, *, channel=None):
         if not isinstance(clock, FixedClock):
             raise TypeError("lookup requires a FixedClock")
@@ -268,8 +274,9 @@ class TextLookup:
         if self.intent is not None:
             card = self.channel.card(self.intent.session_id)
             if card is not None and card.phase == "checking":
-                self.request_cancel()
-                self.channel.cancel(card.lineage_id)
+                self.channel.interrupt(card.request_id)
+                if self._inflight is not None:
+                    self._inflight.cancel()
 
     def begin_turn(self, session_id, user_turn):
         self._search_places = None
@@ -343,7 +350,7 @@ class TextLookup:
                 raise asyncio.CancelledError
         except asyncio.CancelledError:
             if not self.channel.is_cancelled(intent.request_id):
-                self.channel.cancel(intent.lineage_id)
+                self.channel.interrupt(intent.request_id)
             if asyncio.current_task().cancelling() or not self._cancel_requested:
                 raise
             return {"accepted": False, "status": "cancelled", "conclusion": None,
@@ -455,7 +462,9 @@ class TextLookup:
             and active is not None
             and active.session_id == session_id
             and active.place_id == place_id
-            and not self.channel.is_cancelled(active.request_id)
+            and active.source_id == source_id
+            and active.question_type == arguments["question_type"]
+            and self.channel.can_revise(active)
         )
         if same:
             intent = self.channel.revise(
@@ -490,6 +499,12 @@ class TextLookup:
         if CHANNEL in text:
             raise ValueError("source event mixed into speech")
         self.channel.append_speech(session_id, text)
+
+    def citation_name(self, citation):
+        source = self.bundle.registry.get(citation["source_id"])
+        if citation["url"] not in source.allowed_urls:
+            raise ValueError("Unregistered card link")
+        return source.institution
 
     def record_if_delivered(self, store, session_id, user_turn, text):
         """Persist a result only when this turn's card is still current and the speech was stored."""
@@ -545,13 +560,13 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
     if store is not None:
         from .memory_tools import prepare_messages as prepare_memory
         history = prepare_memory(history)
-    current = prepare_messages(history)
+    current = service.prepare_messages(history)
     service.begin_turn(session_id, user_turn)
     if turn is not None:
         turn.lookup_session = session_id
         turn.lookup_user_turn = user_turn
         turn.source_card = None
-    used = {name: 0 for name in _CLASSES}
+    used = {name: 0 for name in service.tool_classes}
     if store is not None:
         used[_MEMORY] = 0
     shown = None
@@ -588,11 +603,11 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             if not produced:
                 raise ValueError("Provider returned no spoken text")
             break
-        name, arguments = parse_call(pending, allow_memory=store is not None)
+        name, arguments = service.parse_call(pending, allow_memory=store is not None)
         if used[name]:
             raise ValueError("One lookup call per class")
         used[name] += 1
-        if name == _CHECK and turn is not None:
+        if name in service.check_names and turn is not None:
             turn.speech_phase = "waiting"
             if service.on_check_started is not None:
                 service.on_check_started(turn)
@@ -611,13 +626,13 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
         payload, card, intent = await service.execute_async(
             name, arguments, session_id=session_id, user_turn=user_turn, utterance=utterance,
         )
-        await service.checkpoint(session_id, arm=name == _CHECK and intent is not None)
+        await service.checkpoint(session_id, arm=name in service.check_names and intent is not None)
         payload, card = service.reconcile(session_id, name, payload, card, intent)
-        if name == _CHECK and turn is not None:
+        if name in service.check_names and turn is not None:
             turn.speech_phase = "answer"
             if service.on_check_finished is not None:
                 service.on_check_finished(turn)
-        if name != _SEARCH:
+        if name not in service.search_names:
             shown = card
         call = pending[0]
         current = [
@@ -646,7 +661,8 @@ async def _live(args):
     )
     pack = load_pack(pack_path)
     provider, writer = configured_providers(env, root=ROOT)
-    service = live_lookup()
+    from .web_lookup import configured_web_lookup
+    service = configured_web_lookup(env, provider) if env.get("ANGELENO_WEB_ENABLED") == "1" else live_lookup()
     runtime = ConversationRuntime(pack, provider, writer=writer, lookup=service)
     try:
         turn = runtime.begin(args.utterance)
