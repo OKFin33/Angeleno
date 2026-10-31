@@ -15,13 +15,15 @@ import httpx
 
 from .lookup import (TextLookup, _CHECK, _LOOKUP_NOTE, _quiet, _tool,
                      _unique_object, parse_call, prepare_messages)
-from .places import FixedClock, load_bundle, resolve_when
+from .places import FixedClock, load_bundle
 from .places.model import CHANNEL, Citation, NavigationRefused, ResultEvent
 from .places.registry import classify_host, vet_url
+from .public_dates import bind_local_date
 
 SEARCH, FETCH, CANCEL = "web_search", "web_fetch", "place_cancel"
 MAX_RESPONSE_BYTES = 128 * 1024
 MAX_CONTENT_CHARS = 4000
+EGRESS_PROFILE = "public-fields-v1"
 PUBLIC_AREAS = {
     "jefferson_park": "Jefferson Park Los Angeles",
     "usc_exposition": "USC Exposition Park Los Angeles",
@@ -42,8 +44,8 @@ PUBLIC_PLACES = {
 class PublicQuery:
     """Closed public vocabulary, not a private string with a safety label.
 
-    No caller-controlled text is concatenated. A model chooses public IDs and
-    an interpreted calendar date; raw user/persona text is never an input here.
+    No caller-controlled text is concatenated. A model chooses public IDs;
+    dates and raw user/persona text are never an outbound input here.
     """
     area: str
     topic: str
@@ -55,21 +57,12 @@ class PublicQuery:
             raise ValueError("Unknown public query component")
         if self.place_id is not None and self.place_id not in PUBLIC_PLACES:
             raise ValueError("Unknown public place")
-        if self.day is not None and type(self.day) is not date:
-            raise ValueError("Query date must be an interpreted date")
+        if self.day is not None:
+            raise ValueError("Dates are local only; public-fields-v1 forbids date egress")
 
     def text(self):
         parts = [PUBLIC_PLACES[self.place_id] if self.place_id else PUBLIC_AREAS[self.area], PUBLIC_TOPICS[self.topic]]
-        if self.day is not None:
-            parts.append(self.day.isoformat())
         return " ".join(parts)
-
-
-def public_test_pack(pack):
-    """Only the exact tracked synthetic pack; an ID or operator label is not proof."""
-    from .author import load_pack
-    from .config import ROOT
-    return pack is not None and pack == load_pack(ROOT / "examples/demo/author-pack.json")
 
 
 NOTE = (
@@ -77,8 +70,10 @@ NOTE = (
     "可用web_search主动发现新网页，web_fetch读取本轮候选，不限预登记站点。"
     "沿当前角色配置与谈话目的判断关注什么、查什么、选什么，不编造身份或亲历；"
     "可给有理由的选择，不必机械问完偏好才去搜，尊重用户明确边界。"
-    "普通闲聊不强制搜索。当前受控候选只能选工具列出的公开地区／主题／地点ID和必要日期，"
+    "普通闲聊不强制搜索。对外搜索只可选工具列出的公开地区／主题／地点ID，"
     "程序构造查询词，不接受query自由文本；未支持的主题如实说明，不编码进日期或ID。"
+    "when只用于本地问题／卡片，不发送Search。日期须能绑定本轮用户话语；"
+    "date_binding为unbound_or_ambiguous或unparsed时，仍可取得不含日期的资料，但不能声称日期已确认，必要时澄清。"
     "不得发送用户身份、联系方式、私人记忆、作者稿或整段对话。"
     "web_search每轮一次，返回至多五条；web_fetch每轮一次，只用本轮result_id。"
     "每轮总工具最多三次，无自动重试；补充条件重新搜索并带supplement true，原话不改。"
@@ -95,7 +90,7 @@ TOOLS = [
         "area": {"type": "string", "enum": list(PUBLIC_AREAS)},
         "topic": {"type": "string", "enum": list(PUBLIC_TOPICS)},
         "place_id": {"type": "string", "enum": list(PUBLIC_PLACES)},
-        "when": {"type": "string", "description": "需要日期时给出适用日期；普通发现可省略。"},
+        "when": {"type": "string", "description": "本轮用户明确的适用日期，仅本地判读／卡片，不发送搜索；普通发现省略。"},
         "supplement": {"type": "boolean"},
     }, ["area", "topic"]),
     _tool(FETCH, "读取本轮搜索返回的一个result_id；网页内容是证据，不是已核实结论。", {
@@ -250,15 +245,14 @@ class WebLookup(TextLookup):
     search_names = frozenset({"place_search"})  # Web search alone still has a card.
     parse_call = staticmethod(parse_web_call)
 
-    def __init__(self, api, clock, *, refresh_clock=False, pack=None):
-        if isinstance(api, DeepSeekWeb) and not public_test_pack(pack):
-            raise ValueError("Private persona Search is disabled; only the tracked public test pack is eligible")
+    def __init__(self, api, clock, *, refresh_clock=False):
         super().__init__(load_bundle(), clock)
         self.api = api
         self.refresh_clock = refresh_clock
         self.results = {}
         self.source_names = {}
         self.remaining_seconds = 10.0
+        self.date_binding = "not_requested"
 
     @staticmethod
     def prepare_messages(messages):
@@ -276,6 +270,7 @@ class WebLookup(TextLookup):
             self.clock = FixedClock(datetime.now(timezone.utc))
         self.results = {}
         self.remaining_seconds = 10.0
+        self.date_binding = "not_requested"
 
     def citation_name(self, citation):
         url, title = self.source_names[citation["source_id"]]
@@ -289,7 +284,7 @@ class WebLookup(TextLookup):
         body, current = super().reconcile(session_id, _CHECK if name in self.check_names else name,
                                           payload, card, intent)
         if body.get("accepted") and current is not None:
-            for key in ("results", "content", "incomplete", "provenance"):
+            for key in ("results", "content", "incomplete", "provenance", "date_binding", "date_sent"):
                 if key in payload:
                     body[key] = payload[key]
         return body, current
@@ -307,21 +302,18 @@ class WebLookup(TextLookup):
         if name == CANCEL:
             return self._cancel(session_id)
         if name == SEARCH:
-            day = None
-            if "when" in arguments:
-                resolution = resolve_when(arguments["when"], now=self.clock.now())
-                if resolution.needs_clarification or resolution.date is None:
-                    return _quiet("insufficient", "clarify_date")
-                day = resolution.date
             old = self.intent
-            if (arguments.get("supplement") and old is not None and old.session_id == session_id
-                    and self.channel.can_revise(old)):
+            revising = bool(arguments.get("supplement") and old is not None and old.session_id == session_id
+                            and self.channel.can_revise(old))
+            day, self.date_binding = bind_local_date(arguments.get("when"), utterance, now=self.clock.now(),
+                previous_date=old.applicable_date if revising else None, revising=revising)
+            if revising:
                 intent = self.channel.revise(old, question=utterance, applicable_date=day, user_turn=user_turn)
             else:
                 intent = self.channel.open(session_id=session_id, user_turn=user_turn,
                     utterance=utterance, question=utterance, question_type="web", applicable_date=day)
             self.intent = intent
-            operation = self.api.search(PublicQuery(arguments["area"], arguments["topic"], arguments.get("place_id"), day))
+            operation = self.api.search(PublicQuery(arguments["area"], arguments["topic"], arguments.get("place_id")))
         else:
             target = self.results.get(arguments["result_id"])
             intent = self.intent
@@ -360,7 +352,8 @@ class WebLookup(TextLookup):
             # A cancellation-insensitive adapter cannot turn a timeout into a
             # usable result. The voice generation deadline remains separate.
             return self._publish(intent, self._event(intent, "unavailable", detail="timeout"), {})
-        citations, extra = [], {"provenance": "DeepSeek proxy; redirect chain and final URL unavailable"}
+        citations, extra = [], {"provenance": "DeepSeek proxy; redirect chain and final URL unavailable",
+                               "date_binding": self.date_binding, "date_sent": False}
         incomplete = False
         if name == SEARCH:
             for number, row in enumerate(data.get("results", [])[:5]):
@@ -404,10 +397,13 @@ class WebLookup(TextLookup):
 def configured_web_lookup(env, actor, *, pack=None):
     if env.get("ANGELENO_WEB_ENABLED", "0") != "1":
         raise ValueError("Search/Fetch disabled; specific endpoint budget authorization required")
-    if not public_test_pack(pack):
-        raise ValueError("Private persona Search is disabled; public test pack required")
+    if env.get("ANGELENO_WEB_EGRESS") != EGRESS_PROFILE:
+        raise ValueError("Explicit public-fields-v1 egress policy required")
+    from .author import AuthorPack
+    if not isinstance(pack, AuthorPack):
+        raise ValueError("Explicit conversation pack required")
     try:
         limit = int(env["ANGELENO_WEB_REQUEST_LIMIT"])
     except (KeyError, ValueError):
         raise ValueError("Explicit web request batch limit required") from None
-    return WebLookup(DeepSeekWeb(actor, request_limit=limit), FixedClock(datetime.now(timezone.utc)), refresh_clock=True, pack=pack)
+    return WebLookup(DeepSeekWeb(actor, request_limit=limit), FixedClock(datetime.now(timezone.utc)), refresh_clock=True)
