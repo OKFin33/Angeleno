@@ -1,638 +1,212 @@
-<!DOCTYPE html>
+<!doctype html>
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Modified from talk-to-fengge (Apache-2.0). Pinned browser assets are served locally; see NOTICE and LICENSES. -->
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Angeleno</title>
-<style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body {
-        width: 100%; height: 100%;
-        background: #000;
-        overflow: hidden;
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
-        user-select: none;
-        -webkit-user-select: none;
-    }
+<!-- Modified from talk-to-fengge (Apache-2.0). See NOTICE and LICENSES. -->
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Angeleno</title><style>
+:root { font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif; color:#f1f5f5; background:#0d171c; font-size:15px; font-synthesis:none; --bg:#111e24; --panel:#213138; --line:#3b4b51; --sub:#b5c2c6; --green:#25b590; --red:#eb3c55}
+* { box-sizing:border-box}
+body { margin:0; background:var(--bg); height:100dvh; overflow:hidden}
+button { font:inherit; color:inherit; cursor:pointer; touch-action:manipulation}
+button:disabled { opacity:.4; cursor:not-allowed}
+button:focus-visible,summary:focus-visible { outline:3px solid #7ce2c7; outline-offset:5px}
+svg { width:25px; height:25px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
+.screen { height:100dvh; min-height:560px; display:flex; flex-direction:column; max-width:480px; margin:auto; position:relative; background:linear-gradient(165deg,#15252c 0%,#111e24 45%,#122128 100%)}
+.top { flex-shrink:0; position:relative; text-align:center; padding:calc(39px + env(safe-area-inset-top)) 52px 14px}
+.demo-open { position:absolute; top:22px; left:22px; background:transparent; border:0; border-radius:12px; padding:9px 1px; font-size:11px; color:#a6b6bc; min-height:36px}
+.name { font-size:28px; font-weight:500; letter-spacing:.2px; margin:0}
+.identity { font-size:11px; color:var(--sub); margin:7px 0 0}
+.status { color:#d6e0e3; font-size:13px; margin:20px 0 0; min-height:20px; line-height:1.5}
+.stage { display:flex; align-items:center; justify-content:center; flex:1; min-height:150px; padding:8px 0 24px}
+.portrait { position:relative; width:170px; height:170px; display:grid; place-items:center; border-radius:50%; background:#3c6261; color:#edf4ee; font:76px Georgia,serif; box-shadow:0 0 0 1px #ffffff0a}
+.has-card .portrait { width:142px; height:142px; font-size:65px}
+.speaking .portrait:after { content:""; position:absolute; inset:-10px; border:1px solid #80c5b378; border-radius:50%; animation:breathe 1.35s ease-in-out infinite}
+.wave { position:absolute; bottom:-31px; left:50%; transform:translateX(-50%); display:flex; gap:4px; align-items:center; height:14px}
+.wave i { display:block; width:3px; background:#95c6b9; border-radius:3px; height:5px}
+.wave i:nth-child(2n) { height:12px}
+.speaking .wave i { animation:wave .7s ease-in-out infinite alternate}
+.speaking .wave i:nth-child(2n) { animation-delay:-.4s}
+@keyframes breathe { 50% { inset:-16px; opacity:.4}
+}
+@keyframes wave { to { height:4px; opacity:.5}
+}
+.shared { flex-shrink:0; margin:0 24px 24px; background:#24363d; border:1px solid #384c53; border-radius:17px; padding:14px 15px 10px; max-height:264px; overflow:auto; scrollbar-width:thin; scrollbar-color:#637b80 transparent}
+.card-head { display:flex; align-items:center; justify-content:space-between; gap:12px}
+.card-title { margin:0; font-size:13px; font-weight:600; line-height:1.5}
+.badge { font-size:10px; color:#8ed8c0; white-space:nowrap}
+.badge.wait { color:#e0bf8e}
+.badge.cancel { color:#b6c4c9}
+.conclusion { font-size:13px; line-height:1.65; margin:7px 0 10px; color:#e8f0f2}
+.meta { display:flex; flex-wrap:wrap; column-gap:12px; row-gap:4px; font-size:10px; color:#becbd0; line-height:1.5}
+.card-actions { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-top:10px; padding-top:7px; border-top:1px solid #ffffff16; min-height:27px}
+.plain { background:none; border:0; padding:2px 0; min-height:24px; font-size:10px; color:#c1d3d7}
+.plain.cancel-button { color:#f3b7a5}
+.sources summary { font-size:10px; color:#c1d3d7; cursor:pointer; min-height:26px; padding-top:3px}
+.sources { margin-top:8px; border-top:1px solid #ffffff16; padding-top:7px}
+.source-content { font-size:11px; color:#c1cdd2; line-height:1.75; padding:6px 0 3px}
+.source-content p { margin:5px 0}
+.source-content strong { color:#edf2f3; font-weight:500}
+.source-content .warning { color:#e2c49e}
+.compact .conclusion,.compact .meta,.compact .sources { display:none}
+.compact .card-actions { border:0; margin-top:4px; padding:0}
+.controls { flex-shrink:0; background:#203038; border-radius:24px 24px 0 0; padding:24px 28px calc(18px + env(safe-area-inset-bottom)); }
+.control-row { display:flex; gap:44px; justify-content:center; align-items:flex-start}
+.control { display:flex; flex-direction:column; align-items:center; gap:8px; border:0; background:none; padding:0; min-width:62px; font-size:11px; color:#e5ecee}
+.circle { display:grid; place-items:center; width:58px; height:58px; border-radius:50%; background:#3d4d54; color:#fff}
+.control[aria-pressed=true] .circle { background:#e4edef; color:#15242b}
+.hangup .circle { background:var(--red)}
+.hangup svg { transform:rotate(135deg)}
+.start .circle { background:#22a984}
+.control.start { min-width:100px}
+.prototype-note { text-align:center; color:#a3b4bc; font-size:9px; letter-spacing:.15px; margin:18px 0 0; line-height:1.5}
+.hidden { display:none!important}
+.announce { position:fixed; top:0; left:0; width:1px; height:1px; overflow:hidden; clip-path:inset(50%)}
+dialog { color:#ecf3f3; background:#203139; border:1px solid #52666d; border-radius:20px; padding:20px; max-width:360px; width:calc(100vw - 36px); max-height:85dvh; box-shadow:0 20px 80px #0008}
+dialog::backdrop { background:#020a10aa}
+dialog:not([open]) { display:none}
+.demo-head { display:flex; align-items:center; justify-content:space-between; gap:12px}
+.demo-head h2 { margin:0; font-size:16px; font-weight:500}
+.close { background:none; border:0; font-size:23px; min-width:38px; min-height:38px}
+.demo-note { font-size:11px; color:#bdcbd0; line-height:1.7; margin:8px 0 15px}
+.steps { display:grid; gap:8px}
+.step { border:1px solid #52676e; border-radius:10px; padding:11px 12px; background:#2c424a; text-align:left; font-size:12px; min-height:42px}
+.step.current { border-color:#72cdb2; background:#27564c}
+.edge { display:flex; gap:8px; margin-top:12px}
+.edge button { font-size:11px; background:none; border:1px solid #52676e; border-radius:9px; padding:9px}
+.demo-caption { font-size:11px; color:#c3d2d6; line-height:1.7; margin:15px 0 0}
+.key-note { font-size:10px; color:#94a9b2; margin:14px 0 0; line-height:1.5}
+@media(min-width:700px) { body { background:#0d171c}
+.screen { max-width:520px}
+.top { padding-top:46px}
+.portrait { width:180px; height:180px}
+.has-card .portrait { width:154px; height:154px}
+.shared { margin-left:38px; margin-right:38px}
+}
+@media(max-height:700px) { .top { padding-top:24px}
+.status { margin-top:12px}
+.portrait { width:145px; height:145px; font-size:65px}
+.has-card .portrait { width:112px; height:112px; font-size:51px}
+.stage { padding-bottom:20px}
+.shared { margin-bottom:14px; padding-top:11px}
+.controls { padding-top:17px; padding-bottom:12px}
+.prototype-note { margin-top:12px}
+}
+@media(prefers-reduced-motion:reduce) { * { animation:none!important}
+}
 
-    #scene {
-        position: fixed;
-        inset: 0;
-        display: block;
-    }
 
-    /* ---------- UI overlay ---------- */
-    #ui {
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        color: #fff;
-        z-index: 10;
-    }
-
-    /* ---------- Top bar ---------- */
-    #topBar {
-        position: fixed;
-        top: 0; left: 0; right: 0;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 20px 28px;
-    }
-    #modelSelect {
-        pointer-events: auto;
-        appearance: none;
-        -webkit-appearance: none;
-        background: rgba(20, 20, 24, 0.55) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 14px center;
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 999px;
-        color: #e8e8f0;
-        font-size: 13px;
-        letter-spacing: 0.02em;
-        padding: 9px 34px 9px 16px;
-        cursor: pointer;
-        outline: none;
-        transition: border-color 0.25s, background-color 0.25s;
-    }
-    #modelSelect:hover { border-color: rgba(255, 255, 255, 0.25); }
-    #modelSelect option { background: #16161a; color: #e8e8f0; }
-
-    #statusPill {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        background: rgba(20, 20, 24, 0.55);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 999px;
-        padding: 9px 18px;
-        font-size: 14px;
-        color: #d8d8e0;
-        letter-spacing: 0.02em;
-        transition: border-color 0.4s;
-    }
-    #statusDot {
-        width: 8px; height: 8px;
-        border-radius: 50%;
-        background: #666;
-        flex: none;
-        transition: background 0.4s, box-shadow 0.4s;
-    }
-    #statusDot.ready      { background: #8e8e93; }
-    #statusDot.connecting { background: #ff9f0a; animation: dotBlink 1s ease-in-out infinite; }
-    #statusDot.connected  { background: #34c759; box-shadow: 0 0 8px rgba(52, 199, 89, 0.8); }
-    #statusDot.error      { background: #ff453a; }
-    @keyframes dotBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-
-    /* ---------- Toast ---------- */
-    #toast {
-        position: fixed;
-        top: 76px;
-        left: 50%;
-        transform: translate(-50%, -8px);
-        background: rgba(28, 28, 32, 0.85);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 999px;
-        padding: 10px 22px;
-        font-size: 14px;
-        color: #ffd699;
-        opacity: 0;
-        transition: opacity 0.35s ease, transform 0.35s ease;
-    }
-    #toast.show { opacity: 1; transform: translate(-50%, 0); }
-
-    /* ---------- Bottom controls ---------- */
-    #bottomControls {
-        position: fixed;
-        bottom: 0; left: 0; right: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding-bottom: 44px;
-        gap: 14px;
-    }
-    #micButton {
-        pointer-events: auto;
-        width: 72px; height: 72px;
-        border-radius: 50%;
-        border: 1.5px solid #444;
-        background: rgba(14, 14, 18, 0.6);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        outline: none;
-        transition: border-color 0.4s ease, box-shadow 0.5s ease, transform 0.3s ease, background 0.4s ease;
-    }
-    #micButton svg {
-        width: 26px; height: 26px;
-        stroke: #cfcfd6;
-        transition: stroke 0.4s ease;
-    }
-    #micButton:hover { border-color: #666; transform: scale(1.04); }
-    #micButton:active { transform: scale(0.96); }
-    #micButton.connected {
-        border-color: #34c759;
-        box-shadow: 0 0 28px rgba(52, 199, 89, 0.22), inset 0 0 14px rgba(52, 199, 89, 0.06);
-    }
-    #micButton.connected svg { stroke: #6fe08e; }
-    #micButton.speaking { animation: micPulse 2s ease-in-out infinite; }
-    @keyframes micPulse {
-        0%, 100% { transform: scale(1.0); }
-        50%      { transform: scale(1.05); }
-    }
-
-    #callLabel { color: #fff; font-size: 14px; margin: 8px 0; }
-    #muteButton { color: #fff; background: #222; border: 1px solid #666; border-radius: 20px; padding: 7px 18px; margin-bottom: 8px; }
-
-    #timer {
-        font-size: 13px;
-        color: #fff;
-        opacity: 0.4;
-        font-variant-numeric: tabular-nums;
-        letter-spacing: 0.08em;
-        height: 16px;
-        transition: opacity 0.4s;
-    }
-
-    #transcript {
-        font-size: 22px;
-        line-height: 1.5;
-        color: #fff;
-        max-width: 600px;
-        min-height: 33px;
-        text-align: center;
-        padding: 0 24px;
-        text-shadow: 0 1px 12px rgba(0, 0, 0, 0.8);
-        opacity: 0;
-        transition: opacity 0.3s ease;
-    }
-    #disclosure { position: absolute; top: 62px; left: 24px; color: #b7b7c3; font-size: 13px; }
-    #transcript.active { opacity: 1; }
-    #transcript.idle   { opacity: 0.3; transition: opacity 1.2s ease; }
-    #sourceCard {
-        position: fixed; top: 100px; left: 24px;
-        width: min(420px, calc(100vw - 48px)); max-height: calc(100vh - 420px);
-        overflow-y: auto; pointer-events: auto; user-select: text; -webkit-user-select: text;
-        border: 1px solid #45454d; border-radius: 16px; padding: 16px;
-        background: rgba(20, 20, 24, .94); font-size: 14px; line-height: 1.6;
-    }
-    #sourceCard h2 { font-size: 15px; font-weight: 600; }
-    #sourceCard p { margin-top: 8px; overflow-wrap: anywhere; }
-    #sourceCard small { color: #b7b7c3; display: block; margin-top: 8px; }
-    #sourceCard summary { cursor: pointer; margin-top: 10px; }
-    #sourceCard a { color: #99caff; }
-    @media (max-width: 600px) {
-        #topBar { padding: 16px; gap: 10px; }
-        #statusPill { font-size: 12px; padding: 9px 12px; }
-        #sourceCard { top: 96px; left: 16px; width: calc(100vw - 32px); max-height: 32vh; }
-        #bottomControls { padding-bottom: 20px; gap: 8px; }
-        #transcript { font-size: 18px; }
-    }
-</style>
-</head>
-<body>
-
-<canvas id="scene"></canvas>
-
-<div id="ui">
-    <div id="topBar">
-        <select id="modelSelect">
-            <option value="deepseek">Angeleno · 加载中</option>
-        </select>
-        <div id="statusPill">
-            <span id="statusDot" class="ready"></span>
-            <span id="statusText">正在检查服务</span>
-        </div>
-    </div>
-
-    <p id="disclosure">虚构人物 · 早期版本 · 正在加载人物配置</p>
-    <div id="toast"></div>
-    <section id="sourceCard" hidden aria-label="当前查证" aria-live="polite"></section>
-
-    <div id="bottomControls">
-        <button id="micButton" aria-label="开始对话">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="2.5" width="6" height="11.5" rx="3"></rect>
-                <path d="M5 11.5a7 7 0 0 0 14 0"></path>
-                <line x1="12" y1="18.5" x2="12" y2="21.5"></line>
-            </svg>
-        </button>
-        <div id="callLabel">开始通话</div>
-        <button id="muteButton" hidden aria-label="静音麦克风">静音</button>
-        <div id="timer">00:00</div>
-        <div id="transcript"></div>
-    </div>
-</div>
-
+[hidden] { display:none!important}
+body { overflow:auto}
+.screen { min-height:560px}
+.stage { min-height:110px}
+.top { padding-left:24px; padding-right:24px}
+.status { margin-top:16px}
+.timer { color:var(--sub); font-size:11px; min-height:15px; margin-top:5px; font-variant-numeric:tabular-nums}
+.portrait { flex-shrink:0}
+.screen:has(#micButton.speaking) .portrait:after { content:""; position:absolute; inset:-10px; border:1px solid #80c5b378; border-radius:50%; animation:breathe 1.35s ease-in-out infinite}
+.screen:has(#sourceCard:not([hidden])) .portrait { width:142px; height:142px; font-size:65px}
+.screen:has(#sourceCard:not([hidden])) .stage { padding-bottom:15px}
+.circle { border:0; cursor:pointer; touch-action:manipulation}
+.circle svg { width:25px; height:25px}
+#micButton { background:#22a984}
+#micButton[data-active=true] { background:var(--red)}
+#micButton[data-active=true] svg { transform:rotate(135deg)}
+.mute-control { position:relative}
+.mute-control:before { content:""; display:block; width:58px; height:58px; border-radius:50%; background:#3d4d54}
+.mute-control:after { content:""; position:absolute; top:17px; left:19px; width:24px; height:24px; background:#fff; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='9' y='3' width='6' height='12' rx='3'/%3E%3Cpath d='M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8'/%3E%3C/g%3E%3C/svg%3E") center/contain no-repeat}
+.mute-control[aria-pressed=true]:before { background:#e4edef}
+.mute-control[aria-pressed=true]:after { background:#15242b}
+#toast { font-size:12px; line-height:1.6; color:#f0cda3; text-align:center; margin:0 24px 10px}
+#sourceCard { user-select:text; overflow-wrap:anywhere}
+#sourceCard h2 { float:right; color:#8ed8c0; font-size:11px; font-weight:500; margin:0 0 5px 12px}
+#sourceCard .card-title { font-weight:600; margin:0 0 8px}
+#sourceCard p { font-size:13px; line-height:1.65; margin:7px 0}
+#sourceCard small { display:block; color:var(--sub); font-size:11px; line-height:1.6}
+#sourceCard details { clear:both; margin-top:10px; padding-top:8px; border-top:1px solid #ffffff16}
+#sourceCard summary { font-size:11px; color:#c1d3d7; cursor:pointer; min-height:26px}
+#sourceCard details p { font-size:11px}
+#sourceCard a { color:#9edccb}
+.captions { margin:14px 0 0; text-align:center; color:var(--sub); font-size:11px}
+.captions summary { cursor:pointer; min-height:24px}
+.captions[open] { max-height:110px; overflow:auto}
+#transcript { font-size:13px; line-height:1.7; margin:4px 0; overflow-wrap:anywhere}
+.identity { line-height:1.6}
+.controls { padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+@media(max-height:700px) { .screen { min-height:100dvh}
+.top { padding-top:20px; padding-bottom:6px}
+.status { margin-top:8px}
+.stage { min-height:85px; padding-top:0; padding-bottom:12px}
+.portrait,.screen:has(#sourceCard:not([hidden])) .portrait { width:105px; height:105px; font-size:48px}
+.shared { max-height:30dvh; margin-bottom:12px}
+.controls { padding-top:14px}
+.captions { margin-top:10px}
+}
+@media(prefers-reduced-motion:reduce) { * { animation:none!important}
+}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="i-phone" viewBox="0 0 24 24"><path d="M6.4 3.2 9 7.8 6.9 10a15 15 0 0 0 7.1 7.1l2.2-2.1 4.6 2.6c.5.3.7.9.5 1.4-.5 1.4-1.7 2.2-3.3 2-7.5-1-13.8-7.3-14.8-14.8-.2-1.6.6-2.8 2-3.3.5-.2 1.1 0 1.2.3Z"/></symbol><symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></symbol><symbol id="i-mic-off" viewBox="0 0 24 24"><path d="m3 3 18 18M9 9v3a3 3 0 0 0 5.2 2M15 9V6a3 3 0 0 0-5.7-1.3M5 10v2a7 7 0 0 0 11.9 5M19 10v2c0 .7-.1 1.4-.3 2M12 19v3M8 22h8"/></symbol></defs></svg>
+<main class="screen" aria-label="一对一语音通话">
+<header class="top"><h1 id="personaName" class="name">Angeleno</h1><p id="disclosure" class="identity">虚构人物 · 早期版本 · 正在加载人物配置</p><p id="statusText" class="status" role="status">正在检查服务</p><p id="timer" class="timer">00:00</p></header>
+<div class="stage"><div class="portrait" aria-hidden="true"><span id="portraitLetter">J</span></div></div>
+<div id="toast" role="status" hidden></div>
+<section id="sourceCard" class="shared" hidden aria-label="当前查证" aria-live="polite"></section>
+<footer class="controls"><div class="control-row"><button id="muteButton" class="control mute-control" hidden aria-label="静音麦克风" aria-pressed="false">静音</button><div class="control"><button id="micButton" class="circle" aria-label="开始对话" data-active="false"><svg aria-hidden="true"><use href="#i-phone"/></svg></button><span id="callLabel">开始通话</span></div></div><details class="captions"><summary>字幕</summary><p id="transcript"></p></details></footer>
+</main>
+<input id="modelSelect" type="hidden" value="deepseek">
 <audio id="remoteAudio" autoplay playsinline></audio>
-
 <script src="livekit-client.umd.js"></script>
-<!-- three.js r160+ 不再提供 UMD 版 three.min.js（404），改用 ES module 构建 -->
-<script type="module">
-    import * as THREE from './three.module.min.js';
-    window.THREE = THREE;
-    window.dispatchEvent(new Event('three-ready'));
-</script>
 <script>
 function bootAngeleno() {
     'use strict';
-    const THREE = window.THREE;
 
-    // ================================================================
-    //  CONFIG
-    // ================================================================
-    const PARTICLE_MODE = 'abstract'; // 'abstract' | 'photo' — V3.6 暂回退到星空粒子效果
-    const PARTICLE_COUNT = 5000;
-
-    const MODEL_NAMES = {
-        deepseek: '人物',
-    };
-
-    // ================================================================
-    //  DOM
-    // ================================================================
-    const canvas = document.getElementById('scene');
+    const MODEL_NAMES = {deepseek: '人物'};
     const modelSelect = document.getElementById('modelSelect');
-    const statusDot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
-    const toastEl = document.getElementById('toast');
     const micButton = document.getElementById('micButton');
-    const timerEl = document.getElementById('timer');
     const muteButton = document.getElementById('muteButton');
     const callLabel = document.getElementById('callLabel');
+    const statusText = document.getElementById('statusText');
+    const timerEl = document.getElementById('timer');
+    const toastEl = document.getElementById('toast');
     const transcriptEl = document.getElementById('transcript');
     const remoteAudio = document.getElementById('remoteAudio');
-
-    // ================================================================
-    //  THREE.JS PARTICLE SYSTEM
-    // ================================================================
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(window.innerWidth, window.innerHeight);
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const CAMERA_RADIUS = 95;
-    camera.position.set(0, 6, CAMERA_RADIUS);
-    camera.lookAt(0, 0, 0);
-
-    // ---- Nebula-like organic distribution ------------------------------
-    // Particles cluster along a few stretched gaussian "filaments" plus a
-    // sparse halo — organic, not a sphere, not a grid.
-    function gaussian() {
-        let u = 0, v = 0;
-        while (u === 0) u = Math.random();
-        while (v === 0) v = Math.random();
-        return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    let toastTimeout = null;
+    function showToast(text) {
+        toastEl.textContent = text; toastEl.hidden = false;
+        clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => {toastEl.hidden = true;}, 6000);
     }
-
-    const CLUSTERS = [];
-    const CLUSTER_COUNT = 6;
-    for (let c = 0; c < CLUSTER_COUNT; c++) {
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        const r = 8 + Math.random() * 22;
-        // random stretch axis turns blobs into filaments
-        const ax = Math.random() - 0.5, ay = Math.random() - 0.5, az = Math.random() - 0.5;
-        const al = Math.hypot(ax, ay, az) || 1;
-        CLUSTERS.push({
-            x: r * Math.sin(phi) * Math.cos(theta),
-            y: r * Math.sin(phi) * Math.sin(theta) * 0.65,
-            z: r * Math.cos(phi),
-            sigma: 5 + Math.random() * 9,
-            stretch: 1.8 + Math.random() * 2.6,
-            axis: [ax / al, ay / al, az / al],
-        });
+    function updatePersona(health) {
+        if (typeof health.persona_label !== 'string' || !health.persona_label) return;
+        MODEL_NAMES.deepseek = health.persona_label;
+        document.title = 'Angeleno · ' + health.persona_label;
+        document.getElementById('personaName').textContent = health.persona_label;
+        document.getElementById('portraitLetter').textContent = Array.from(health.persona_label)[0];
+        document.getElementById('disclosure').textContent = health.persona_label + ' · 虚构人物 · 早期版本';
     }
-
-    function sampleNebulaPoint(out) {
-        if (Math.random() < 0.07) {
-            // sparse halo
-            const theta = Math.random() * Math.PI * 2;
-            const phi = Math.acos(2 * Math.random() - 1);
-            const r = 26 + Math.pow(Math.random(), 0.6) * 22;
-            out[0] = r * Math.sin(phi) * Math.cos(theta);
-            out[1] = r * Math.sin(phi) * Math.sin(theta) * 0.6;
-            out[2] = r * Math.cos(phi);
-            return;
-        }
-        const cl = CLUSTERS[(Math.random() * CLUSTER_COUNT) | 0];
-        let dx = gaussian() * cl.sigma;
-        let dy = gaussian() * cl.sigma;
-        let dz = gaussian() * cl.sigma;
-        // stretch along the cluster axis
-        const dot = dx * cl.axis[0] + dy * cl.axis[1] + dz * cl.axis[2];
-        dx += cl.axis[0] * dot * (cl.stretch - 1);
-        dy += cl.axis[1] * dot * (cl.stretch - 1);
-        dz += cl.axis[2] * dot * (cl.stretch - 1);
-        out[0] = cl.x + dx;
-        out[1] = cl.y + dy;
-        out[2] = cl.z + dz;
+    function modelDisplayName() { return MODEL_NAMES.deepseek; }
+    function setStatus(state, text) {
+        const name = modelDisplayName();
+        const labels = {ready:'语音通话', connecting: connecting || connected ? '正在连接' : '正在检查服务',
+            connected:name + ' 对话中', disconnected:'通话已结束', error:'暂时无法通话'};
+        statusText.textContent = text || labels[state] || labels.error;
+        micButton.dataset.active = String(connected || connecting);
     }
-
-    // ---- BufferGeometry attributes -------------------------------------
-    const positions = new Float32Array(PARTICLE_COUNT * 3);
-    const colors = new Float32Array(PARTICLE_COUNT * 3);
-    const sizes = new Float32Array(PARTICLE_COUNT);
-    const velocities = new Float32Array(PARTICLE_COUNT * 3);
-    const basePositions = new Float32Array(PARTICLE_COUNT * 3);
-    // targetPosition: reserved for photo-dissolve mode (V3.6) — particles
-    // morph between basePosition and targetPosition via u_morph.
-    const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
-
-    const tmp = [0, 0, 0];
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-        sampleNebulaPoint(tmp);
-        const i3 = i * 3;
-        positions[i3] = basePositions[i3] = targetPositions[i3] = tmp[0];
-        positions[i3 + 1] = basePositions[i3 + 1] = targetPositions[i3 + 1] = tmp[1];
-        positions[i3 + 2] = basePositions[i3 + 2] = targetPositions[i3 + 2] = tmp[2];
-
-        // cool white (#e8e8ff) with subtle per-particle variation
-        const tint = 0.85 + Math.random() * 0.15;
-        colors[i3] = 0.91 * tint;
-        colors[i3 + 1] = 0.91 * tint;
-        colors[i3 + 2] = 1.0 * tint;
-
-        // a few brighter "stars" among fine dust
-        sizes[i] = Math.random() < 0.05
-            ? 3.6 + Math.random() * 2.2
-            : 1.5 + Math.random() * 1.7;
-
-        // random scatter direction for audio displacement
-        const vt = Math.random() * Math.PI * 2;
-        const vp = Math.acos(2 * Math.random() - 1);
-        const vm = 0.4 + Math.random() * 0.6;
-        velocities[i3] = vm * Math.sin(vp) * Math.cos(vt);
-        velocities[i3 + 1] = vm * Math.sin(vp) * Math.sin(vt);
-        velocities[i3 + 2] = vm * Math.cos(vp);
+    let timerInterval = null, connectStart = 0;
+    function startTimer() {
+        connectStart = Date.now(); timerEl.textContent = '00:00';
+        clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+            const seconds = Math.floor((Date.now() - connectStart) / 1000);
+            timerEl.textContent = String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
+        }, 500);
     }
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-    geometry.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
-    geometry.setAttribute('basePosition', new THREE.BufferAttribute(basePositions, 3));
-    geometry.setAttribute('targetPosition', new THREE.BufferAttribute(targetPositions, 3));
-
-    // ---- Shaders --------------------------------------------------------
-    const uniforms = {
-        u_time: { value: 0 },
-        u_audioLevel: { value: 0 },
-        u_bassLevel: { value: 0 },
-        u_trebleLevel: { value: 0 },
-        u_morph: { value: 0 }, // 0 = basePosition (abstract), 1 = targetPosition (photo)
-        u_pixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
-    };
-
-    const vertexShader = `
-        // Ashima 3D simplex noise; MIT license in webgl-noise.LICENSE
-        vec3 mod289(vec3 x){ return x - floor(x * (1.0/289.0)) * 289.0; }
-        vec4 mod289(vec4 x){ return x - floor(x * (1.0/289.0)) * 289.0; }
-        vec4 permute(vec4 x){ return mod289(((x*34.0)+1.0)*x); }
-        vec4 taylorInvSqrt(vec4 r){ return 1.79284291400159 - 0.85373472095314 * r; }
-        float snoise(vec3 v){
-            const vec2 C = vec2(1.0/6.0, 1.0/3.0);
-            const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
-            vec3 i = floor(v + dot(v, C.yyy));
-            vec3 x0 = v - i + dot(i, C.xxx);
-            vec3 g = step(x0.yzx, x0.xyz);
-            vec3 l = 1.0 - g;
-            vec3 i1 = min(g.xyz, l.zxy);
-            vec3 i2 = max(g.xyz, l.zxy);
-            vec3 x1 = x0 - i1 + C.xxx;
-            vec3 x2 = x0 - i2 + C.yyy;
-            vec3 x3 = x0 - D.yyy;
-            i = mod289(i);
-            vec4 p = permute(permute(permute(
-                      i.z + vec4(0.0, i1.z, i2.z, 1.0))
-                    + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-                    + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-            float n_ = 0.142857142857;
-            vec3 ns = n_ * D.wyz - D.xzx;
-            vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-            vec4 x_ = floor(j * ns.z);
-            vec4 y_ = floor(j - 7.0 * x_);
-            vec4 x = x_ * ns.x + ns.yyyy;
-            vec4 y = y_ * ns.x + ns.yyyy;
-            vec4 h = 1.0 - abs(x) - abs(y);
-            vec4 b0 = vec4(x.xy, y.xy);
-            vec4 b1 = vec4(x.zw, y.zw);
-            vec4 s0 = floor(b0)*2.0 + 1.0;
-            vec4 s1 = floor(b1)*2.0 + 1.0;
-            vec4 sh = -step(h, vec4(0.0));
-            vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
-            vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
-            vec3 p0 = vec3(a0.xy, h.x);
-            vec3 p1 = vec3(a0.zw, h.y);
-            vec3 p2 = vec3(a1.xy, h.z);
-            vec3 p3 = vec3(a1.zw, h.w);
-            vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
-            p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
-            vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-            m = m * m;
-            return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
-        }
-
-        attribute float size;
-        attribute vec3 velocity;
-        attribute vec3 basePosition;
-        attribute vec3 targetPosition;
-
-        uniform float u_time;
-        uniform float u_audioLevel;
-        uniform float u_bassLevel;
-        uniform float u_trebleLevel;
-        uniform float u_morph;
-        uniform float u_pixelRatio;
-
-        varying vec3 vColor;
-        varying float vAlpha;
-
-        void main() {
-            // photo mode (V3.6): morph rest position toward image targets
-            vec3 rest = mix(basePosition, targetPosition, u_morph);
-
-            // continuous noise-driven drift (calm breathing of the nebula)
-            float t = u_time * 0.13;
-            vec3 np = rest * 0.018;
-            vec3 drift = vec3(
-                snoise(np + vec3(t, 0.0, 0.0)),
-                snoise(np + vec3(0.0, t, 7.31)),
-                snoise(np + vec3(11.7, 3.1, t))
-            );
-            vec3 pos = rest + drift * (2.2 + u_bassLevel * 9.0);
-
-            // bass: slow large-scale wave rolling through the field
-            float wave = snoise(rest * 0.03 + vec3(0.0, 0.0, u_time * 0.45));
-            pos += normalize(rest + vec3(0.001)) * wave * u_bassLevel * 7.0;
-
-            // overall audio displacement: expand outward from rest position
-            pos += normalize(rest + vec3(0.001)) * u_audioLevel * u_audioLevel * 13.0;
-            pos += velocity * u_audioLevel * 7.0;
-
-            vec4 mv = modelViewMatrix * vec4(pos, 1.0);
-
-            // treble: per-particle shimmer / sparkle on size
-            float phase = rest.x * 0.7 + rest.y * 1.3 + rest.z * 0.4;
-            float shimmer = 1.0 + u_trebleLevel * 1.6 * (0.5 + 0.5 * sin(u_time * 9.0 + phase));
-            gl_PointSize = size * shimmer * (1.0 + u_audioLevel * 0.35)
-                         * u_pixelRatio * (140.0 / -mv.z);
-
-            // cool white at rest -> warm gold (#ffd699) when audio is active
-            vColor = mix(color, vec3(1.0, 0.84, 0.6), clamp(u_audioLevel * 1.4, 0.0, 0.92));
-            vAlpha = 0.8 + 0.2 * u_audioLevel;
-
-            gl_Position = projectionMatrix * mv;
-        }
-    `;
-
-    const fragmentShader = `
-        varying vec3 vColor;
-        varying float vAlpha;
-
-        void main() {
-            // soft circular point with glow falloff — no hard squares
-            vec2 uv = gl_PointCoord - vec2(0.5);
-            float d = length(uv);
-            if (d > 0.5) discard;
-            float core = exp(-d * d * 14.0);
-            float halo = smoothstep(0.5, 0.0, d) * 0.45;
-            float a = (core + halo) * vAlpha;
-            gl_FragColor = vec4(vColor * a, a);
-        }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-        uniforms,
-        vertexShader,
-        fragmentShader,
-        vertexColors: true,
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-    });
-
-    const points = new THREE.Points(geometry, material);
-    scene.add(points);
-    // debug handle: inspect/override audio uniforms from console while tuning
-    window.__ttm = { uniforms, levels: null };
-
-    // ================================================================
-    //  MODE 2: PHOTO-DISSOLVE  (V3.6 — architecture only, NOT active)
-    // ================================================================
-    // TODO(V3.6): implement image sampling.
-    //   1. Load image into an offscreen <canvas>, getImageData().
-    //   2. Sample PARTICLE_COUNT bright pixels; map (x, y) -> world plane
-    //      coords, brightness -> slight z-depth; write into the
-    //      'targetPosition' attribute and pixel RGB into 'color'.
-    //   3. Animate uniforms.u_morph 1 -> assemble portrait,
-    //      0 -> dissolve back into the abstract nebula.
-    // All attributes (position/color/size/velocity/basePosition/
-    // targetPosition) and the u_morph uniform already exist, so this is
-    // purely image-sampling + a tween.
-    async function loadPhotoTargets(imageUrl) {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = () => reject(new Error('portrait load failed: ' + imageUrl));
-            img.src = imageUrl;
-        });
-
-        const cw = 200, ch = Math.round(200 * (img.height / img.width));
-        const offscreen = document.createElement('canvas');
-        offscreen.width = cw;
-        offscreen.height = ch;
-        const ctx2d = offscreen.getContext('2d');
-        ctx2d.drawImage(img, 0, 0, cw, ch);
-        const imageData = ctx2d.getImageData(0, 0, cw, ch);
-        const pixels = imageData.data;
-
-        // collect bright-enough pixels
-        const candidates = [];
-        for (let y = 0; y < ch; y++) {
-            for (let x = 0; x < cw; x++) {
-                const idx = (y * cw + x) * 4;
-                const r = pixels[idx], g = pixels[idx+1], b = pixels[idx+2];
-                const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
-                if (brightness > 30) {
-                    candidates.push({ x, y, r, g, b, brightness });
-                }
-            }
-        }
-
-        // map pixel coords to world space centered at origin
-        const SPREAD = 40;
-        const aspectRatio = cw / ch;
-        const halfW = SPREAD * 0.5 * aspectRatio;
-        const halfH = SPREAD * 0.5;
-
-        const tPos = geometry.attributes.targetPosition.array;
-        const cols = geometry.attributes.color.array;
-
-        for (let i = 0; i < PARTICLE_COUNT; i++) {
-            const i3 = i * 3;
-            if (candidates.length === 0) break;
-            const px = candidates[Math.floor(Math.random() * candidates.length)];
-
-            // map (x,y) to world plane, slight z depth from brightness
-            tPos[i3]     = (px.x / cw - 0.5) * 2 * halfW;
-            tPos[i3 + 1] = -(px.y / ch - 0.5) * 2 * halfH;
-            tPos[i3 + 2] = (px.brightness / 255 - 0.5) * 4;
-
-            // set particle color from image pixel
-            cols[i3]     = px.r / 255;
-            cols[i3 + 1] = px.g / 255;
-            cols[i3 + 2] = px.b / 255;
-        }
-
-        geometry.attributes.targetPosition.needsUpdate = true;
-        geometry.attributes.color.needsUpdate = true;
-
-        // animate morph 0 -> 1 over 2 seconds
-        const morphStart = performance.now();
-        const MORPH_DURATION = 2000;
-        function animateMorph() {
-            const t = Math.min((performance.now() - morphStart) / MORPH_DURATION, 1);
-            const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-            uniforms.u_morph.value = eased;
-            if (t < 1) requestAnimationFrame(animateMorph);
-        }
-        animateMorph();
-        console.log('photo targets loaded:', candidates.length, 'pixels sampled');
+    function stopTimer() { clearInterval(timerInterval); timerInterval = null; }
+    function showTranscript(text) {
+        if (typeof text === 'string' && text) transcriptEl.textContent = text;
     }
-
-    if (PARTICLE_MODE === 'photo') {
-        loadPhotoTargets('portrait.jpg').catch(e => {
-            console.warn('photo mode fallback to abstract:', e.message);
-        });
-    }
-
-    // ================================================================
-    //  AUDIO ANALYSIS (Web Audio API)
-    // ================================================================
     let audioContext = null;
     let analyser = null;
     let freqData = null;
     let remoteSourceNode = null;   // createMediaElementSource — once per element
     let micSourceNode = null;
-
-    // smoothed levels (never feed raw FFT to the shader)
-    const levels = { audio: 0, bass: 0, treble: 0 };
-    const targets = { audio: 0, bass: 0, treble: 0 };
-    if (window.__ttm) window.__ttm.levels = levels;
 
     function ensureAudioGraph() {
         if (audioContext) {
@@ -680,182 +254,6 @@ function bootAngeleno() {
         }
     }
 
-    function sampleAudio() {
-        if (!analyser || !connected) {
-            targets.audio = 0; targets.bass = 0; targets.treble = 0;
-            return;
-        }
-        analyser.getByteFrequencyData(freqData);
-        let sum = 0;
-        for (let i = 0; i < freqData.length; i++) sum += freqData[i];
-        targets.audio = sum / freqData.length / 255;
-
-        let bass = 0;
-        for (let i = 0; i <= 3; i++) bass += freqData[i];
-        targets.bass = bass / 4 / 255;
-
-        let treble = 0;
-        for (let i = 20; i <= 40; i++) treble += freqData[i];
-        targets.treble = treble / 21 / 255;
-    }
-
-    function smoothLevels(dt) {
-        // fast attack, slow release — feels alive, never mechanical
-        for (const k of ['audio', 'bass', 'treble']) {
-            const t = targets[k];
-            const rate = t > levels[k] ? 10.0 : 2.8;
-            levels[k] += (t - levels[k]) * Math.min(1, rate * dt);
-        }
-    }
-
-    // ================================================================
-    //  RENDER LOOP
-    // ================================================================
-    const clock = new THREE.Clock();
-    let orbitAngle = 0;
-
-    function animate() {
-        requestAnimationFrame(animate);
-        const dt = Math.min(clock.getDelta(), 0.05);
-        const elapsed = clock.elapsedTime;
-
-        sampleAudio();
-        smoothLevels(dt);
-
-        uniforms.u_time.value = elapsed;
-        uniforms.u_audioLevel.value = levels.audio;
-        uniforms.u_bassLevel.value = levels.bass;
-        uniforms.u_trebleLevel.value = levels.treble;
-
-        // slight auto-orbit, 0.05 rad/s around Y
-        orbitAngle += 0.05 * dt;
-        camera.position.x = Math.sin(orbitAngle) * CAMERA_RADIUS;
-        camera.position.z = Math.cos(orbitAngle) * CAMERA_RADIUS;
-        camera.position.y = 6 + Math.sin(elapsed * 0.07) * 3;
-        camera.lookAt(0, 0, 0);
-
-        // subtle slow rotation of the formation itself
-        points.rotation.y += 0.008 * dt;
-
-        renderer.render(scene, camera);
-    }
-    animate();
-
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        uniforms.u_pixelRatio.value = Math.min(window.devicePixelRatio, 2);
-    });
-
-    // ================================================================
-    //  UI STATE
-    // ================================================================
-    let toastTimeout = null;
-    function showToast(msg) {
-        toastEl.textContent = msg;
-        toastEl.classList.add('show');
-        clearTimeout(toastTimeout);
-        toastTimeout = setTimeout(() => toastEl.classList.remove('show'), 3000);
-    }
-
-    function updatePersona(health) {
-        if (!health.persona_label) return;
-        document.title = 'Angeleno · ' + health.persona_label;
-        MODEL_NAMES.deepseek = health.persona_label;
-        modelSelect.options[0].textContent = 'Angeleno · ' + health.persona_label;
-        document.getElementById('disclosure').textContent = health.persona_label + ' · 虚构人物 · 早期版本';
-    }
-
-    function modelDisplayName() {
-        return MODEL_NAMES[modelSelect.value] || modelSelect.value;
-    }
-
-    // states: ready | connecting | connected | disconnected | error
-    function setStatus(state, customText) {
-        const name = modelDisplayName();
-        if (state === 'ready') {
-            statusDot.className = 'ready';
-            statusText.textContent = name + ' 就绪';
-        } else if (state === 'connecting') {
-            statusDot.className = 'connecting';
-            statusText.textContent = name + ' 连接中...';
-        } else if (state === 'connected') {
-            statusDot.className = 'connected';
-            statusText.textContent = customText || name + ' 对话中';
-        } else if (state === 'disconnected') {
-            statusDot.className = 'ready';
-            statusText.textContent = name + ' 已断开';
-        } else {
-            statusDot.className = 'error';
-            statusText.textContent = customText || '出错了';
-        }
-    }
-
-    // ---- timer ----
-    let timerInterval = null;
-    let connectStart = 0;
-    function startTimer() {
-        connectStart = Date.now();
-        timerEl.textContent = '00:00';
-        clearInterval(timerInterval);
-        timerInterval = setInterval(() => {
-            const s = Math.floor((Date.now() - connectStart) / 1000);
-            const mm = String(Math.floor(s / 60)).padStart(2, '0');
-            const ss = String(s % 60).padStart(2, '0');
-            timerEl.textContent = mm + ':' + ss;
-        }, 500);
-    }
-    function stopTimer() {
-        clearInterval(timerInterval);
-        timerInterval = null;
-    }
-
-    // ---- transcription ----
-    let transcriptIdleTimeout = null;
-    function showTranscript(text) {
-        if (!text) return;
-        transcriptEl.textContent = text;
-        transcriptEl.classList.remove('idle');
-        // restart fade-in
-        transcriptEl.classList.remove('active');
-        void transcriptEl.offsetWidth;
-        transcriptEl.classList.add('active');
-        clearTimeout(transcriptIdleTimeout);
-        transcriptIdleTimeout = setTimeout(() => {
-            transcriptEl.classList.add('idle');
-        }, 6000);
-    }
-
-    function parseDataMessage(payload) {
-        let text = '';
-        try { text = new TextDecoder().decode(payload); } catch (_) { return ''; }
-        try {
-            const obj = JSON.parse(text);
-            if (typeof obj === 'string') return obj;
-            return obj.text || obj.transcript || obj.transcription || obj.message || '';
-        } catch (_) {
-            return text;
-        }
-    }
-
-    // ---- model selector ----
-    (function initModelSelect() {
-        const saved = localStorage.getItem('angeleno-character');
-        if (saved && MODEL_NAMES[saved]) modelSelect.value = saved;
-        modelSelect.addEventListener('change', () => {
-            localStorage.setItem('angeleno-character', modelSelect.value);
-            if (connected) {
-                showToast('切换后请重连');
-            } else {
-                setStatus(livekitReady ? 'ready' : 'error', 'LiveKit 未启动');
-            }
-        });
-    })();
-
-    // ================================================================
-    //  LIVEKIT CONNECTION  (tested, working logic — do not modify)
-    // ================================================================
     const TOKEN_URL = window.location.origin + '/token';
     // The server supplies the client URL; localhost is not the phone's server.
 
@@ -869,6 +267,7 @@ function bootAngeleno() {
         turnSession = ''; turnAgent = ''; turnSequence = 0;
         const panel = document.getElementById('sourceCard');
         panel.replaceChildren(); panel.hidden = true;
+        document.getElementById('transcript').textContent = '';
     }
     function receiveTurnStatus(payload, participant, _kind, topic) {
         if (topic !== 'angeleno.turn_status' || !participant || !participant.isAgent || !participant.identity
@@ -913,7 +312,7 @@ function bootAngeleno() {
             const node = document.createElement(tag); node.textContent = text; parent.appendChild(node); return node;
         };
         const heading = add('h2', card.phase === 'checking' ? '正在核对' : labels[card.status]);
-        add('p', card.subject);
+        add('p', card.subject).className = 'card-title';
         if (card.phase === 'result' && card.status !== 'cancelled' && typeof card.conclusion === 'string') add('p', card.conclusion);
         if (typeof card.applicable_date === 'string') add('small', '适用日期 · ' + card.applicable_date);
         if (typeof card.checked_at === 'string') add('small', '核对时间 · ' + card.checked_at);
@@ -985,11 +384,13 @@ function bootAngeleno() {
         clearTimeout(agentTimer);
         muteButton.hidden = true;
         muteButton.textContent = '静音';
+        muteButton.setAttribute('aria-pressed', 'false');
         callLabel.textContent = '开始通话';
         micButton.setAttribute('aria-label', '开始对话');
         micButton.classList.remove('connected', 'speaking');
         stopTimer();
         disconnectMicFromAnalyser();
+        document.getElementById('transcript').textContent = '';
         remoteAudio.srcObject = null;
         // Stop capture immediately; SDK leave/transport teardown is asynchronous.
         if (previous && previous.localParticipant) {
@@ -1056,7 +457,7 @@ function bootAngeleno() {
                 if (!state || state === 'initializing') { setStatus('connecting'); return; }
                 clearTimeout(agentTimer);
                 if (state === 'thinking') setStatus('connected', modelDisplayName() + ' 正在回应');
-                else setStatus('connected');
+                else setStatus('connected', modelDisplayName() + (state === 'speaking' ? ' 正在回应' : ' 在听'));
             }
             on(LivekitClient.RoomEvent.ParticipantConnected, agentState);
             on(LivekitClient.RoomEvent.ParticipantAttributesChanged, (_, participant) => agentState(participant));
@@ -1121,6 +522,7 @@ function bootAngeleno() {
             await currentRoom.localParticipant.setMicrophoneEnabled(enabled);
             if (room !== currentRoom || generation !== callGeneration) return;
             muteButton.textContent = enabled ? '静音' : '取消静音';
+            muteButton.setAttribute('aria-pressed', String(!enabled));
             muteButton.setAttribute('aria-label', enabled ? '静音麦克风' : '取消静音');
         } catch (_) {
             if (room === currentRoom && generation === callGeneration) failCall('麦克风不可用，请重新拨号');
@@ -1147,13 +549,10 @@ function bootAngeleno() {
             });
     }
 
+
     setStatus('connecting');
     checkLiveKit();
     setInterval(checkLiveKit, 15000);
 }
-
-if (window.THREE) bootAngeleno();
-else window.addEventListener('three-ready', bootAngeleno, { once: true });
-</script>
-</body>
-</html>
+bootAngeleno();
+</script></body></html>

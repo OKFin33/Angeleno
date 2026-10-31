@@ -15,6 +15,7 @@ function harness(fetchOverride, options={}) {
     set innerHTML(_){throw new Error('Source content must not become HTML');},
     appendChild(child){this.children.push(child);},replaceChildren(...children){this.children=children;}});
   const sourceCard=node('section');
+  const transcript=node('p');
   const button = name => ({classList:{add(){},remove(){},toggle(){}},setAttribute(){},addEventListener(type,fn){controls[name]=fn;}});
   const events = Object.fromEntries(['Connected','Disconnected','ParticipantConnected','ParticipantAttributesChanged','ParticipantDisconnected','Reconnecting','Reconnected','TrackSubscribed','TrackUnsubscribed','ActiveSpeakersChanged','TranscriptionReceived','DataReceived'].map(x=>[x,x]));
   class Room {
@@ -24,10 +25,10 @@ function harness(fetchOverride, options={}) {
     disconnect(){if(!this.actualConnected)return Promise.resolve();return new Promise(resolve=>this.finishDisconnect=()=>{this.actualConnected=false;this.handlers.Disconnected();resolve();});}
   }
   const defaultFetch = async url=>({ok:true,json:async()=>url.endsWith('/healthz')?{ready:true}:{token:'synthetic',livekit_url:'ws://synthetic'}});
-  const ctx={document:{getElementById:id=>id==='sourceCard'?sourceCard:{value:'deepseek'},createElement:node},window:{location:{origin:'http://synthetic'}},modelSelect:{value:'deepseek'},micButton:button('call'),muteButton:button('mute'),callLabel:{},remoteAudio:{},LivekitClient:{Room,RoomEvent:events,Track:{Kind:{Audio:'audio'}}},TextDecoder,URL,AbortController,setTimeout:()=>1,clearTimeout(){},fetch:fetchOverride||defaultFetch,console:{...console,error(){}},ensureAudioGraph(){},setStatus:(...args)=>states.push(args),startTimer(){},stopTimer(){},disconnectMicFromAnalyser(){},connectMicToAnalyser(){},showTranscript(text){transcripts.push(text);},modelDisplayName:()=>"Jo"};
+  const ctx={document:{getElementById:id=>id==='sourceCard'?sourceCard:id==='transcript'?transcript:{value:'deepseek'},createElement:node},window:{location:{origin:'http://synthetic'}},modelSelect:{value:'deepseek'},micButton:button('call'),muteButton:button('mute'),callLabel:{},remoteAudio:{},LivekitClient:{Room,RoomEvent:events,Track:{Kind:{Audio:'audio'}}},TextDecoder,URL,AbortController,setTimeout:()=>1,clearTimeout(){},fetch:fetchOverride||defaultFetch,console:{...console,error(){}},ensureAudioGraph(){},setStatus:(...args)=>states.push(args),startTimer(){},stopTimer(){},disconnectMicFromAnalyser(){},connectMicToAnalyser(){},showTranscript(text){transcripts.push(text);transcript.textContent=text;},modelDisplayName:()=>"Jo"};
   vm.createContext(ctx);vm.runInContext(code,ctx);
   ctx.showToast=text=>toasts.push(text);
-  return {ctx,rooms,states,controls,transcripts,toasts,sourceCard,state:()=>vm.runInContext('({connected,connecting,roomPresent:room!==null,callGeneration})',ctx)};
+  return {ctx,rooms,states,controls,transcripts,toasts,sourceCard,transcript,state:()=>vm.runInContext('({connected,connecting,roomPresent:room!==null,callGeneration})',ctx)};
 }
 (async()=>{
   const h=harness();await h.ctx.connect();
@@ -78,6 +79,10 @@ function harness(fetchOverride, options={}) {
   u.rooms[0].handlers.TranscriptionReceived([{text:'stale'}]);
   u.rooms[1].handlers.TranscriptionReceived([{text:'current'}]);
   assert.deepEqual(u.transcripts,['current'],'late transcript cannot enter new call');
+  const oldCaptionEnd=u.ctx.disconnect(); u.rooms[1].finishDisconnect(); await oldCaptionEnd;
+  assert.equal(u.transcript.textContent,'','hangup clears visible subtitles');
+  await u.ctx.connect(); u.rooms[1].handlers.TranscriptionReceived([{text:'late prior call'}]);
+  assert.equal(u.transcript.textContent,'','redial cannot display old subtitles');
   const c=harness(); await c.ctx.connect();
   const agent={identity:'agent-current',isAgent:true};
   const card={session_id:'session-current',request_id:'rq-1',phase:'checking',status:null,
@@ -136,5 +141,5 @@ function harness(fetchOverride, options={}) {
   assert.equal(t.toasts.length,1,'old room status cannot enter a redial');
   sendStatus(status(1,'response_timeout',{session_id:'new-session'}),t.rooms[1]);
   assert.equal(t.toasts.length,2,'new dial establishes its own turn status sequence');
-  console.log('13 page regressions passed: 6 call lifecycle, 5 source card and 2 turn-status groups');
+  console.log('14 page regressions passed: 7 call lifecycle, 5 source card and 2 turn-status groups');
 })().catch(error=>{console.error(error);process.exitCode=1;});
