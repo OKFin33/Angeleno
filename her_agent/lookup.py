@@ -9,6 +9,7 @@ contact the network. The paid command is disabled unless both ``--live`` and
 
 import argparse
 import asyncio
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -35,7 +36,9 @@ _MEMORY_NEEDLE = (
 _PLAIN_NEEDLE = "本候选只提供当前会话文本，不提供持久记忆、搜索或外部操作，也没有通话外自主运行的服务。"
 _MEMORY_TOOLS_NEEDLE = "没有外部操作或通话外自主服务；不得声称已查现实资料、预订、联系或完成尚未确认的记忆写入。"
 _LOOKUP_NOTE = (
-    "可用 place_search 检索本地地方条目，每轮最多一次；无命中是资料覆盖不足，不表示地方不存在。"
+    "可用 place_search 检索本地地方条目，每轮最多一次；有效查询无命中是所选范围的资料覆盖不足，不表示地方不存在。"
+    "优先只传地名或别称query；可选place_id和area只能使用工具所列的登记标识，不猜城市名作筛选。"
+    "invalid_arguments表示参数未被接受，不能据此声称资料未收录；本轮不再搜索，也不猜来源继续核对。"
     "多个地点同时命中时先澄清，不挑选一个。"
     "可用 place_check 对一条已登记来源核对当下信息，每轮最多一次；只使用登记来源，不读取任意网址。"
     "补充条件时 place_check 带 supplement true，原话保持不变，旧请求取消。"
@@ -63,11 +66,12 @@ def _tool(name, description, properties, required):
 TOOLS = [
     _tool(
         _SEARCH,
-        "检索本地地方条目。无命中是资料覆盖不足，不表示地方不存在。",
+        "检索本地地方条目。有效查询无命中仅表示所选范围资料不足；参数错误不表示未收录。",
         {
-            "query": {"type": "string"},
-            "place_id": {"type": "string"},
-            "area": {"type": "string"},
+            "query": {"type": "string", "minLength": 1, "maxLength": MAX_QUESTION_CHARS,
+                      "description": "用户所说的地名或别称；通常仅传此项即可。"},
+            "place_id": {"type": "string", "description": "可选精确登记ID；不确定就省略，不能填地名。"},
+            "area": {"type": "string", "description": "可选精确登记区域标识；不确定就省略，不能填城市名。"},
         },
         ["query"],
     ),
@@ -346,22 +350,32 @@ class TextLookup:
             self._inflight = None
         return self._finish_check(intent, resolution, event)
 
+    def tool_definitions(self):
+        definitions = deepcopy(TOOLS)
+        properties = definitions[0]["function"]["parameters"]["properties"]
+        properties["place_id"]["enum"] = sorted(self.bundle.catalog.by_id)
+        properties["area"]["enum"] = sorted({entry.area for entry in self.bundle.catalog.entries})
+        return definitions
+
     def _search(self, arguments):
-        try:
-            outcome = self.bundle.catalog.search(
-                arguments["query"],
-                place_id=arguments.get("place_id"),
-                area=arguments.get("area"),
-            )
-        except KeyError:
+        catalog = self.bundle.catalog
+        filters = {key: arguments[key] for key in ("place_id", "area") if key in arguments}
+        scope = {"query": arguments["query"], "filters": filters}
+        allowed = {"place_id": catalog.by_id, "area": {entry.area for entry in catalog.entries}}
+        invalid = [key for key, value in filters.items() if value not in allowed[key]]
+        if invalid:
             self._search_places = set()
             self._clarifying = False
             return {
+                "status": "invalid_arguments",
                 "hits": [],
-                "coverage_gap": True,
+                "coverage_gap": None,
                 "needs_clarification": False,
-                "detail": "unknown_place",
+                "detail": "unknown_filter",
+                "invalid_fields": invalid,
+                "scope": scope,
             }, None, None
+        outcome = catalog.search(arguments["query"], **filters)
         self._search_places = {hit.place_id for hit in outcome.hits}
         self._clarifying = outcome.needs_clarification
         hits = [{
@@ -374,9 +388,11 @@ class TextLookup:
             "volatile": hit.volatile,
         } for hit in outcome.hits]
         return {
+            "status": "searched",
             "hits": hits,
             "coverage_gap": outcome.coverage_gap,
             "needs_clarification": outcome.needs_clarification,
+            "scope": scope,
         }, None, None
 
     def _cancel(self, session_id):
@@ -490,12 +506,13 @@ class TextLookup:
         })
 
 
-def _remaining(used):
+def _remaining(service, used):
     from .memory_tools import TOOLS as memory_definitions
     names = {name for name, count in used.items() if count == 0}
     if not names:
         return None
-    return [tool for tool in [*TOOLS, *memory_definitions] if tool["function"]["name"] in names]
+    return [tool for tool in [*service.tool_definitions(), *memory_definitions]
+            if tool["function"]["name"] in names]
 
 
 async def reply(service, provider, messages, *, session_id, user_turn, utterance, turn=None,
@@ -530,7 +547,7 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
     requests = 0
     while requests < _MAX_ACTOR_REQUESTS:
         requests += 1
-        tools = None if requests == _MAX_ACTOR_REQUESTS else _remaining(used)
+        tools = None if requests == _MAX_ACTOR_REQUESTS else _remaining(service, used)
         if request_chars(provider, current, tools) > MAX_REQUEST_CHARS:
             raise ValueError("Lookup request exceeds the input budget")
         prefix, pending = [], None
@@ -574,7 +591,7 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             tool = {"role": "tool", "tool_call_id": call["id"], "content": ""}
             current = [*current, {"role": "assistant", "content": "".join(prefix) or None,
                                  "tool_calls": [call]}, tool]
-            next_tools = _remaining(used) if requests + 1 < _MAX_ACTOR_REQUESTS else None
+            next_tools = _remaining(service, used) if requests + 1 < _MAX_ACTOR_REQUESTS else None
             fill_search(provider, current, store, arguments["query"], tool,
                         user_seq=user_seq, tools=next_tools)
             await asyncio.sleep(0)

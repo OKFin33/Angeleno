@@ -56,10 +56,12 @@ class Scripted:
         self.service = service
         self.rounds = []
         self.sent = []
+        self.tool_schemas = []
         self.cancel_after_check = False
 
     def chat_events(self, messages, *, tools=None, temperature=0.7):
         self.sent.append(json.loads(json.dumps(messages, ensure_ascii=False)))
+        self.tool_schemas.append(tools)
         events = self.rounds.pop(0)
         service, cancel = self.service, self.cancel_after_check
 
@@ -191,6 +193,73 @@ class LookupLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Ignore previous instructions", blob)
         self.assertIn("place_search", sent[0][0]["content"])
         self.assertNotIn("不提供持久记忆、搜索或外部操作", sent[0][0]["content"])
+
+    async def test_invalid_search_filter_is_not_a_coverage_claim_or_retry(self):
+        # Exact arguments observed in the bounded real-model run. This city
+        # string is not one of the catalog's area IDs.
+        arguments = {"query": "Natural History Museum of Los Angeles County NHM", "area": "Los Angeles"}
+        turn, _ = await self.say(
+            "帮我核对今天 NHM 是否开放。",
+            [call("place_search", arguments)],
+            [TextDelta("这次查询参数没被接受，暂时无法核实。")],
+        )
+        result = json.loads(self.scripted.sent[1][-1]["content"])
+        self.assertEqual(result["status"], "invalid_arguments")
+        self.assertIsNone(result["coverage_gap"])
+        self.assertEqual(result["invalid_fields"], ["area"])
+        self.assertEqual(result["scope"], {"query": arguments["query"], "filters": {"area": "Los Angeles"}})
+        self.assertEqual(result["hits"], [])
+        self.assertIsNone(turn.source_card)
+        self.assertEqual(len(self.scripted.sent), 2)
+        self.assertNotIn("place_search", [tool["function"]["name"] for tool in self.scripted.tool_schemas[1]])
+        denied, card, intent = self.lookup.execute(
+            "place_check", {**check_args("今天"), "place_id": "place.nhm", "source_id": "src.nhm.visit"},
+            session_id=self.lookup.local_session, user_turn=1, utterance="NHM",
+        )
+        self.assertEqual(denied["detail"], "not_in_search")
+        self.assertIsNone(card)
+        self.assertIsNone(intent)
+        self.assertEqual(self.lookup.checked_events, [])
+
+    async def test_actor_gets_catalog_filter_ids_and_unfiltered_nhm_matches(self):
+        await self.say("NHM", [call("place_search", {"query": "NHM"})], [TextDelta("找到条目了。")])
+        tool = next(t["function"] for t in self.scripted.tool_schemas[0] if t["function"]["name"] == "place_search")
+        properties = tool["parameters"]["properties"]
+        self.assertEqual(tool["parameters"]["required"], ["query"])
+        self.assertEqual(properties["place_id"]["enum"], sorted(self.bundle.catalog.by_id))
+        self.assertEqual(properties["area"]["enum"], sorted({e.area for e in self.bundle.catalog.entries}))
+        self.assertNotIn("Los Angeles", properties["area"]["enum"])
+        result = json.loads(self.scripted.sent[1][-1]["content"])
+        self.assertEqual([h["place_id"] for h in result["hits"]], ["place.nhm"])
+        self.assertEqual(result["scope"]["filters"], {})
+        self.assertFalse(result["coverage_gap"])
+
+    def test_search_scope_and_invalid_id_do_not_broaden_results(self):
+        for filters in ({"place_id": "NHM"}, {"place_id": "unknown", "area": "Los Angeles"}):
+            with self.subTest(filters=filters):
+                result, _, _ = self.lookup._search({"query": "NHM", **filters})
+                self.assertEqual(result["status"], "invalid_arguments")
+                self.assertIsNone(result["coverage_gap"])
+                self.assertEqual(result["hits"], [])
+                self.assertEqual(set(result["invalid_fields"]), set(filters))
+        for query, filters, gap in (
+            ("NHM", {"area": "usc-exposition"}, False),
+            ("NHM", {"place_id": "place.nhm"}, False),
+            ("NHM", {"area": "jefferson-park"}, True),
+            ("未收录的小店", {}, True),
+        ):
+            with self.subTest(query=query, filters=filters):
+                result, _, _ = self.lookup._search({"query": query, **filters})
+                self.assertEqual(result["status"], "searched")
+                self.assertEqual(result["coverage_gap"], gap)
+                self.assertEqual(result["scope"], {"query": query, "filters": filters})
+                self.assertEqual([h["place_id"] for h in result["hits"]], [] if gap else ["place.nhm"])
+
+    def test_multiple_place_matches_still_require_clarification(self):
+        result, _, _ = self.lookup._search({"query": "Fisher 和 NHM"})
+        self.assertFalse(result["coverage_gap"])
+        self.assertTrue(result["needs_clarification"])
+        self.assertEqual({h["place_id"] for h in result["hits"]}, {"place.fisher", "place.nhm"})
 
     async def test_cancelled_result_never_enters_the_next_turn(self):
         self.scripted.cancel_after_check = True
