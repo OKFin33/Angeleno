@@ -47,6 +47,17 @@ class FakeWeb:
 
 
 class WebLoopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_uncertain_single_date_is_absent_from_actual_card(self):
+        for text in ('不是11月3日去，时间还没定。', '11月3日到5日都有空。'):
+            service = WebLookup(FakeWeb(), CLOCK)
+            service.begin_turn('uncertain-date', 1)
+            payload, card, _ = await service.execute_async('web_search',
+                {'area':'usc_exposition','topic':'architecture','when':'2026-11-03'},
+                session_id='uncertain-date',user_turn=1,utterance=text)
+            self.assertIsNone(card.applicable_date)
+            self.assertEqual(payload['date_binding'],'unbound_or_ambiguous')
+            self.assertFalse(payload['date_sent'])
+
     async def test_private_context_selects_public_intent_without_exporting_reason(self):
         private = '合成人物私有背景：王小明，13800138000，虚构路12号，喜欢建筑。'
         pack = replace(PACK, documents=(replace(PACK.documents[0], body=private),))

@@ -35,6 +35,13 @@ class PublicDateTests(unittest.TestCase):
     def test_missing_date_does_not_infer_from_private_material(self):
         self.assertEqual(self.bind(None,'附近小展'),(None,'not_requested'))
 
+    def test_negated_unsettled_and_abbreviated_ranges_are_not_a_single_day(self):
+        for text in ('不是11月3日去，时间还没定。', '11月3日到5日都有空。',
+                     '11月3日不去。', '11月3日，时间还没确定。', '11月3日至5日都行。',
+                     '11月3日或5日吧。', '11月3日—5日都有空。'):
+            with self.subTest(text=text):
+                self.assertEqual(self.bind('2026-11-03',text),(None,'unbound_or_ambiguous'))
+
     def test_year_without_number_uses_los_angeles_at_utc_new_year(self):
         self.assertEqual(bind_local_date('2026-12-31','12月31日去看看',
             now=datetime(2027,1,1,1,tzinfo=timezone.utc)),(date(2026,12,31),'current_user'))
