@@ -10,7 +10,7 @@ const end = html.indexOf("    setStatus('connecting');\n    checkLiveKit();", st
 assert(start >= 0 && end > start);
 const code = html.slice(start, end);
 function harness(fetchOverride, options={}) {
-  const rooms = [], states = [], controls = {}, transcripts = [];
+  const rooms = [], states = [], controls = {}, transcripts = [], toasts = [];
   const node = tag => ({tag, children:[], hidden:true, textContent:'',
     set innerHTML(_){throw new Error('Source content must not become HTML');},
     appendChild(child){this.children.push(child);},replaceChildren(...children){this.children=children;}});
@@ -26,7 +26,8 @@ function harness(fetchOverride, options={}) {
   const defaultFetch = async url=>({ok:true,json:async()=>url.endsWith('/healthz')?{ready:true}:{token:'synthetic',livekit_url:'ws://synthetic'}});
   const ctx={document:{getElementById:id=>id==='sourceCard'?sourceCard:{value:'deepseek'},createElement:node},window:{location:{origin:'http://synthetic'}},modelSelect:{value:'deepseek'},micButton:button('call'),muteButton:button('mute'),callLabel:{},remoteAudio:{},LivekitClient:{Room,RoomEvent:events,Track:{Kind:{Audio:'audio'}}},TextDecoder,URL,AbortController,setTimeout:()=>1,clearTimeout(){},fetch:fetchOverride||defaultFetch,console:{...console,error(){}},ensureAudioGraph(){},setStatus:(...args)=>states.push(args),startTimer(){},stopTimer(){},disconnectMicFromAnalyser(){},connectMicToAnalyser(){},showTranscript(text){transcripts.push(text);},modelDisplayName:()=>"Jo"};
   vm.createContext(ctx);vm.runInContext(code,ctx);
-  return {ctx,rooms,states,controls,transcripts,sourceCard,state:()=>vm.runInContext('({connected,connecting,roomPresent:room!==null,callGeneration})',ctx)};
+  ctx.showToast=text=>toasts.push(text);
+  return {ctx,rooms,states,controls,transcripts,toasts,sourceCard,state:()=>vm.runInContext('({connected,connecting,roomPresent:room!==null,callGeneration})',ctx)};
 }
 (async()=>{
   const h=harness();await h.ctx.connect();
@@ -115,5 +116,25 @@ function harness(fetchOverride, options={}) {
   send(packet(2,{session_id:'new-session'}),agent,'angeleno.source',c.rooms[1]);
   const cancelChecking=c.ctx.disconnect(); c.rooms[1].finishDisconnect(); await cancelChecking;
   assert.equal(flat(c.sourceCard).find(n=>n.tag==='h2').textContent,'已取消','hangup must not leave a checking indicator running');
-  console.log('11 page regressions passed: 6 call lifecycle and 5 source card isolation/rendering/cancellation/redial/hangup groups');
+  const t=harness(); await t.ctx.connect();
+  const status=(sequence,state,extra={})=>new TextEncoder().encode(JSON.stringify({
+    type:'angeleno.turn_status',recipient:'synthetic',session_id:'turn-session',request_id:'r',sequence,state,...extra}));
+  const sendStatus=(packet,room=t.rooms[0],who=agent)=>room.handlers.DataReceived(packet,who,0,'angeleno.turn_status');
+  sendStatus(status(1,'lookup_timeout'));
+  assert.match(t.toasts[0],/超时/); assert.equal(t.state().connected,true,'deadline leaves call available');
+  assert.equal(t.sourceCard.hidden,true,'ordinary status does not fabricate a source card');
+  assert.deepEqual(t.transcripts,[],'timeout status is not speech');
+  sendStatus(status(2,'started')); const fresh=t.states.at(-1);
+  sendStatus(status(1,'response_timeout')); sendStatus(status(3,'response_timeout',{recipient:'other'}));
+  sendStatus(status(3,'response_timeout',{session_id:'old-session'}));
+  sendStatus(status(3,'response_timeout'),t.rooms[0],{identity:'peer',isAgent:false});
+  sendStatus(status(3,'unexpected'));
+  assert.equal(t.states.at(-1),fresh,'stale, misbound and malformed statuses cannot replace a new turn');
+  assert.equal(t.toasts.length,1);
+  const endingStatus=t.ctx.disconnect(); t.rooms[0].finishDisconnect(); await endingStatus;
+  await t.ctx.connect(); sendStatus(status(4,'response_timeout'));
+  assert.equal(t.toasts.length,1,'old room status cannot enter a redial');
+  sendStatus(status(1,'response_timeout',{session_id:'new-session'}),t.rooms[1]);
+  assert.equal(t.toasts.length,2,'new dial establishes its own turn status sequence');
+  console.log('13 page regressions passed: 6 call lifecycle, 5 source card and 2 turn-status groups');
 })().catch(error=>{console.error(error);process.exitCode=1;});

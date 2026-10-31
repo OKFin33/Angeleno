@@ -247,6 +247,8 @@ class TextLookup:
         self._clarifying = False
         self._cancel_requested = False
         self._inflight = None
+        self.on_check_started = None
+        self.on_check_finished = None
 
     def request_cancel(self):
         """Ask the checkpoint to drop the current check before the model sees it."""
@@ -336,7 +338,7 @@ class TextLookup:
         except asyncio.CancelledError:
             if not self.channel.is_cancelled(intent.request_id):
                 self.channel.cancel(intent.lineage_id)
-            if not self._cancel_requested:
+            if asyncio.current_task().cancelling() or not self._cancel_requested:
                 raise
             return {"accepted": False, "status": "cancelled", "conclusion": None,
                     "detail": "cancelled"}, self.channel.card(session_id), intent
@@ -561,6 +563,10 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
         if used[name]:
             raise ValueError("One lookup call per class")
         used[name] += 1
+        if name == _CHECK and turn is not None:
+            turn.speech_phase = "waiting"
+            if service.on_check_started is not None:
+                service.on_check_started(turn)
         if name == _MEMORY:
             from .memory_tools import fill_search
             await asyncio.sleep(0)
@@ -578,6 +584,10 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
         )
         await service.checkpoint(session_id, arm=name == _CHECK and intent is not None)
         payload, card = service.reconcile(session_id, name, payload, card, intent)
+        if name == _CHECK and turn is not None:
+            turn.speech_phase = "answer"
+            if service.on_check_finished is not None:
+                service.on_check_finished(turn)
         if name != _SEARCH:
             shown = card
         call = pending[0]

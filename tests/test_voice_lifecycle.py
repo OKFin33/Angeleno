@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
+from types import SimpleNamespace
 
 from livekit import rtc
 from livekit.agents import Agent, AgentSession, llm
@@ -223,7 +224,8 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_job_cleanup_waits_for_session_close_and_releases_identity(self):
         runtime = self.core()
         class Context:
-            room = NOT_GIVEN
+            room = SimpleNamespace(local_participant=SimpleNamespace(publish_data=AsyncMock()))
+            job = SimpleNamespace(metadata='{"user_identity":"user-0123456789abcdef"}')
             callbacks = []
             stopped = asyncio.Event()
             def add_shutdown_callback(self, fn):
@@ -238,7 +240,13 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.output.audio = SyntheticAudio()
                 return await super().start(agent, record=False)
         def factory(instructions, llm_instance):
-            return SyntheticAgent(instructions=instructions, llm=llm_instance)
+            class TaggedAgent(SyntheticAgent):
+                async def tts_node(self, text, model_settings):
+                    from her_agent.voice_timing import AUDIO_TAG
+                    async for frame in super().tts_node(text, model_settings):
+                        frame.userdata[AUDIO_TAG] = (llm_instance.bridge.active_id, "ordinary")
+                        yield frame
+            return TaggedAgent(instructions=instructions, llm=llm_instance)
         with patch("her_agent.voice.create_voice_runtime", return_value=runtime), \
              patch("her_agent.voice.AgentSession", Session):
             self.session = await start_voice_session(ctx, factory, {})

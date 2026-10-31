@@ -7,6 +7,48 @@ from .lookup import card_public
 
 
 TOPIC = "angeleno.source"
+STATUS_TOPIC = "angeleno.turn_status"
+
+
+class VoiceStatus:
+    """Latest turn status only; no user text or history crosses this channel."""
+
+    def __init__(self, participant, identity, session):
+        if not identity or not session:
+            raise ValueError("Status recipient and session required")
+        self.participant, self.identity, self.session = participant, identity, session
+        self.queue = asyncio.Queue(maxsize=1)
+        self.sequence = 0
+        self.on_error = None
+        self.closed = False
+        self.task = asyncio.create_task(self._run())
+
+    def offer(self, state, request_id):
+        if self.closed:
+            return
+        self.sequence += 1
+        if self.queue.full():
+            self.queue.get_nowait()
+        self.queue.put_nowait({"type": STATUS_TOPIC, "recipient": self.identity, "session_id": self.session,
+            "sequence": self.sequence, "request_id": request_id, "state": state})
+
+    async def _run(self):
+        try:
+            while True:
+                payload = await self.queue.get()
+                await asyncio.wait_for(self.participant.publish_data(json.dumps(payload).encode(),
+                    reliable=True, destination_identities=[self.identity], topic=STATUS_TOPIC), 2)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.closed = True
+            if self.on_error:
+                self.on_error()
+
+    async def close(self):
+        self.closed = True
+        self.task.cancel()
+        await asyncio.gather(self.task, return_exceptions=True)
 
 
 class VoiceCards:

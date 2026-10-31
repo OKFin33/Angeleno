@@ -69,7 +69,22 @@ python -m her_agent.lookup
 
 浏览器只接受本次房间的 agent、当前接收者、同一来源会话和递增序号。卡片原位更新，未知协议丢弃；文本用 `textContent`，链接仅允许 HTTPS。挂断保留最后卡片，重拨清空，旧房间回调不再生效。卡片从不进入字幕、TTS 或交付证明。实际完整播放才结算 `lookup_results`，取消、临时与不确定交付不写入。
 
-尚需实测真实数据包／媒体链路、15／30 秒首音与结论超时保护、插话体验和实际延迟。合成 SDK 播放与假 transport 回归不证明上述验收通过。
+15／30 秒保护及恢复已有离线候选，服务端计时和限制见 [baseline](baseline.md)。尚需实测真实数据包／媒体链路、有效结论首音、插话体验和实际延迟。合成 SDK 播放与假 transport 回归不证明上述验收通过。
+
+### 替换页面时的接口与状态
+
+聊天式原型的生产集成沿用现有 token、房间事件和控制入口，不由原型模拟结果替代服务响应。布局可替换，以下含义保持：
+
+| 输入／入口 | 页面含义与必须保留的边界 |
+| --- | --- |
+| `connect`／`disconnect`／静音按钮 | 开始、挂断、只切换当前麦克风；连接／退出过程保留 call generation 和旧房间回调检查，不能重拨后复活旧音频 |
+| agent状态、连接与播放错误 | `ready/connecting/connected/disconnected/error`；服务 health 不证明实际出声，媒体播放失败有明确停止路径 |
+| `angeleno.source` | `{type, recipient, sequence, card}`；当前一张卡片原位更新，按本次房间agent、身份、`card.session_id`、递增序号筛选。`checking/supported/insufficient/conflict/unavailable/cancelled`等状态沿核心枚举，不在界面猜结论 |
+| `angeleno.turn_status` | `{type, recipient, session_id, sequence, request_id, state}`；`started`恢复通话状态，`response_timeout/lookup_timeout`提示本轮超时但可继续。可靠定向发送、2秒期限、单槽队列、无重试；页面限2,000字节，拒绝旧会话和乱序，不生成字幕或查证卡 |
+| 字幕事件 | 只作字幕；不能据此认定出声、完整交付或事实记忆。来源／运行状态不拼入对白 |
+| 纠正／取消／重拨 | 真实纠正／取消经用户输入进入共享核心，不能只在页面把演示卡改字就称已取消查询。挂断使正在核对显示取消并保留最后卡；重拨清卡、清事件绑定，新会话不能消费旧包 |
+
+当前这些状态只复用旧页面状态栏／toast，尚未整合新聊天式设计，不构成视觉接受。
 
 ## 测试合并／剪枝提案
 

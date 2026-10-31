@@ -862,11 +862,31 @@ function bootAngeleno() {
     const SOURCE_TOPIC = 'angeleno.source';
     let sourceSession = '', sourceAgent = '', sourceSequence = 0;
     let sourcePhase = '', sourceHeading = null;
+    let turnSession = '', turnAgent = '', turnSequence = 0;
     function resetSourceCard() {
         sourceSession = ''; sourceAgent = ''; sourceSequence = 0;
         sourcePhase = ''; sourceHeading = null;
+        turnSession = ''; turnAgent = ''; turnSequence = 0;
         const panel = document.getElementById('sourceCard');
         panel.replaceChildren(); panel.hidden = true;
+    }
+    function receiveTurnStatus(payload, participant, _kind, topic) {
+        if (topic !== 'angeleno.turn_status' || !participant || !participant.isAgent || !participant.identity
+            || !payload || payload.byteLength > 2000) return;
+        let event;
+        try { event = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(payload)); }
+        catch (_) { return; }
+        if (!event || event.type !== topic || event.recipient !== localIdentity
+            || typeof event.session_id !== 'string' || !event.session_id
+            || !Number.isSafeInteger(event.sequence) || event.sequence <= turnSequence
+            || !['started', 'response_timeout', 'lookup_timeout'].includes(event.state)) return;
+        if (turnSession && (turnSession !== event.session_id || turnAgent !== participant.identity)) return;
+        turnSession = event.session_id; turnAgent = participant.identity; turnSequence = event.sequence;
+        if (event.state === 'started') setStatus('connected');
+        else {
+            const message = event.state === 'lookup_timeout' ? '这次核对回应超时，请继续说或换个问题' : '这次回应超时，请继续说';
+            setStatus('connected', message); showToast(message);
+        }
     }
     function receiveSourceCard(payload, participant, _kind, topic) {
         if (topic !== SOURCE_TOPIC || !participant || !participant.isAgent || !participant.identity) return;
@@ -1066,7 +1086,9 @@ function bootAngeleno() {
                 const text = segments.map(segment => segment.text).join('');
                 if (text) showTranscript(text);
             });
-            on(LivekitClient.RoomEvent.DataReceived, receiveSourceCard);
+            on(LivekitClient.RoomEvent.DataReceived, (...args) => {
+                receiveSourceCard(...args); receiveTurnStatus(...args);
+            });
             await currentRoom.connect(connection.livekit_url, connection.token, { rtcConfig: { iceServers: [] } });
             if (!isCurrent()) { await currentRoom.disconnect(); return; }
             currentRoom.remoteParticipants.forEach(agentState);
