@@ -56,7 +56,7 @@ def create_voice_runtime(env, *, root=ROOT, provider_factory=None):
         actor, writer = (provider_factory(env) if provider_factory else configured_providers(env, root=root))
         from .live_sources import live_lookup
         from .web_lookup import configured_web_lookup
-        lookup = (configured_web_lookup(env, actor) if env.get("ANGELENO_WEB_ENABLED") == "1"
+        lookup = (configured_web_lookup(env, actor, pack=pack) if env.get("ANGELENO_WEB_ENABLED") == "1"
                   else live_lookup() if env.get("ANGELENO_PLACE_TOOLS") == "1" else None)
         return ConversationRuntime(pack, actor, store=store, writer=writer, variant=variant,
                                    memory_tools=env.get("ANGELENO_MEMORY_TOOLS") == "1",

@@ -324,6 +324,8 @@ function bootAngeleno() {
                 if (url.protocol !== 'https:' || url.username || url.password) continue;
                 const p = add('p', '', details), link = add('a', citation.name, p);
                 link.href = url.href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+                if (citation.claim_kind === 'search_summary') add('small', '搜索摘要，尚未读取正文', details);
+                if (citation.claim_kind === 'fetched_page') add('small', '由搜索服务读取；最终地址和跳转过程未提供', details);
                 if (typeof citation.excerpt === 'string') add('p', citation.excerpt, details);
             }
             for (const conflict of card.conflicts) if (typeof conflict === 'string') add('p', conflict, details);

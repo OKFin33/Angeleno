@@ -101,9 +101,12 @@ function harness(fetchOverride, options={}) {
   assert.equal(c.sourceCard.children.length,1,'result replaces the checking card');
   assert.deepEqual(c.transcripts,[],'source packets never become transcript or TTS text');
   const ev=harness(); await ev.ctx.connect();
-  ev.rooms[0].handlers.DataReceived(packet(1,{phase:'result',status:'evidence',conclusion:null,citations:[{name:'新发现的网页',url:'https://example.org/exhibit',excerpt:'网页资料，并非已核实结论'}]}),agent,0,'angeleno.source');
+  ev.rooms[0].handlers.DataReceived(packet(1,{phase:'result',status:'evidence',conclusion:null,citations:[{name:'新发现的网页',url:'https://example.org/exhibit',excerpt:'网页资料，并非已核实结论',claim_kind:'fetched_page'}]}),agent,0,'angeleno.source');
   assert.equal(flat(ev.sourceCard).find(n=>n.tag==='h2').textContent,'已取得资料');
   assert(!flat(ev.sourceCard).some(n=>n.textContent==='有依据'),'fetched page does not become a verified fact');
+  assert(flat(ev.sourceCard).some(n=>n.textContent==='由搜索服务读取；最终地址和跳转过程未提供'),'proxy boundary is visible in actual source details');
+  ev.rooms[0].handlers.DataReceived(packet(2,{phase:'result',status:'evidence',conclusion:null,citations:[{name:'搜索结果',url:'https://example.org/exhibit',excerpt:'摘要',claim_kind:'search_summary'}]}),agent,0,'angeleno.source');
+  assert(flat(ev.sourceCard).some(n=>n.textContent==='搜索摘要，尚未读取正文'),'search summary is distinguished from fetched page');
 
   const shown=c.sourceCard.children[0];
   send(packet(1)); send(packet(3),{identity:'user-peer',isAgent:false});

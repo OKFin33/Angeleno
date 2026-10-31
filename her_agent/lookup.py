@@ -662,7 +662,7 @@ async def _live(args):
     pack = load_pack(pack_path)
     provider, writer = configured_providers(env, root=ROOT)
     from .web_lookup import configured_web_lookup
-    service = configured_web_lookup(env, provider) if env.get("ANGELENO_WEB_ENABLED") == "1" else live_lookup()
+    service = configured_web_lookup(env, provider, pack=pack) if env.get("ANGELENO_WEB_ENABLED") == "1" else live_lookup()
     runtime = ConversationRuntime(pack, provider, writer=writer, lookup=service)
     try:
         turn = runtime.begin(args.utterance)

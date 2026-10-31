@@ -4,7 +4,8 @@ Imports do no I/O. The paid adapter is opt-in and shares the actor's ledger.
 Provider content is evidence, never a verified conclusion or an instruction.
 """
 import asyncio
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
 import json
 import socket
 from urllib.parse import urlsplit
@@ -20,13 +21,64 @@ from .places.registry import classify_host, vet_url
 SEARCH, FETCH, CANCEL = "web_search", "web_fetch", "place_cancel"
 MAX_RESPONSE_BYTES = 128 * 1024
 MAX_CONTENT_CHARS = 4000
+PUBLIC_AREAS = {
+    "jefferson_park": "Jefferson Park Los Angeles",
+    "usc_exposition": "USC Exposition Park Los Angeles",
+}
+PUBLIC_TOPICS = {
+    "small_art_exhibitions": "small art exhibitions",
+    "architecture": "architecture exhibitions public spaces",
+    "community_spaces": "community cultural spaces",
+    "visit_hours": "official visit opening hours exceptions",
+}
+PUBLIC_PLACES = {
+    "place.fisher": "USC Fisher Museum of Art",
+    "place.nhm": "Natural History Museum of Los Angeles County",
+}
+
+
+@dataclass(frozen=True)
+class PublicQuery:
+    """Closed public vocabulary, not a private string with a safety label.
+
+    No caller-controlled text is concatenated. A model chooses public IDs and
+    an interpreted calendar date; raw user/persona text is never an input here.
+    """
+    area: str
+    topic: str
+    place_id: str | None = None
+    day: date | None = None
+
+    def __post_init__(self):
+        if self.area not in PUBLIC_AREAS or self.topic not in PUBLIC_TOPICS:
+            raise ValueError("Unknown public query component")
+        if self.place_id is not None and self.place_id not in PUBLIC_PLACES:
+            raise ValueError("Unknown public place")
+        if self.day is not None and type(self.day) is not date:
+            raise ValueError("Query date must be an interpreted date")
+
+    def text(self):
+        parts = [PUBLIC_PLACES[self.place_id] if self.place_id else PUBLIC_AREAS[self.area], PUBLIC_TOPICS[self.topic]]
+        if self.day is not None:
+            parts.append(self.day.isoformat())
+        return " ".join(parts)
+
+
+def public_test_pack(pack):
+    """Only the exact tracked synthetic pack; an ID or operator label is not proof."""
+    from .author import load_pack
+    from .config import ROOT
+    return pack is not None and pack == load_pack(ROOT / "examples/demo/author-pack.json")
+
+
 NOTE = (
     "可用place_search查询稳定地方背景；有效搜索无命中只是本地资料不足，不表示地点不存在。"
     "可用web_search主动发现新网页，web_fetch读取本轮候选，不限预登记站点。"
     "以人物已定性格、成长经历和口味判断关注什么、查什么、选什么，不只改变措辞；"
     "不需要绝对客观，也不必机械问完偏好才去搜；尊重用户明确边界。"
-    "普通闲聊不强制搜索。查询只写公开地名、主题和必要日期，最多128字符；"
-    "不得把用户身份、联系方式、私人记忆、作者稿或整段对话放进query。"
+    "普通闲聊不强制搜索。当前受控候选只能选工具列出的公开地区／主题／地点ID和必要日期，"
+    "程序构造查询词，不接受query自由文本；未支持的主题如实说明，不编码进日期或ID。"
+    "不得发送用户身份、联系方式、私人记忆、作者稿或整段对话。"
     "web_search每轮一次，返回至多五条；web_fetch每轮一次，只用本轮result_id。"
     "每轮总工具最多三次，无自动重试；补充条件重新搜索并带supplement true，原话不改。"
     "用户取消用place_cancel，换题不沿用旧结果。"
@@ -38,11 +90,13 @@ NOTE = (
     "没有预订、联系、登录或通话外自主服务。"
 )
 TOOLS = [
-    _tool(SEARCH, "按人物关注和当前谈话目的搜索公开资料，不发送私人原话或历史。", {
-        "query": {"type": "string", "minLength": 1, "maxLength": 128},
+    _tool(SEARCH, "选择公开地区和主题，由程序构造搜索词；不接受自由文本或私人内容。", {
+        "area": {"type": "string", "enum": list(PUBLIC_AREAS)},
+        "topic": {"type": "string", "enum": list(PUBLIC_TOPICS)},
+        "place_id": {"type": "string", "enum": list(PUBLIC_PLACES)},
         "when": {"type": "string", "description": "需要日期时给出适用日期；普通发现可省略。"},
         "supplement": {"type": "boolean"},
-    }, ["query"]),
+    }, ["area", "topic"]),
     _tool(FETCH, "读取本轮搜索返回的一个result_id；网页内容是证据，不是已核实结论。", {
         "result_id": {"type": "string"},
     }, ["result_id"]),
@@ -88,9 +142,13 @@ class DeepSeekWeb:
         self.actor, self.limit, self.resolver = actor, request_limit, resolver
 
     async def search(self, query):
-        if not isinstance(query, str) or not query.strip() or len(query) > 128:
-            raise ValueError("A short public search query is required")
-        return await self._request("search", {"query": query, "count": 5, "need_content": False})
+        if type(query) is not PublicQuery:
+            raise ValueError("Search requires public query components, never raw text")
+        query.__post_init__()
+        text = query.text()
+        if len(text) > 128:
+            raise ValueError("Public query exceeds provider limit")
+        return await self._request("search", {"query": text, "count": 5, "need_content": False})
 
     async def fetch(self, url):
         public_url(url)
@@ -147,9 +205,9 @@ def parse_web_call(calls, *, allow_memory=False):
     if name not in {SEARCH, FETCH}:
         raise ValueError("Unknown web call")
     arguments = json.loads(call["function"]["arguments"], object_pairs_hook=_unique_object)
-    keys = {"query", "when", "supplement"} if name == SEARCH else {"result_id"}
-    required = "query" if name == SEARCH else "result_id"
-    if not isinstance(arguments, dict) or required not in arguments or not set(arguments) <= keys:
+    keys = {"area", "topic", "place_id", "when", "supplement"} if name == SEARCH else {"result_id"}
+    required = {"area", "topic"} if name == SEARCH else {"result_id"}
+    if not isinstance(arguments, dict) or not required <= set(arguments) or not set(arguments) <= keys:
         raise ValueError("Invalid web arguments")
     for key in set(arguments) - {"supplement"}:
         value = arguments[key]
@@ -157,6 +215,8 @@ def parse_web_call(calls, *, allow_memory=False):
             raise ValueError("Web arguments must be short text")
     if "supplement" in arguments and type(arguments["supplement"]) is not bool:
         raise ValueError("supplement must be boolean")
+    if name == SEARCH:
+        PublicQuery(arguments["area"], arguments["topic"], arguments.get("place_id"))
     return name, arguments
 
 
@@ -166,7 +226,9 @@ class WebLookup(TextLookup):
     search_names = frozenset({"place_search"})  # Web search alone still has a card.
     parse_call = staticmethod(parse_web_call)
 
-    def __init__(self, api, clock, *, refresh_clock=False):
+    def __init__(self, api, clock, *, refresh_clock=False, pack=None):
+        if isinstance(api, DeepSeekWeb) and not public_test_pack(pack):
+            raise ValueError("Private persona Search is disabled; only the tracked public test pack is eligible")
         super().__init__(load_bundle(), clock)
         self.api = api
         self.refresh_clock = refresh_clock
@@ -235,7 +297,7 @@ class WebLookup(TextLookup):
                 intent = self.channel.open(session_id=session_id, user_turn=user_turn,
                     utterance=utterance, question=utterance, question_type="web", applicable_date=day)
             self.intent = intent
-            operation = self.api.search(arguments["query"])
+            operation = self.api.search(PublicQuery(arguments["area"], arguments["topic"], arguments.get("place_id"), day))
         else:
             target = self.results.get(arguments["result_id"])
             intent = self.intent
@@ -311,11 +373,13 @@ class WebLookup(TextLookup):
         return _from_card(outcome.card, extra=extra), outcome.card, intent
 
 
-def configured_web_lookup(env, actor):
+def configured_web_lookup(env, actor, *, pack=None):
     if env.get("ANGELENO_WEB_ENABLED", "0") != "1":
         raise ValueError("Search/Fetch disabled; specific endpoint budget authorization required")
+    if not public_test_pack(pack):
+        raise ValueError("Private persona Search is disabled; public test pack required")
     try:
         limit = int(env["ANGELENO_WEB_REQUEST_LIMIT"])
     except (KeyError, ValueError):
         raise ValueError("Explicit web request batch limit required") from None
-    return WebLookup(DeepSeekWeb(actor, request_limit=limit), FixedClock(datetime.now(timezone.utc)), refresh_clock=True)
+    return WebLookup(DeepSeekWeb(actor, request_limit=limit), FixedClock(datetime.now(timezone.utc)), refresh_clock=True, pack=pack)
