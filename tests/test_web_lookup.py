@@ -85,7 +85,7 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
         service = WebLookup(api, CLOCK)
         for code in ('candidate_dns_refused:empty', 'candidate_dns_refused:resolver_os_error',
                      'candidate_dns_refused:non_public', 'candidate_dns_refused:invalid_answer',
-                     'private resolver returned 10.0.0.1'):
+                     'provider_security_refused', 'private resolver returned 10.0.0.1'):
             service.begin_turn('s', 1)
             await service.execute_async('web_search', {'area':'usc_exposition','topic':'architecture'},
                                         session_id='s',user_turn=1,utterance='小展')
@@ -96,7 +96,7 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
                                         session_id='s',user_turn=1,utterance='小展')
             self.assertEqual(card.status, 'unavailable')
             self.assertIsNone(card.conclusion)
-            self.assertEqual(service.last_event.detail, code if code.startswith('candidate_dns_refused:') else 'web_unavailable')
+            self.assertEqual(service.last_event.detail, code if code.startswith('candidate_dns_refused:') or code=='provider_security_refused' else 'web_unavailable')
             self.assertNotIn('10.0.0.1', json.dumps(payload))
 
     async def test_sdk_delivered_evidence_and_temporary_mode(self):
@@ -287,10 +287,7 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
 
 
 class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
-    async def test_dns_categories_refuse_before_transport_and_cancel_propagates(self):
-        api = self.api(lambda request: self.fail('No HTTP allowed'))
-        api.resolver = public_dns
-        api._request = AsyncMock()
+    async def test_local_dns_categories_remain_diagnostic_only(self):
         loop = asyncio.get_running_loop()
         public = (2,1,6,'',('93.184.216.34',443))
         private = (2,1,6,'',('10.0.0.1',443))
@@ -299,18 +296,77 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
                  ('invalid_answer',[(2,1,6,'',('not-an-ip',443))],None)]
         for reason, rows, error in cases:
             with patch.object(loop,'getaddrinfo',return_value=rows,side_effect=error):
-                with self.assertRaisesRegex(WebFailure, '^candidate_dns_refused:'+reason+'$'):
-                    await api.fetch(URL)
-        api._request.assert_not_called()
-        self.assertEqual(api.actor.budget.ledger.summary()['rows'], [])
+                with self.assertRaisesRegex(DNSRefused, '^candidate_dns_refused:'+reason+'$'):
+                    await public_dns(URL)
         with patch.object(loop,'getaddrinfo',return_value=[public]):
-            await api.fetch(URL)
-        api._request.assert_awaited_once_with('fetch', {'url':URL})
-        api._request.reset_mock()
+            await public_dns(URL)
         with patch.object(loop,'getaddrinfo',side_effect=asyncio.CancelledError):
-            with self.assertRaises(asyncio.CancelledError):
-                await api.fetch(URL)
-        api._request.assert_not_called()
+            with self.assertRaises(asyncio.CancelledError):await public_dns(URL)
+
+    async def test_remote_fetch_connects_only_to_api_without_candidate_dns(self):
+        sent=[]
+        def handle(request):
+            sent.append(request)
+            if request.method=='GET':return balance_response()
+            return httpx.Response(200,json={'title':'Public page','content':'Provider-transferred text'})
+        api=self.api(handle)
+        loop=asyncio.get_running_loop()
+        # This resolver must never be consulted for a remote target, whether it
+        # would be unavailable or would report a nonpublic local answer.
+        for error,rows in [(socket.gaierror('local unavailable'),None),
+                           (None,[(2,1,6,'',('198.18.0.1',443))])]:
+            with patch.object(loop,'getaddrinfo',side_effect=error,return_value=rows) as resolver:
+                page=await api.fetch(URL)
+                self.assertEqual(page['content'],'Provider-transferred text')
+                resolver.assert_not_called()
+        self.assertEqual([str(r.url) for r in sent],
+                         ['https://api.deepseek.com/user/balance','https://api.deepseek.com/v1/tools/fetch']*2)
+        for request in sent:
+            if request.method=='POST':self.assertEqual(json.loads(request.content),{'url':URL})
+        self.assertEqual(len(api.actor.budget.ledger.summary()['rows']),2)
+
+    async def test_lexically_unsafe_remote_urls_never_reserve_or_send(self):
+        api=self.api(lambda request:self.fail('No HTTP allowed'))
+        for url in ('http://example.org/', 'https://127.0.0.1/', 'https://10.0.0.1/',
+                    'https://169.254.169.254/', 'https://198.18.0.1/', 'https://[::1]/',
+                    'https://localhost/', 'https://host.internal/', 'https://host.local/',
+                    'https://example.org:8080/', 'https://u:p@example.org/',
+                    'https://example.org/?q=private', 'https://example.org/#x',
+                    'https://%31%32%37.0.0.1/', 'https://example.org/%2e%2e/private',
+                    'https://127.000.000.001/', 'https://127.0x0.0.1/'):
+            with self.subTest(url=url),self.assertRaises(ValueError):await api.fetch(url)
+        self.assertEqual(api.actor.budget.ledger.summary()['rows'],[])
+
+    async def test_provider_403_stops_batch_even_after_adapter_reconstruction(self):
+        sent=[];denied=httpx.Response(403,json={'error':{'message':'private upstream details'}})
+        def handle(request):
+            sent.append(request)
+            if request.method=='GET':return balance_response()
+            return denied
+        api=self.api(handle)
+        with self.assertRaisesRegex(WebFailure,'^provider_security_refused$'):await api.fetch(URL)
+        self.assertTrue(denied.is_closed)
+        rebuilt=self.api(handle)
+        for candidate in (api,rebuilt):
+            with self.assertRaisesRegex(WebFailure,'^provider_security_refused$'):
+                await candidate.fetch('https://example.net/another')
+            with self.assertRaisesRegex(WebFailure,'^provider_security_refused$'):
+                await candidate.search(QUERY)
+        self.assertEqual(len(sent),2) # One balance check and one Fetch only.
+        rows=api.actor.budget.ledger.summary()['rows']
+        self.assertEqual(len(rows),1)
+        self.assertEqual((rows[0]['http_status'],rows[0]['estimated_micros']),(403,0))
+        self.assertNotIn(b'private upstream details',api.actor.budget.ledger.path.read_bytes())
+
+    async def test_fetch_api_redirect_is_not_followed(self):
+        posts=[];redirect=httpx.Response(302,headers={'Location':'https://127.0.0.1/'})
+        def handle(request):
+            if request.method=='GET':return balance_response()
+            posts.append(request);return redirect
+        api=self.api(handle)
+        with self.assertRaises(WebFailure):await api.fetch(URL)
+        self.assertEqual([str(r.url) for r in posts],['https://api.deepseek.com/v1/tools/fetch'])
+        self.assertTrue(redirect.is_closed)
 
     async def test_private_raw_query_and_public_label_cannot_reach_transport(self):
         api = self.api(lambda request: self.fail("No network permitted"))
@@ -358,7 +414,6 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
         pack=replace(PACK,documents=(replace(PACK.documents[0],body=private),))
         env={'ANGELENO_WEB_ENABLED':'1','ANGELENO_WEB_EGRESS':'public-fields-v1','ANGELENO_WEB_REQUEST_LIMIT':'6'}
         service=configured_web_lookup(env,api.actor,pack=pack)
-        service.api.resolver=api.resolver
         actor=Scripted()
         runtime=ConversationRuntime(pack,actor,lookup=service)
         try:
@@ -401,9 +456,7 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
     def api(self, handler, cap=6):
         providers = mocked_providers(budget_env(Path(self.tmp.name)), handler)
         self.providers.extend(providers)
-        async def known_public(url):
-            self.assertEqual(url, URL)
-        return DeepSeekWeb(providers[0], request_limit=cap, resolver=known_public)
+        return DeepSeekWeb(providers[0], request_limit=cap)
 
     async def test_request_costs_share_actor_ledger_and_batch_cap_survives_new_adapter(self):
         sent = []
@@ -417,7 +470,7 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
         _ = [x async for x in api.actor.chat([{"role":"user","content":"PRIVATE ACTOR CONTEXT"}])]
         await api.search(QUERY)
         await api.fetch(URL)
-        rebuilt = DeepSeekWeb(api.actor, request_limit=2, resolver=api.resolver)
+        rebuilt = DeepSeekWeb(api.actor, request_limit=2)
         with self.assertRaises(BudgetExceeded):
             await rebuilt.search(QUERY)
         posts = [r for r in sent if r.method == "POST"]
@@ -449,25 +502,19 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r["estimated_micros"] for r in summary["rows"]],[0,0,None,0])
         self.assertEqual(summary["unresolved_reserved_micros"],5000)
 
-    async def test_cancel_keeps_reserve_and_private_dns_never_fetches(self):
+    async def test_cancelled_fetch_keeps_reserve(self):
         ready=asyncio.Event()
         async def handle(request):
             if request.method=="GET":return balance_response()
             ready.set();await asyncio.Future()
         api=self.api(handle)
-        task=asyncio.create_task(api.search(QUERY))
+        task=asyncio.create_task(api.fetch(URL))
         await ready.wait();task.cancel()
         with self.assertRaises(asyncio.CancelledError):await task
         row=api.actor.budget.ledger.summary()["rows"][0]
         self.assertEqual(row["status"],"cancelled")
         self.assertIsNone(row["estimated_micros"])
-        loop=asyncio.get_running_loop()
-        with patch.object(loop,"getaddrinfo",return_value=[(2,1,6,'',('10.0.0.1',443))]):
-            with self.assertRaises(ValueError):await public_dns(URL)
-        async def refuse(url):raise ValueError("dns_non_public")
-        api.resolver=refuse
-        with self.assertRaises(WebFailure):await api.fetch(URL)
-        self.assertEqual(len(api.actor.budget.ledger.summary()["rows"]),1)
+
 
 
 if __name__ == "__main__":

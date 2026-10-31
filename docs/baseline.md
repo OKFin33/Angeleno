@@ -134,6 +134,12 @@ PR #24固定5e5bfa35独立审阅未发现新外发／取消／费用阻断，但
 
 完整UV_OFFLINE=1 make verify通过289Python、2假GPU、15组页面及门禁／预览／演示；含7个否定／未定／缩写区间反例及两个实际卡片断言。日志tmp/web-discovery/date-uncertainty-verify.log SHA256 8b1d7c95418a7d1acfd3863ebd2c8ae385d1e30d4ce9a2f42ffabba6e6d06a7d。真实Jo回放及私有同料补充的后续观察由#11／#12持有，不混作真实Fetch或语音。
 
+## 远端Fetch执行边界修正（2026-10-31）
+
+独立架构审阅确认：DeepSeekWeb只连接固定官方API，候选本机DNS未参与连接，不能证明或否定供应商远端解析。本后继移除此处硬门槛；LiveReader及registry源码保持不变，同组DNS地址交连接器和逐跳URL／TLS防护继续。保留本轮候选绑定、固定官方HTTPS／TLS／禁API跳转、词法危险URL拒绝、公开构词、时间／大小／取消／费用边界。补拒百分号编码和模糊数值地址；Fetch403记原账本并停止后续Web，重建适配器也不能换URL继续。供应商实际解析／转取的不可见边界见Spec与web-lookup，不宣称已验证远端安全。
+
+最终完整UV_OFFLINE=1 make verify通过293Python、2假GPU、15组页面及门禁／预览／演示；日志tmp/web-discovery/fetch-boundary-final-verify.log SHA256 5c643a47473fa604280e55f56a8b7e439ac77946ee9b44d3f41305898d860069。假HTTP回归证明本机候选DNS从未调用、危险词法目标零请求／费用、403跨适配器停止、Fetch API302不跟随、取消保留未知费用。原直连防护回归仍通过。本轮0新增实际Search／Fetch、未重试旧目标；真实API恢复待此候选独立审阅。
+
 ## 仍待实现或验收
 
 1. LA条目、来源注册、共用工具环、语音／卡片和15／30秒保护已有候选；生产读取受上述网络／解析限制，真实链路、实际有效结论与声学延迟仍待验证。

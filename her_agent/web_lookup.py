@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import json
 import ipaddress
+import re
 import socket
 from urllib.parse import urlsplit
 
@@ -107,11 +108,19 @@ def public_url(url):
     target, follow its links, or claim to inspect the vendor's redirect chain.
     """
     try:
-        if not isinstance(url, str) or len(url) > 2048 or urlsplit(url).scheme != "https":
+        if (not isinstance(url, str) or len(url) > 2048 or "%" in url
+                or urlsplit(url).scheme != "https"):
             raise ValueError
         vet_url(url, (url,))
-        if "." not in urlsplit(url).hostname:
+        host = urlsplit(url).hostname
+        if "." not in host:
             raise ValueError
+        if re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]+)(?:\.(?:[0-9]+|0x[0-9a-f]+))*", host, re.I):
+            # Noncanonical numeric hosts can be interpreted as IPs by another
+            # stack. Only ipaddress's canonical form is eligible, then vet_url
+            # has already rejected private/reserved literal addresses.
+            if str(ipaddress.ip_address(host)) != host:
+                raise ValueError
     except (ValueError, NavigationRefused):
         raise ValueError("unsafe_candidate_url") from None
     return url
@@ -127,6 +136,7 @@ class DNSRefused(ValueError):
 
 
 async def public_dns(url):
+    """Historical local diagnostic only; not a gate for provider-side Fetch."""
     host = urlsplit(public_url(url)).hostname
     try:
         rows = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
@@ -143,7 +153,7 @@ async def public_dns(url):
         raise DNSRefused("invalid_answer") from None
     if any(kind != "public" for kind in classes):
         raise DNSRefused("non_public")
-    # These are a preflight observation, not the addresses used by vendor Fetch.
+    # These observations are not the addresses used by vendor Fetch.
 
 
 class WebFailure(ValueError):
@@ -151,12 +161,12 @@ class WebFailure(ValueError):
 
 
 class DeepSeekWeb:
-    def __init__(self, actor, *, request_limit, resolver=public_dns):
+    def __init__(self, actor, *, request_limit):
         if actor.budget is None or actor.budget.ledger.prices.currency != "CNY":
             raise ValueError("Web tools require the existing CNY actor ledger")
         if type(request_limit) is not int or not 1 <= request_limit <= 6:
             raise ValueError("Explicit initial web batch limit 1..6 required")
-        self.actor, self.limit, self.resolver = actor, request_limit, resolver
+        self.actor, self.limit = actor, request_limit
 
     async def search(self, query):
         if type(query) is not PublicQuery:
@@ -169,16 +179,17 @@ class DeepSeekWeb:
 
     async def fetch(self, url):
         public_url(url)
-        try:
-            await self.resolver(url)
-        except DNSRefused as exc:
-            raise WebFailure(str(exc)) from None
-        except (OSError, ValueError):
-            raise WebFailure("candidate_dns_refused") from None
+        # The client connects only to the fixed official API below. Candidate
+        # DNS is resolved by the provider; local DNS cannot validate or pin it.
         return await self._request("fetch", {"url": url})
 
     async def _request(self, kind, payload):
         actor = self.actor
+        # A provider security refusal stops this batch, including reconstructed
+        # adapters/processes on the same ledger. No URL/service rotation retry.
+        if any(row["purpose"] == "web_fetch" and row["http_status"] == 403
+               for row in actor.budget.ledger.summary()["rows"]):
+            raise WebFailure("provider_security_refused")
         client = actor._get_client()
         request_id = await actor.budget.reserve_web(client, "web_" + kind, self.limit)
         charged, status, http_status = None, "interrupted", None
@@ -189,6 +200,8 @@ class DeepSeekWeb:
                 http_status = response.status_code
                 if http_status != 200:
                     charged, status = False, "http_error"
+                    if kind == "fetch" and http_status == 403:
+                        raise WebFailure("provider_security_refused")
                     raise WebFailure("http_" + str(http_status))
                 raw = bytearray()
                 async for chunk in response.aiter_bytes():
@@ -203,6 +216,8 @@ class DeepSeekWeb:
                 return data
         except asyncio.CancelledError:
             status = "cancelled"
+            raise
+        except WebFailure:
             raise
         except (httpx.HTTPError, ValueError, AttributeError):
             raise WebFailure("web_unavailable") from None
@@ -340,6 +355,7 @@ class WebLookup(TextLookup):
             # Only known, content-free classifications may enter an event.
             safe_codes = {"candidate_dns_refused:" + reason for reason in
                           ("resolver_os_error", "empty", "non_public", "invalid_answer")}
+            safe_codes.add("provider_security_refused")
             detail = str(exc) if type(exc) is WebFailure and str(exc) in safe_codes else "web_unavailable"
             event = self._event(intent, "unavailable", detail=detail)
             return self._publish(intent, event, {})
