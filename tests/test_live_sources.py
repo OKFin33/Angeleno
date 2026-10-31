@@ -123,6 +123,27 @@ class LiveSourceTests(unittest.IsolatedAsyncioTestCase):
                 await LiveReader()._read(Client(response), self.source)
             self.assertTrue(response.closed)
 
+    async def test_malformed_redirect_becomes_unavailable_card_without_second_request(self):
+        for target in ("https://[bad", "https://nhm.org:bad/plan-your-visit"):
+            response = Response(status=302, headers={"Location": target})
+            client = Client(response)
+            reader = LiveReader()
+
+            async def read(source):
+                return await reader._read(client, source)
+
+            service = live_lookup()
+            service.checker.reader = AsyncMock()
+            service.checker.reader.read.side_effect = read
+            with self.subTest(target=target):
+                payload, card, _ = await service.execute_async("place_check", self.args(),
+                    session_id=service.local_session, user_turn=1, utterance="那天开放吗？")
+                self.assertEqual(payload["status"], "unavailable")
+                self.assertEqual(service.last_event.detail, "malformed_redirect")
+                self.assertIsNone(card.conclusion)
+                self.assertEqual(len(client.urls), 1)
+                self.assertTrue(response.closed)
+
     async def test_no_fixture_fallback_for_disabled_unimplemented_or_failed_source(self):
         for source in (replace(self.source, enabled=False, disabled_reason="not_surveyed"),
                        self.bundle.registry.get("src.jefferson.overview")):
@@ -321,11 +342,15 @@ class HoursTests(unittest.TestCase):
         self.assertNotIn("every day", result["citations"][0].excerpt)
 
     def test_extra_closure_notice_prevents_published_hours_from_claiming_open(self):
-        notice = '<div class="bc-c-info-bar__text__inner">The museum is closed tomorrow.</div>'
-        result = self.decide(date(2026, 10, 31), notice + PAGE)
-        self.assertEqual(result["status"], "insufficient")
-        self.assertEqual(result["detail"], "unresolved_notice")
-        self.assertIn("closed tomorrow", result["citations"][-1].excerpt)
+        for text in ("The museum is closed tomorrow.", "We will not open tomorrow.",
+                     "No visitors admitted on Saturday.", "Expect traffic in the area."):
+            notice = f'<div class="bc-c-info-bar__text__inner">{text}</div>'
+            with self.subTest(text=text):
+                result = self.decide(date(2026, 10, 31), notice + PAGE)
+                self.assertEqual(result["status"], "insufficient")
+                self.assertEqual(result["detail"], "unresolved_notice")
+                self.assertIsNone(result["conclusion"])
+                self.assertIn(text, result["citations"][-1].excerpt)
 
     def test_fisher_keeps_actual_exception_text_without_inventing_a_year(self):
         source = load_bundle().registry.get("src.fisher.visit")

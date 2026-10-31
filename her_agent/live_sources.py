@@ -88,9 +88,16 @@ class LiveReader:
                     location = response.headers.get("Location")
                     if not location:
                         raise SourceDisabled("redirect_without_location")
-                    target = urljoin(target, location)
-                    # Refuse before opening the redirected connection.
-                    vet_url(target, source.allowed_urls)
+                    try:
+                        target = urljoin(target, location)
+                        # Refuse before opening the redirected connection.
+                        vet_url(target, source.allowed_urls)
+                    except NavigationRefused:
+                        raise
+                    except ValueError:
+                        # Malformed IPv6 or a nonnumeric port is source failure,
+                        # not a fatal actor/voice failure. Do not echo Location.
+                        raise NavigationRefused("malformed_redirect") from None
                     continue
                 if response.status != 200:
                     raise SourceDisabled(f"http_{response.status}")
@@ -247,8 +254,13 @@ a supported claim. Add new rules only from observed source evidence and tests.
         # a conflicting opening time. Do not silently repair it or infer years.
         return {**result, "detail": "calendar_exceptions_unresolved"}
     text = _normal(sections[0])
-    if re.search(r"\b(closed|closure|hours|early|late|opening)\b", " ".join(parsed.notices), re.I):
-        notice = " ".join(" ".join(parsed.notices).split())[:remaining]
+    # An announcement is a separate claim, not a bag of closure keywords. Until
+    # its applicability is understood, the ordinary hours cannot establish that
+    # a particular visit is possible (including "We will not open tomorrow.").
+    # Even traffic-only notices remain unresolved in this initial parser.
+    notice = " ".join(" ".join(parsed.notices).split())
+    if notice:
+        notice = notice[:remaining]
         return {**result, "detail": "unresolved_notice",
                 "citations": citations + (Citation(source.id, snapshot.url, notice, "notice"),)}
     pattern = (
