@@ -3,6 +3,7 @@ import asyncio
 from datetime import date, datetime, timezone
 from dataclasses import replace
 import json
+import socket
 from pathlib import Path
 import tempfile
 import unittest
@@ -18,7 +19,7 @@ from her_agent.provider import TextDelta
 from her_agent.runtime import ConversationRuntime, open_store
 from her_agent.voice import VoiceBridge, HerVoiceLLM
 from her_agent.voice_cards import VoiceCards
-from her_agent.web_lookup import (DeepSeekWeb, WebFailure, WebLookup,
+from her_agent.web_lookup import (DeepSeekWeb, DNSRefused, WebFailure, WebLookup,
     PublicQuery, configured_web_lookup, parse_web_call, public_dns, public_url)
 from test_budget import budget_env, balance_response, mocked_providers
 from test_lookup import CLOCK, PACK, Scripted, IdleWriter, call, check_args
@@ -46,6 +47,47 @@ class FakeWeb:
 
 
 class WebLoopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_private_context_selects_public_intent_without_exporting_reason(self):
+        private = '合成人物私有背景：王小明，13800138000，虚构路12号，喜欢建筑。'
+        pack = replace(PACK, documents=(replace(PACK.documents[0], body=private),))
+        api = FakeWeb()
+        actor = Scripted()
+        actor.rounds = [[call('web_search', {'area':'usc_exposition','topic':'architecture'})],
+                        [TextDelta('可以先看看空间和建筑。')]]
+        runtime = ConversationRuntime(pack, actor, lookup=WebLookup(api, CLOCK))
+        try:
+            turn = runtime.begin('附近有什么小展？')
+            _ = [piece async for piece in runtime.stream(turn)]
+            self.assertIn(private, actor.sent[0][0]['content'])
+            self.assertEqual(api.requests, [('search', PublicQuery('usc_exposition','architecture').text())])
+            self.assertNotIn('王小明', str(api.requests))
+            self.assertNotIn('13800138000', str(api.requests))
+            self.assertNotIn('虚构路12号', str(api.requests))
+            # Changing a public interest changes discovery words, not the site list.
+            self.assertNotEqual(PublicQuery('usc_exposition','architecture').text(),
+                                PublicQuery('usc_exposition','community_spaces').text())
+        finally:
+            await runtime.close(flush=False)
+
+    async def test_dns_classification_survives_card_without_raw_error(self):
+        api = FakeWeb()
+        service = WebLookup(api, CLOCK)
+        for code in ('candidate_dns_refused:empty', 'candidate_dns_refused:resolver_os_error',
+                     'candidate_dns_refused:non_public', 'candidate_dns_refused:invalid_answer',
+                     'private resolver returned 10.0.0.1'):
+            service.begin_turn('s', 1)
+            await service.execute_async('web_search', {'area':'usc_exposition','topic':'architecture'},
+                                        session_id='s',user_turn=1,utterance='小展')
+            async def refuse(url): raise WebFailure(code)
+            api.fetch = refuse
+            result_id = next(iter(service.results))
+            payload, card, _ = await service.execute_async('web_fetch', {'result_id': result_id},
+                                        session_id='s',user_turn=1,utterance='小展')
+            self.assertEqual(card.status, 'unavailable')
+            self.assertIsNone(card.conclusion)
+            self.assertEqual(service.last_event.detail, code if code.startswith('candidate_dns_refused:') else 'web_unavailable')
+            self.assertNotIn('10.0.0.1', json.dumps(payload))
+
     async def test_sdk_delivered_evidence_and_temporary_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
@@ -234,6 +276,31 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
 
 
 class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_dns_categories_refuse_before_transport_and_cancel_propagates(self):
+        api = self.api(lambda request: self.fail('No HTTP allowed'))
+        api.resolver = public_dns
+        api._request = AsyncMock()
+        loop = asyncio.get_running_loop()
+        public = (2,1,6,'',('93.184.216.34',443))
+        private = (2,1,6,'',('10.0.0.1',443))
+        cases = [('resolver_os_error', None, socket.gaierror('private resolver details')),
+                 ('empty', [], None), ('non_public',[public,private],None),
+                 ('invalid_answer',[(2,1,6,'',('not-an-ip',443))],None)]
+        for reason, rows, error in cases:
+            with patch.object(loop,'getaddrinfo',return_value=rows,side_effect=error):
+                with self.assertRaisesRegex(WebFailure, '^candidate_dns_refused:'+reason+'$'):
+                    await api.fetch(URL)
+        api._request.assert_not_called()
+        self.assertEqual(api.actor.budget.ledger.summary()['rows'], [])
+        with patch.object(loop,'getaddrinfo',return_value=[public]):
+            await api.fetch(URL)
+        api._request.assert_awaited_once_with('fetch', {'url':URL})
+        api._request.reset_mock()
+        with patch.object(loop,'getaddrinfo',side_effect=asyncio.CancelledError):
+            with self.assertRaises(asyncio.CancelledError):
+                await api.fetch(URL)
+        api._request.assert_not_called()
+
     async def test_private_raw_query_and_public_label_cannot_reach_transport(self):
         api = self.api(lambda request: self.fail("No network permitted"))
         api._request = AsyncMock()

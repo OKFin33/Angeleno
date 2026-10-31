@@ -7,6 +7,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import json
+import ipaddress
 import socket
 from urllib.parse import urlsplit
 
@@ -74,8 +75,8 @@ def public_test_pack(pack):
 NOTE = (
     "可用place_search查询稳定地方背景；有效搜索无命中只是本地资料不足，不表示地点不存在。"
     "可用web_search主动发现新网页，web_fetch读取本轮候选，不限预登记站点。"
-    "以人物已定性格、成长经历和口味判断关注什么、查什么、选什么，不只改变措辞；"
-    "不需要绝对客观，也不必机械问完偏好才去搜；尊重用户明确边界。"
+    "沿当前角色配置与谈话目的判断关注什么、查什么、选什么，不编造身份或亲历；"
+    "可给有理由的选择，不必机械问完偏好才去搜，尊重用户明确边界。"
     "普通闲聊不强制搜索。当前受控候选只能选工具列出的公开地区／主题／地点ID和必要日期，"
     "程序构造查询词，不接受query自由文本；未支持的主题如实说明，不编码进日期或ID。"
     "不得发送用户身份、联系方式、私人记忆、作者稿或整段对话。"
@@ -121,11 +122,32 @@ def public_url(url):
     return url
 
 
+class DNSRefused(ValueError):
+    """Content-free classification: never stringify resolver data or addresses."""
+    def __init__(self, reason):
+        if reason not in {"resolver_os_error", "empty", "non_public", "invalid_answer"}:
+            raise ValueError("Unknown DNS refusal category")
+        self.reason = reason
+        super().__init__("candidate_dns_refused:" + reason)
+
+
 async def public_dns(url):
     host = urlsplit(public_url(url)).hostname
-    rows = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
-    if not rows or any(classify_host(row[4][0]) != "public" for row in rows):
-        raise ValueError("dns_non_public")
+    try:
+        rows = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except OSError:
+        raise DNSRefused("resolver_os_error") from None
+    if not rows:
+        raise DNSRefused("empty")
+    try:
+        addresses = [row[4][0] for row in rows]
+        if not all(isinstance(address, str) for address in addresses):
+            raise ValueError
+        classes = [classify_host(str(ipaddress.ip_address(address))) for address in addresses]
+    except (IndexError, TypeError, ValueError):
+        raise DNSRefused("invalid_answer") from None
+    if any(kind != "public" for kind in classes):
+        raise DNSRefused("non_public")
     # These are a preflight observation, not the addresses used by vendor Fetch.
 
 
@@ -154,6 +176,8 @@ class DeepSeekWeb:
         public_url(url)
         try:
             await self.resolver(url)
+        except DNSRefused as exc:
+            raise WebFailure(str(exc)) from None
         except (OSError, ValueError):
             raise WebFailure("candidate_dns_refused") from None
         return await self._request("fetch", {"url": url})
@@ -320,8 +344,12 @@ class WebLookup(TextLookup):
             if asyncio.current_task().cancelling() or not self._cancel_requested:
                 raise
             return {"accepted": False, "status": "cancelled", "conclusion": None}, self.channel.card(session_id), intent
-        except (WebFailure, TimeoutError):
-            event = self._event(intent, "unavailable", detail="web_unavailable")
+        except (WebFailure, TimeoutError) as exc:
+            # Only known, content-free classifications may enter an event.
+            safe_codes = {"candidate_dns_refused:" + reason for reason in
+                          ("resolver_os_error", "empty", "non_public", "invalid_answer")}
+            detail = str(exc) if type(exc) is WebFailure and str(exc) in safe_codes else "web_unavailable"
+            event = self._event(intent, "unavailable", detail=detail)
             return self._publish(intent, event, {})
         finally:
             self.remaining_seconds -= asyncio.get_running_loop().time() - started
