@@ -2,8 +2,8 @@
 
 No credentials, provider construction, live switch, or held-out inputs. The
 synthetic actors exercise plumbing, not Jo's quality. Request guards count every
-attempt before dispatch, including failures; a future paid entry must additionally
-use the original account ledger and a separately approved frozen batch.
+attempt before dispatch, including failures; the explicit comparison_live entry additionally
+uses the original account ledger and declared frozen development inputs.
 """
 import asyncio
 from contextlib import contextmanager
@@ -12,6 +12,7 @@ from datetime import datetime
 import hashlib
 import itertools
 import json
+import shutil
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
@@ -36,6 +37,18 @@ def file_hash(path):
 
 class RunStopped(RuntimeError):
     pass
+
+
+@contextmanager
+def model_clock(now, zone):
+    """Freeze conversational memory time, never account/billing time."""
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz) if tz else now.replace(tzinfo=None)
+    with patch('her_agent.memory.datetime', FrozenDatetime), \
+         patch.dict('os.environ', {'ANGELENO_TIMEZONE': zone}):
+        yield
 
 
 @contextmanager
@@ -128,6 +141,12 @@ class CorpusWeb:
             ids = row['record_ids']
             if key in self.mapping or not isinstance(ids, list) or any(x not in self.rows for x in ids):
                 raise ValueError('Invalid corpus mapping')
+            if 'uncovered' in row and type(row['uncovered']) is not bool:
+                raise ValueError('Uncovered flag must be boolean')
+            if row.get('uncovered') is True:
+                if ids:
+                    raise ValueError('Uncovered query cannot claim records')
+                ids = None
             if query.text() in words and words[query.text()] != ids:
                 raise ValueError('Equal queries must see equal records')
             self.mapping[key], words[query.text()] = ids, ids
@@ -145,7 +164,7 @@ class CorpusWeb:
             raise RunStopped('nonpublic_query')
         query.__post_init__()
         key = query.area, query.topic, query.place_id
-        if key not in self.mapping:
+        if key not in self.mapping or self.mapping[key] is None:
             raise RunStopped('corpus_uncovered')
         self.calls.append({'kind': 'search', 'query': query.text()})
         ids = [] if self.case == 'empty' else self.mapping[key]
@@ -168,8 +187,9 @@ class CorpusWeb:
 
 
 class RequestGuard:
-    def __init__(self, config):
-        self.c, self.rows = config, []
+    def __init__(self, config, changed=lambda: None):
+        self.c, self.rows, self.changed = config, [], changed
+        self.verify = lambda: None
 
     def reserve(self, anchor, role, kind, turn, max_turns, messages, tools):
         total = [r for r in self.rows if r['kind'] == kind]
@@ -183,6 +203,7 @@ class RequestGuard:
                    input_sha256=digest(messages), input_chars=sum(len(m.get('content') or '') for m in messages),
                    tools=[t['function']['name'] for t in tools or []])
         self.rows.append(row)
+        self.changed()
         return row
 
 
@@ -207,6 +228,7 @@ class GuardedProvider:
             iterator = getattr(self.provider, method)(messages, **kwargs)
             async for piece in iterator:
                 yield piece
+            self.guard.verify()
             row['status'] = 'completed'
         except BaseException as exc:
             row.update(status='failed_or_cancelled', error_type=type(exc).__name__)
@@ -214,6 +236,7 @@ class GuardedProvider:
         finally:
             if iterator is not None:
                 await iterator.aclose()
+            self.guard.changed()
 
     def chat_events(self, messages, *, tools=None, temperature=.7):
         return self._stream('chat_events', messages, tools)
@@ -280,7 +303,8 @@ async def maintenance_barrier(runtime, timeout, *, flush=False):
     await asyncio.wait_for(wait(), timeout)
 
 
-async def run_development(c, anchors, corpus, pack, *, provider_factory=None, branch_selector=None):
+async def _run_segments(c, anchors, corpus, pack, *, provider_factory=None, branch_selector=None,
+                        real_models=False, checkpoint=lambda report: None, request_check=lambda: None):
     """Exercise full segments, preserving errors and stopping unknown branches.
 
     branch_selector is an offline test/operator seam: return None, a listed ID,
@@ -298,20 +322,29 @@ async def run_development(c, anchors, corpus, pack, *, provider_factory=None, br
     if grounded(pack) != grounded(packs['assistant']):
         raise ValueError('Shared grounding differs')
     CorpusWeb(corpus, c['case'])
-    guard = RequestGuard(c)
+    changed = lambda: checkpoint(report)
+    guard = RequestGuard(c, changed)
+    guard.verify = request_check
     report = dict(mode='dry_run', evidence='scripted_mechanism_only', config_sha256=digest(c),
         anchors_sha256=digest(anchors), corpus_sha256=digest(corpus),
         roles={r: p.provenance() for r, p in packs.items()}, segments=[], requests=guard.rows,
         model_calls=0, network_calls=0, owner_calibration=None, holdout_included=False,
         ready_for_real_comparison=False)
+    if real_models:
+        report.update(mode='real_models_frozen_replay', evidence='unscored_development_outputs',
+                      model_calls=None, network_calls=None)
+    report['status'] = 'running'
     by_id = {a['id']: a for a in anchors}
     factory = provider_factory or (lambda kind, a, role: ScriptedActor(c) if kind == 'actor' else ScriptedWriter(c))
-    with offline_clock(now, c['timezone']), tempfile.TemporaryDirectory(prefix='angeleno-development-') as directory:
+    clock = model_clock if real_models else offline_clock
+    with clock(now, c['timezone']), tempfile.TemporaryDirectory(prefix='angeleno-development-') as directory:
         for aid, role in c['order']:
             anchor = by_id[aid]
             max_turns = len(anchor['user_turns']) + len(anchor['clarifications'])
             fixed = FixedPack(packs[role], now, c['timezone'])
-            store = open_store(Path(directory), fixed, aid.lower(), create=True)
+            segment_dir = Path(directory) / (aid + '-' + role)
+            segment_dir.mkdir()
+            store = open_store(segment_dir, fixed, aid.lower(), create=True)
             if store.pending():
                 raise RunStopped('state_not_fresh')
             actor = GuardedProvider(factory('actor', aid, role), guard, aid, role, 'actor', max_turns)
@@ -322,6 +355,7 @@ async def run_development(c, anchors, corpus, pack, *, provider_factory=None, br
             segment = dict(anchor=aid, role=role, status='running', transcript=[], web_calls=web.calls,
                 owner_preference=None, state='fresh_per_arm_and_segment', clock=c['clock_utc'])
             report['segments'].append(segment)
+            changed()
             queue = [(text, 'base') for text in anchor['user_turns']]
             used = set()
             try:
@@ -338,10 +372,14 @@ async def run_development(c, anchors, corpus, pack, *, provider_factory=None, br
                     async with asyncio.timeout(c['turn_timeout_seconds']):
                         async for piece in runtime.stream(turn):
                             row['output'] += piece  # The transcript sink receives each piece.
+                            changed()
                     runtime.delivered(turn, row['output'], complete=True)
                     row.update(delivery='complete', card=getattr(turn, 'source_card', None))
                     await maintenance_barrier(runtime, c['maintenance_timeout_seconds'])
+                    changed()
                     decision = branch_selector(anchor, deepcopy(row), actor.turn) if branch_selector else None
+                    row['branch_decision'] = decision
+                    changed()
                     if decision is not None:
                         branch = next((b for b in anchor['clarifications'] if b['id'] == decision), None)
                         if branch is None or decision in used or 'reply' not in branch:
@@ -362,8 +400,21 @@ async def run_development(c, anchors, corpus, pack, *, provider_factory=None, br
                 if isinstance(exc, asyncio.CancelledError):
                     report['cancelled'] = True
             finally:
-                await runtime.close(flush=False)
-            if report.get('cancelled'):
+                try:
+                    await runtime.close(flush=False)
+                finally:
+                    shutil.rmtree(segment_dir)
+                    segment['state_disposition'] = 'removed_after_close'
+            changed()
+            if report.get('cancelled') or (real_models and segment['status'] != 'completed'):
                 break
-    report['status'] = 'completed' if all(s['status'] == 'completed' for s in report['segments']) else 'incomplete'
+    report['status'] = 'completed' if (len(report['segments']) == len(c['order'])
+        and all(s['status'] == 'completed' for s in report['segments'])) else 'incomplete'
+    changed()
     return report
+
+
+async def run_development(c, anchors, corpus, pack, *, provider_factory=None, branch_selector=None):
+    """Public offline entry; cannot be switched to paid execution by config."""
+    return await _run_segments(c, anchors, corpus, pack, provider_factory=provider_factory,
+                               branch_selector=branch_selector)

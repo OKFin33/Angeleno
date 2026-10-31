@@ -1,0 +1,17 @@
+{
+  "format": "angeleno-development-models/1",
+  "status": "draft_not_executable",
+  "candidate_commit": null,
+  "config_sha256": null,
+  "authorization_reference": null,
+  "corpus_acceptance": null,
+  "model_alias": "deepseek-flash",
+  "model_version_limitation": "Configured alias; no immutable provider revision established",
+  "runtime_root": null,
+  "ledger_path": null,
+  "character_pack": {"path": null, "sha256": null},
+  "shared_grounding": [],
+  "roles_sha256": {"character": null, "assistant": null},
+  "branch_policy": "stop_unclassified",
+  "holdout_included": false
+}
