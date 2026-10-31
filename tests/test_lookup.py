@@ -173,12 +173,15 @@ class LookupLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(STANDING, dumped(sent[2]))
         self.assertIn(STANDING, dumped(sent[4]))
         self.assertNotIn(STANDING, dumped(sent[3]))
-        self.assertNotIn("2026-10-31", dumped(sent[3]))
-        self.assertNotIn("2026-10-31", dumped(sent[4]))
+        # The independent actor system prompt includes today's LA calendar date.
+        # That may equal a fixture date; only conversation/tool history can leak
+        # the previous check. Keep the source-text and request-ID checks global.
+        self.assertNotIn("2026-10-31", dumped(sent[3][1:]))
+        self.assertNotIn("2026-10-31", dumped(sent[4][1:]))
         self.assertIn("2026-11-07", dumped(sent[4]))
         for later in (sent[5], sent[6], sent[7]):
             self.assertNotIn(STANDING, dumped(later))
-            self.assertNotIn("2026-11-07", dumped(later))
+            self.assertNotIn("2026-11-07", dumped(later[1:]))
         blob = dumped(sent)
         for request_id in (first.source_card["request_id"], second.source_card["request_id"]):
             self.assertNotIn(request_id, blob)

@@ -1,12 +1,12 @@
 # 文字核对环
 
-本文只描述离线文字环。语音、页面和 worker 不在这里改。行为依据是 [Spec](spec.md) 第 3、4、6 节，来源契约沿 [places](places.md)。`baseline.md` 仍把查证写成未接入；本文件不改那份状态记录。
+本文描述文字环及其真实来源读取候选。语音、页面和 worker 尚未接入此环。行为依据是 [Spec](spec.md) 第 3、4、6 节，离线来源契约沿 [places](places.md)，当前验证见 [baseline](baseline.md)。
 
 ## 闭环
 
 `TextLookup` 接在文字 `ConversationRuntime` 上，并且只在显式传入时启用。默认文字路径、记忆工具环和语音路径保持原样。一个用户轮次最多一次 `place_search`、一次 `place_check`、一次 `place_cancel`，模型请求最多四次。
 
-时间用调用方传入的 `FixedClock`，按 `America/Los_Angeles` 解释。测试夹具不走网络。核对仍只读 `data/places/` 里已登记的来源和冻结页面。
+离线时间用调用方传入的 `FixedClock`，按 `America/Los_Angeles` 解释。测试夹具不走网络。默认构造仍只读 `data/places/` 冻结页面；真实读取必须显式使用下述适配器，不从 fixture 降级生成现实结论。
 
 一条注册来源上的文字环是：
 
@@ -25,6 +25,26 @@
 
 人物种子、已有记忆和来源登记都不因这次核对被改写。`last_success` 仍为空。
 
+## 真实来源读取候选
+
+2026-10-31：`her_agent/live_sources.py` 把实际 HTTPS 页面接到现有结果事件。`places` 包仍是纯离线契约。生产读取仅尝试既定 Fisher／NHM 访问页，现只解释开放时间；其他来源或问题类型返回不可用／范围外。
+
+- 连接使用校验后的同一组 DNS 地址；任一地址不是公网即拒绝。保持 TLS 主机名校验，不使用环境代理、Cookie、凭据或私人会话内容。DNS 返回代理 fake-IP 的机器会被拒绝，不为连通绕过。
+- 每跳只到精确登记 URL，最多两次 HTTP 请求；DNS、TLS、跳转和完整读取合用 10 秒期限。页面实测约 438 KB／133 KB，因此生产传输上限为 512 KiB；证据仍受 4,000 字符上限约束。超限、编码压缩、非 HTML、空白、失败和超时明确不可用。没有自动重试或 fixture 回退。
+- 解析实际可见的 Hours 区域，不读取脚本或样本专用 `data-claim`。NHM 只接受完整已观察规则：通常时段、每月首个周二的夏季例外、列明节假日。未知句式、额外闭馆公告、重复或缺失区域保留不确定性；答案表述为页面公布规则。
+- Fisher 的校历例外未完整列出，FAQ 时间也不一致，当前保留开放与例外摘录、返回信息不足，不猜年份或修正网页。解析保存的 HTML 成功不更新登记 `last_success`。
+- I/O 可取消；挂断取消向上传递，迟到结果发布前再次校验。文字环与音频交付、页面事件仍需后续整合。
+
+不调用模型的显式网络探针：
+
+```sh
+.venv/bin/python -m her_agent.live_sources
+# 默认 disabled，零网络。以下命令才读取公开页面：
+.venv/bin/python -m her_agent.live_sources --fetch --source src.nhm.visit --date 2026-11-03
+```
+
+退出码 0 仅表示该次结果 `supported`；1 表示不足、不可用等，JSON 保留状态和原因，不证明人物表现或真实语音通过。
+
 ## 有界实模调用
 
 未完成。本单元不读取操作者私有记录，也不发起付费请求。
@@ -37,7 +57,9 @@ python -m her_agent.lookup
 
 它打印 `bounded real-model run: disabled`，并以 0 退出。
 
-同时满足下面三项时，命令才会尝试**一次**付费演员轮次：`--live`、进程环境 `ANGELENO_LOOKUP_LIVE=1`、以及带时区偏移的 `--instant` 和一句 `--utterance`。该路径仍走现有付费开关和余额账本；缺配置时由原有入口拒绝。本单元没有运行它。
+同时满足 `--live`、进程环境 `ANGELENO_LOOKUP_LIVE=1` 和一句 `--utterance` 时，命令才会尝试**一次**付费演员轮次（最多四次模型请求）。该路径仍走现有付费开关和余额账本；缺配置时由原有入口拒绝。本单元没有运行它。
+
+该入口只用真实读取器，移除了会把人工样本日期带入实模的 `--instant` 参数；时间取本轮开始时的当前 LA 日期，`checked_at` 取实际读取时刻。固定时钟与样本只留在离线测试。这个单轮工厂尚不承担长通话跨午夜更新。
 
 ## 测试合并／剪枝提案
 
