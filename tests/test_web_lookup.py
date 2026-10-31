@@ -333,9 +333,16 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
                     'https://example.org:8080/', 'https://u:p@example.org/',
                     'https://example.org/?q=private', 'https://example.org/#x',
                     'https://%31%32%37.0.0.1/', 'https://example.org/%2e%2e/private',
-                    'https://127.000.000.001/', 'https://127.0x0.0.1/'):
+                    'https://127.000.000.001/', 'https://127.0x0.0.1/',
+                    'https://127.0.0.1./', 'https://127.000.000.001./',
+                    'https://127.0x0.0.1./', 'https://0177.0.0.1./',
+                    'https://0177.0.0.1/', 'https://0x7f000001./',
+                    'https://2130706433./', 'https://127.1./',
+                    'https://0x7f.0.0.1./', 'https://127.00.0.0x1./'):
             with self.subTest(url=url),self.assertRaises(ValueError):await api.fetch(url)
         self.assertEqual(api.actor.budget.ledger.summary()['rows'],[])
+        for url in ('https://example.org./page', 'https://8.8.8.8/', 'https://8.8.8.8./'):
+            self.assertEqual(public_url(url),url)
 
     async def test_provider_403_stops_batch_even_after_adapter_reconstruction(self):
         sent=[];denied=httpx.Response(403,json={'error':{'message':'private upstream details'}})
@@ -367,6 +374,35 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(WebFailure):await api.fetch(URL)
         self.assertEqual([str(r.url) for r in posts],['https://api.deepseek.com/v1/tools/fetch'])
         self.assertTrue(redirect.is_closed)
+
+    async def test_403_during_other_adapter_balance_wait_prevents_pending_dispatch(self):
+        waiting,release=asyncio.Event(),asyncio.Event()
+        get_count=0;posts=[]
+        async def handle(request):
+            nonlocal get_count
+            if request.method=='GET':
+                get_count+=1
+                if get_count==1:
+                    waiting.set()
+                    await release.wait()
+                return balance_response()
+            posts.append(request)
+            return httpx.Response(403,json={'error':{'message':'security refusal'}})
+        queued,first=self.api(handle),self.api(handle)
+        task=asyncio.create_task(queued.fetch(URL))
+        await waiting.wait()
+        try:
+            with self.assertRaisesRegex(WebFailure,'^provider_security_refused$'):
+                await first.fetch('https://example.net/first')
+        finally:
+            release.set()
+        with self.assertRaisesRegex(WebFailure,'^provider_security_refused$'):
+            await task
+        self.assertEqual([str(r.url) for r in posts],['https://api.deepseek.com/v1/tools/fetch'])
+        summary=queued.actor.budget.ledger.summary()
+        self.assertEqual([(r['status'],r['http_status'],r['estimated_micros']) for r in summary['rows']],
+                         [('http_error',403,0),('not_sent_security_refused',None,0)])
+        self.assertEqual(summary['unresolved_reserved_micros'],0)
 
     async def test_private_raw_query_and_public_label_cannot_reach_transport(self):
         api = self.api(lambda request: self.fail("No network permitted"))

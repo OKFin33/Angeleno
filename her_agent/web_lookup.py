@@ -112,7 +112,9 @@ def public_url(url):
                 or urlsplit(url).scheme != "https"):
             raise ValueError
         vet_url(url, (url,))
-        host = urlsplit(url).hostname
+        # Match the registry/browser treatment of a trailing DNS root dot
+        # before testing alternate numeric IP spellings.
+        host = urlsplit(url).hostname.lower().rstrip(".")
         if "." not in host:
             raise ValueError
         if re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]+)(?:\.(?:[0-9]+|0x[0-9a-f]+))*", host, re.I):
@@ -183,17 +185,26 @@ class DeepSeekWeb:
         # DNS is resolved by the provider; local DNS cannot validate or pin it.
         return await self._request("fetch", {"url": url})
 
+    def _security_refused(self):
+        return any(row["purpose"] == "web_fetch" and row["http_status"] == 403
+                   for row in self.actor.budget.ledger.summary()["rows"])
+
     async def _request(self, kind, payload):
         actor = self.actor
-        # A provider security refusal stops this batch, including reconstructed
-        # adapters/processes on the same ledger. No URL/service rotation retry.
-        if any(row["purpose"] == "web_fetch" and row["http_status"] == 403
-               for row in actor.budget.ledger.summary()["rows"]):
+        # A recorded provider refusal survives adapter/process reconstruction.
+        # This does not make dispatch atomic across concurrent processes.
+        if self._security_refused():
             raise WebFailure("provider_security_refused")
         client = actor._get_client()
         request_id = await actor.budget.reserve_web(client, "web_" + kind, self.limit)
         charged, status, http_status = None, "interrupted", None
         try:
+            # reserve_web awaited a fresh balance. Another adapter may have
+            # recorded a 403 while we waited; settle this unsent reservation
+            # with known zero usage instead of sending or retaining uncertainty.
+            if self._security_refused():
+                charged, status = False, "not_sent_security_refused"
+                raise WebFailure("provider_security_refused")
             async with client.stream("POST", "https://api.deepseek.com/v1/tools/" + kind,
                     headers={"Authorization": "Bearer " + actor.api_key}, json=payload,
                     follow_redirects=False) as response:
