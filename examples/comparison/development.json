@@ -13,7 +13,7 @@
   "actor_requests_per_turn": 4,
   "tools_per_turn": 3,
   "writer_requests_per_segment": 3,
-  "actor_requests_total": 160,
+  "actor_requests_total": 176,
   "writer_requests_total": 18,
   "turn_timeout_seconds": 10,
   "maintenance_timeout_seconds": 10,
@@ -51,7 +51,8 @@
   "owner_calibration": null,
   "holdout_included": false,
   "files": {
-    "anchors.json": "144778653ed2a75b01a32e01817d428a11f2c71a4c6bc57de4272a1564b9bb3c",
+    "anchors.json": "bb8c3ecd6e2e57a4e8e1caae1a91fd49bb496212dd34f98dc7d7f9910c39bfa6",
     "corpus.synthetic.json": "e24ed638d146ebf5496703beb989fe4b096f88e886ca7791f93cd79f2e590971"
-  }
+  },
+  "batch_guard_derivation": "Development inputs max turns per arm6/7/9, both arms44 turns, at most4 actor each =176; writer<=3 per each of6 segments =18. Conservative offline guard, not a new spend allowance; per-turn3 tools/4 actor unchanged."
 }
