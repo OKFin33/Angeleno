@@ -22,25 +22,96 @@ os.environ.setdefault('HF_HOME', str(ROOT.parent / 'private/cache'))
 os.environ.setdefault('HF_HUB_OFFLINE', '1')
 model = None
 generation_lock = threading.Lock()
+WARMUP_TIMEOUT_SECONDS = 60
+
+
+def generate_stream(candidate, text, reference):
+    # Startup must exercise the same inference path as user speech.
+    return candidate.generate_streaming(
+        text=text, reference_wav_path=str(reference),
+        cfg_value=2.0, inference_timesteps=10,
+        normalize=False, denoise=False, retry_badcase=False,
+    )
+
+
+async def warmup(candidate, reference):
+    done = threading.Event()
+    stop = threading.Event()
+    succeeded = []
+    if not generation_lock.acquire(blocking=False):
+        raise RuntimeError('GPU busy during startup warmup')
+
+    def generate():
+        stream = None
+        ok = False
+        try:
+            stream = generate_stream(candidate, '你好。', reference)
+            samples = 0
+            for wav in stream:
+                if stop.is_set():
+                    return
+                audio = np.asarray(wav)
+                if not np.isfinite(audio).all():
+                    raise ValueError('Invalid warmup audio')
+                samples += audio.size
+            ok = samples > 0
+        except Exception:
+            # No model exception, reference path or generated audio in health.
+            ok = False
+        finally:
+            try:
+                if stream is not None:
+                    stream.close()
+            except Exception:
+                ok = False
+            finally:
+                succeeded.append(ok)
+                generation_lock.release()
+                done.set()
+
+    thread = threading.Thread(target=generate, daemon=True)
+    try:
+        thread.start()
+    except BaseException:
+        generation_lock.release()
+        raise
+
+    async def wait():
+        while not done.is_set():
+            await asyncio.sleep(0.01)
+
+    # A stuck CUDA call cannot safely be killed in a Python thread. Fail the
+    # ASGI startup; never publish this candidate or accept a user request.
+    try:
+        await asyncio.wait_for(wait(), timeout=WARMUP_TIMEOUT_SECONDS)
+    finally:
+        stop.set()
+    if not succeeded[0]:
+        raise RuntimeError('Voice startup warmup failed')
 
 
 @asynccontextmanager
 async def lifespan(app):
     global model
-    configured_reference()
+    model = None
+    reference = configured_reference()
     model_path = Path(os.environ.get('VOXCPM_MODEL', ''))
     if not os.environ.get('VOXCPM_MODEL') or not model_path.is_dir():
         raise ValueError('VOXCPM_MODEL must explicitly name an already downloaded local model directory')
     from voxcpm import VoxCPM
-    model = VoxCPM.from_pretrained(
+    candidate = VoxCPM.from_pretrained(
         str(model_path),
         device='cuda', load_denoiser=False,
         optimize=os.getenv('VOXCPM_COMPILE', '0') == '1',
     )
-    if model.tts_model.sample_rate != 48000:
+    if candidate.tts_model.sample_rate != 48000:
         raise RuntimeError('This endpoint requires VoxCPM2 48 kHz output')
-    yield
-    model = None
+    await warmup(candidate, reference)
+    model = candidate
+    try:
+        yield
+    finally:
+        model = None
 
 
 def configured_reference():
@@ -89,11 +160,7 @@ async def speech(request: Speech):
     def generate():
         stream = None
         try:
-            stream = model.generate_streaming(
-                text=request.input, reference_wav_path=str(reference),
-                cfg_value=2.0, inference_timesteps=10,
-                normalize=False, denoise=False, retry_badcase=False,
-            )
+            stream = generate_stream(model, request.input, reference)
             for wav in stream:
                 if stop.is_set():
                     break
