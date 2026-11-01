@@ -116,12 +116,16 @@ class TrialConfigurationTests(unittest.TestCase):
 
 class TrialOwnershipTests(unittest.TestCase):
     def simulate(self, root, *, failure=None, cancel=False, close_failure=False,
-                 start_failure=False, blocked_shutdown=False, blocked_close=False, stop_reason='request'):
+                 start_failure=False, blocked_shutdown=False, blocked_close=False, stop_reason='request', managed=False, observer_failure=False):
         args = SimpleNamespace(stop_at=(datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat(),
                                output=root / 'private/receipt.json', mode='product',
                                tailscale_bin=Path('/synthetic/tailscale'), livekit_bin=Path('/synthetic/livekit'))
+        if managed:args.lifecycle=True;args.stop_at=None
         env = trial.trial_environment({}, projection(), 'product', inherited={})
         env.update(LIVEKIT_API_KEY='synthetic-key', LIVEKIT_API_SECRET='synthetic-secret')
+        if managed:
+            env.update(ANGELENO_ASR_MAX_SECONDS='5')
+            ASRAllowance(root/'private/state/asr.sqlite3',5).reserve(1)
         baseline = {'TCP': {'443': {'HTTPS': True}}, 'AllowFunnel': {'old:8443': True}}
         prepared = env, media(), 'synthetic.tail-example.ts.net', ['100.64.0.2:7882', '127.0.0.1:7882'], baseline
         children = [Mock(pid=i) for i in range(1001, 1005)]
@@ -156,8 +160,14 @@ class TrialOwnershipTests(unittest.TestCase):
                 child.poll.return_value = 0
         def listening(pid, kind):
             return (prepared[3] if kind == 'UDP' else ['127.0.0.1:7880' if pid == 1001 else '127.0.0.1:8081'])
+        def monitor(lifetime,*_,**__):
+            if observer_failure:
+                stop.wait.return_value=False
+            else:lifetime.reason='user_ended'
+            return SimpleNamespace(is_alive=lambda:not observer_failure,join=lambda **_:None)
         spawns = [children[0], OSError('synthetic spawn failure')] if failure else children
-        with patch.object(trial, 'serve_state', return_value=baseline), \
+        with patch('scripts.trial_lifecycle.start_monitor', side_effect=monitor), \
+             patch.object(trial, 'serve_state', return_value=baseline), \
              patch.object(trial, 'has_route', return_value=True), \
              patch.object(trial, 'listeners', side_effect=listening), \
              patch.object(trial.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='')), \
@@ -193,6 +203,20 @@ class TrialOwnershipTests(unittest.TestCase):
         if stop_reason == 'signal':
             self.assertGreaterEqual(stop.set.call_count, 2, 'signal and final cleanup both request stop')
         return result
+
+    def test_audio_lifecycle_hangup_cleans_owned_resources_without_stop_at(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result=self.simulate(Path(tmp),managed=True)
+            self.assertEqual(result['status'],'stopped')
+            self.assertIsNone(result['stop_at'])
+            self.assertEqual(result['stop_reason'],'user_ended')
+            self.assertEqual(result['audio_allowance']['remaining_audio_seconds'],4)
+
+    def test_dead_observer_is_incomplete_and_still_cleans_owned_resources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result=self.simulate(Path(tmp),managed=True,observer_failure=True)
+            self.assertEqual(result['status'],'incomplete')
+            self.assertEqual(result['stop_reason'],'lifecycle_observer_unavailable')
 
     def test_normal_deadline_exit_stops_only_owned_resources(self):
         with tempfile.TemporaryDirectory() as tmp:

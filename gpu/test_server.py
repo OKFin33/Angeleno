@@ -14,6 +14,24 @@ import numpy as np
 from gpu import server
 
 
+class ControlLeaseTests(unittest.TestCase):
+    def test_only_exact_transient_owner_writes_metadata_and_default_is_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'private').mkdir();(root/'gpu').mkdir()
+            path=root/'private/control-heartbeat.json'
+            with patch.object(server,'ROOT',root/'gpu'), patch.dict(os.environ,{'ANGELENO_CONTROL_INSTANCE':''}):
+                server.control_heartbeat('a'*32);self.assertFalse(path.exists())
+            with patch.object(server,'ROOT',root/'gpu'), patch.dict(os.environ,{'ANGELENO_CONTROL_INSTANCE':'a'*32}):
+                server.control_heartbeat(None);server.control_heartbeat('b'*32);self.assertFalse(path.exists())
+                with patch.object(server.time,'monotonic',return_value=123):server.control_heartbeat('a'*32)
+                self.assertEqual(json.loads(path.read_text()),{'instance_id':'a'*32,'monotonic':123})
+                self.assertEqual(path.stat().st_mode & 0o777,0o600)
+                target=root/'unrelated';target.write_text('preserved')
+                path.with_suffix('.next').symlink_to(target)
+                with self.assertRaises(OSError):server.control_heartbeat('a'*32)
+                self.assertEqual(target.read_text(),'preserved')
+
+
 class AudioMetricsTests(unittest.TestCase):
     def test_default_off_never_constructs_metrics(self):
         with patch.dict(os.environ, {'ANGELENO_AUDIO_METRICS': '0'}), \

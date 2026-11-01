@@ -144,7 +144,7 @@ body { overflow:auto}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="i-phone" viewBox="0 0 24 24"><path d="M6.4 3.2 9 7.8 6.9 10a15 15 0 0 0 7.1 7.1l2.2-2.1 4.6 2.6c.5.3.7.9.5 1.4-.5 1.4-1.7 2.2-3.3 2-7.5-1-13.8-7.3-14.8-14.8-.2-1.6.6-2.8 2-3.3.5-.2 1.1 0 1.2.3Z"/></symbol><symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></symbol><symbol id="i-mic-off" viewBox="0 0 24 24"><path d="m3 3 18 18M9 9v3a3 3 0 0 0 5.2 2M15 9V6a3 3 0 0 0-5.7-1.3M5 10v2a7 7 0 0 0 11.9 5M19 10v2c0 .7-.1 1.4-.3 2M12 19v3M8 22h8"/></symbol></defs></svg>
 <main class="screen" aria-label="一对一语音通话">
-<header class="top"><h1 id="personaName" class="name">Angeleno</h1><p id="disclosure" class="identity">虚构人物 · 早期版本 · 正在加载人物配置</p><p id="statusText" class="status" role="status">正在检查服务</p><p id="timer" class="timer">00:00</p></header>
+<header class="top"><h1 id="personaName" class="name">Angeleno</h1><p id="disclosure" class="identity">虚构人物 · 早期版本 · 正在加载人物配置</p><p id="statusText" class="status" role="status">正在检查服务</p><p id="timer" class="timer">00:00</p><p id="allowanceNotice" class="status" hidden aria-live="polite"></p></header>
 <div class="stage"><div class="portrait" aria-hidden="true"><span id="portraitLetter">J</span></div></div>
 <div id="toast" role="status" hidden></div>
 <section id="sourceCard" class="shared" hidden aria-label="当前查证" aria-live="polite"></section>
@@ -599,6 +599,36 @@ function bootAngeleno() {
         connected || connecting ? disconnect() : connect();
     });
 
+    const allowanceNotice = document.getElementById('allowanceNotice');
+    let allowanceTimer = null, allowanceRequest = 0;
+    function applyTrialStatus(data) {
+        if (!allowanceNotice || !data || data.enabled !== true
+            || data.allowance_source !== 'local_reserved_audio_not_account_balance'
+            || !Number.isInteger(data.remaining_audio_seconds) || data.remaining_audio_seconds < 0) return;
+        const endings = {local_audio_exhausted:'本地音频预留已用完，正在结束通话',
+            user_ended:'通话已结束，试用资源正在释放', no_user_joined:'长时间无人接入，试用已结束',
+            connected_audio_idle:'长时间未发送音频，试用已结束', audio_meter_changed:'音频预留状态变化，通话已结束',
+            lifecycle_observer_unavailable:'连接状态不可确认，试用已安全结束'};
+        let text = endings[data.stop_reason]
+            || '剩余可发送音频约 ' + data.remaining_audio_seconds + ' 秒（本地预留，并非账户余额；发送的静音也计入）';
+        if (!data.stop_reason && data.audio_warning) text += '，即将用完，请准备结束';
+        if (!data.stop_reason && data.idle_warning && Number.isInteger(data.idle_seconds_remaining))
+            text += '；长时间未发送音频，约 ' + data.idle_seconds_remaining + ' 秒后收尾';
+        if (data.state === 'waiting' && Number.isInteger(data.waiting_seconds_remaining))
+            text += '；等待接入，约 ' + data.waiting_seconds_remaining + ' 秒无人连接后释放';
+        allowanceNotice.hidden = false; allowanceNotice.textContent = text;
+        if (data.stop_reason && allowanceTimer !== null) { clearInterval(allowanceTimer); allowanceTimer = null; }
+    }
+    async function refreshTrialStatus() {
+        const sequence = ++allowanceRequest, generation = callGeneration;
+        try {
+            const response = await fetchBounded('/trial-status', {}, 2000);
+            if (!response.ok) return;
+            const data = await response.json();
+            if (sequence === allowanceRequest && generation === callGeneration) applyTrialStatus(data);
+        } catch (_) { /* Existing room/error handling owns connection state. */ }
+    }
+
     // Idle health responses cannot overwrite a newer call or its terminal state.
     function checkLiveKit() {
         if (connected || connecting) return;
@@ -608,6 +638,9 @@ function bootAngeleno() {
             .then(health => {
                 if (connected || connecting || generation !== callGeneration) return;
                 if (health.persona_label) updatePersona(health);
+                if (health.lifecycle_enabled && allowanceTimer === null) {
+                    refreshTrialStatus(); allowanceTimer = setInterval(refreshTrialStatus, 5000);
+                }
                 livekitReady = !!health.ready;
                 setStatus(health.ready ? 'ready' : 'error', health.ready ? '' : '通话服务未就绪');
             })

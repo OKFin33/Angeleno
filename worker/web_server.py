@@ -40,7 +40,7 @@ async def create_room_and_token(env):
             'livekit_url': env.get('LIVEKIT_PUBLIC_URL') or url}
 
 
-def handler_for(env):
+def handler_for(env, *, lifecycle=None):
     port = int(env.get('ANGELENO_WEB_PORT', '8767'))
     origins = {f'http://127.0.0.1:{port}', f'http://localhost:{port}'}
     origins.update(x.strip() for x in env.get('ANGELENO_WEB_ALLOWED_ORIGINS', '').split(',') if x.strip())
@@ -50,6 +50,9 @@ def handler_for(env):
             super().__init__(*args, directory=str(ROOT / 'web'), **kwargs)
 
         def do_GET(self):
+            if self.path == '/trial-status':
+                self.send_json(200, lifecycle.snapshot() if lifecycle is not None else {'enabled':False})
+                return
             if self.path == '/healthz':
                 # This is local configuration readiness, not a remote liveness
                 # claim. Remote connections occur only when the user dials.
@@ -60,7 +63,8 @@ def handler_for(env):
                     label = {'jo': 'Jo', 'demo-local': '合成示例（林）'}.get(pack_id, '自定义人物')
                 except (ValueError, OSError, KeyError):
                     label = '人物配置未就绪'
-                self.send_json(200, {'ready': ready, 'scope': 'local-configuration', 'persona_label': label})
+                self.send_json(200, {'ready': ready, 'scope': 'local-configuration', 'persona_label': label,
+                                     **({'lifecycle_enabled':True} if lifecycle is not None else {})})
                 return
             # Never expose files outside the static page directory.
             if self.path.split('?', 1)[0] not in {'/', '/index.html', '/livekit-client.umd.js', '/three.module.min.js', '/three.LICENSE', '/livekit-client.LICENSE', '/webgl-noise.LICENSE'}:
@@ -90,6 +94,11 @@ def handler_for(env):
             except Exception:
                 self.send_json(503, {'error': 'call service unavailable'})
                 return
+            if lifecycle is not None:
+                try:lifecycle.register(result['room'],result['identity'])
+                except ValueError:
+                    self.send_json(409, {'error':'trial is ending'})
+                    return
             # The configured client URL also applies behind a loopback proxy.
             # Request Host / forwarded headers do not select media endpoints.
             self.send_json(200, result)

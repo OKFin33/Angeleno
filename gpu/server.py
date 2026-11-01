@@ -13,6 +13,7 @@ import re
 import time
 import uuid
 import hashlib
+import hmac
 from importlib.metadata import version
 from types import MappingProxyType
 from pathlib import Path
@@ -284,8 +285,24 @@ class Speech(BaseModel):
     voice: str = 'jo'
 
 
+def control_heartbeat(instance):
+    """Refresh only this transient owner's lease; never echo its instance ID."""
+    expected = os.getenv('ANGELENO_CONTROL_INSTANCE', '')
+    if not expected or not isinstance(instance, str) or not hmac.compare_digest(instance, expected):
+        return
+    if not re.fullmatch(r'[a-f0-9]{32}', expected):
+        raise ValueError('Invalid transient control instance')
+    path = ROOT.parent / 'private' / 'control-heartbeat.json'
+    temp = path.with_suffix('.next')
+    fd = os.open(temp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as output:
+        json.dump({'instance_id': expected, 'monotonic': time.monotonic()}, output)
+    os.replace(temp, path)
+
+
 @app.get('/health')
-def health():
+def health(x_angeleno_control_instance: str | None = Header(default=None)):
+    control_heartbeat(x_angeleno_control_instance)
     return {'ready': model is not None, 'model': 'VoxCPM2',
             'backend': 'official-pytorch', 'sample_rate': 48000,
             'busy': generation_lock.locked(),

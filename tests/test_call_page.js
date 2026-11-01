@@ -27,7 +27,7 @@ function harness(fetchOverride, options={}) {
   const button = name => Object.assign(node('button'), {addEventListener(type,fn){controls[name]=fn;}});
   const elements={sourceCard,transcript,modelSelect:{value:'deepseek'},micButton:button('call'),muteButton:button('mute'),
     callLabel:node('span'),statusText:node('p'),timer:node('p'),toast:node('div'),remoteAudio:node('audio'),
-    personaName:node('h1'),portraitLetter:node('span'),disclosure:node('p')};
+    allowanceNotice:node('p'),personaName:node('h1'),portraitLetter:node('span'),disclosure:node('p')};
   const events = Object.fromEntries(['Connected','Disconnected','ParticipantConnected','ParticipantAttributesChanged','ParticipantDisconnected','Reconnecting','Reconnected','TrackSubscribed','TrackUnsubscribed','ActiveSpeakersChanged','TranscriptionReceived','DataReceived'].map(x=>[x,x]));
   class Room {
     constructor(){this.handlers={};this.actualConnected=false;this.remoteParticipants=new Map();this.micStopped=false;this.localParticipant={identity:'synthetic',isMicrophoneEnabled:true,audioTrackPublications:new Map([['mic',{track:{mediaStreamTrack:{stop:()=>{this.micStopped=true;}}}}]]),setMicrophoneEnabled:async enabled=>{if(options.micError)throw new Error("synthetic microphone denied");this.localParticipant.isMicrophoneEnabled=enabled;}};rooms.push(this);}
@@ -302,8 +302,26 @@ async function audioMetrics(){
   console.log('PASS audio-metrics: opt-in/local numeric counters, bounded history, late-result isolation');
 }
 
+async function localAllowance(){
+  const h=harness();const source='local_reserved_audio_not_account_balance';
+  h.ctx.applyTrialStatus({enabled:true,allowance_source:source,remaining_audio_seconds:493,state:'waiting',waiting_seconds_remaining:300});
+  assert.match(h.elements.allowanceNotice.textContent,/493/);assert.match(h.elements.allowanceNotice.textContent,/并非账户余额/);
+  h.ctx.applyTrialStatus({enabled:true,allowance_source:source,remaining_audio_seconds:60,state:'active',audio_warning:true});
+  assert.match(h.elements.allowanceNotice.textContent,/即将用完/);
+  const text=h.elements.allowanceNotice.textContent;
+  h.ctx.applyTrialStatus({enabled:true,allowance_source:'wallet',remaining_audio_seconds:999});
+  assert.equal(h.elements.allowanceNotice.textContent,text);
+  h.ctx.applyTrialStatus({enabled:true,allowance_source:source,remaining_audio_seconds:0,stop_reason:'local_audio_exhausted'});
+  assert.match(h.elements.allowanceNotice.textContent,/已用完/);
+  let finish;
+  const late=harness(()=>new Promise(resolve=>finish=resolve));const request=late.ctx.refreshTrialStatus();
+  late.ctx.clearCall();finish({ok:true,json:async()=>({enabled:true,allowance_source:source,remaining_audio_seconds:111})});await request;
+  assert.equal(late.elements.allowanceNotice.hidden,true,'old-call response cannot overwrite a newer call');
+  console.log('PASS local-allowance: audio reserve label, warning, exhausted and late-call isolation');
+}
+
 (async()=>{
-  const groups={'original':originalRegressions,'transient-reset':transientReset,'timer-isolation':timerIsolation,'mute-reset':muteReset,'audio-metrics':audioMetrics};
+  const groups={'original':originalRegressions,'transient-reset':transientReset,'timer-isolation':timerIsolation,'mute-reset':muteReset,'audio-metrics':audioMetrics,'local-allowance':localAllowance};
   const selected=process.argv[3];
   if(selected){assert(groups[selected],`Unknown group ${selected}`);await groups[selected]();}
   else for(const run of Object.values(groups))await run();

@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
 import sqlite3
 import subprocess
 import sys
@@ -259,9 +260,23 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
     root = Path(root).resolve()
     env, config, host, udp, baseline = prepared
     now = datetime.now(timezone.utc)
-    until = datetime.fromisoformat(args.stop_at or '')
-    if until.utcoffset() != timedelta(0) or not now < until <= now + timedelta(minutes=10):
+    managed = getattr(args, 'lifecycle', False)
+    if managed and args.stop_at:
+        raise ValueError('Choose audio/user lifecycle or a fixed diagnostic deadline')
+    if managed and args.mode != 'product':
+        raise ValueError('Audio/user lifetime applies only to product trials')
+    until = None if managed else datetime.fromisoformat(args.stop_at or '')
+    if not managed and (until.utcoffset() != timedelta(0) or not now < until <= now + timedelta(minutes=10)):
         raise ValueError('Future UTC stop-at within ten minutes required')
+    setup_deadline = time.monotonic()+90
+    lifetime = None
+    if managed:
+        from worker.audio_budget import asr_settings
+        from scripts.trial_lifecycle import AudioCallLifetime
+        meter,_ = asr_settings(env,root=root)
+        with sqlite3.connect(meter.resolve().as_uri()+'?mode=ro',uri=True) as db:
+            total,reserved = db.execute('SELECT max_seconds,reserved_seconds FROM asr_allowance WHERE id=1').fetchone()
+        lifetime = AudioCallLifetime(total-reserved)
     if not args.output or args.output.exists() or args.output.is_symlink() or not args.output.resolve().is_relative_to(root / 'private'):
         raise ValueError('New private receipt path required')
     cli = str(args.tailscale_bin)
@@ -274,10 +289,12 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
     config_path = directory / 'livekit.json'
     children, logs = [], []
     server = None
+    observer_thread = None
     http_entered, http_errors = None, []
     stop = threading.Event() if stop_event is None else stop_event
     old_signals = {}
-    report = {'status': 'starting', 'mode': args.mode, 'stop_at': until.isoformat(),
+    report = {'status': 'starting', 'mode': args.mode, 'stop_at': None if managed else until.isoformat(),
+              'lifecycle': 'audio_and_user' if managed else 'fixed_diagnostic_deadline',
               'supervisor_pid': os.getpid(), 'owned_children': [], 'serve_before': baseline,
               'web_enabled': env['ANGELENO_WEB_ENABLED'] == '1',
               'web_policy': env.get('ANGELENO_WEB_REQUEST_LIMIT') if args.mode == 'product' else None,
@@ -288,8 +305,11 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
     def save():
         args.output.write_text(json.dumps(report, indent=2) + '\n')
 
+    def startup_expired():
+        return time.monotonic()>=setup_deadline if managed else datetime.now(timezone.utc)>=until
+
     def launch(role, command):
-        if stop.is_set() or datetime.now(timezone.utc) >= until:
+        if stop.is_set() or startup_expired():
             raise InterruptedError('Trial stopped before launch')
         log = open(directory / (role + '.log'), 'x', opener=lambda p, f: os.open(p, f, 0o600))
         logs.append(log)
@@ -302,13 +322,18 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
     def wait_for(child, predicate, seconds):
         deadline = time.monotonic() + seconds
         while not predicate():
-            if stop.is_set() or datetime.now(timezone.utc) >= until:
+            if stop.is_set() or startup_expired():
                 raise InterruptedError('Trial stopped during startup')
             if child.poll() is not None or time.monotonic() >= deadline:
                 raise RuntimeError('Owned component failed readiness')
             time.sleep(.1)
 
     try:
+        if getattr(args, "owner_stdin", False):
+            if not stat.S_ISFIFO(os.fstat(sys.stdin.fileno()).st_mode):
+                raise ValueError('Owned parent stdin must be a pipe')
+            from scripts.trial_lifecycle import owner_pipe
+            owner_pipe(stop, sys.stdin.buffer)
         for sig in (signal.SIGTERM, signal.SIGINT):
             old_signals[sig] = signal.signal(sig, lambda *_: stop.set())
         config.update(keys={env['LIVEKIT_API_KEY']: env['LIVEKIT_API_SECRET']}, logging={'level': 'info'}, room={'auto_create': False})
@@ -319,7 +344,7 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
         if listeners(child.pid, 'UDP') != udp:
             raise RuntimeError('Actual RTC listener scope mismatch')
         from worker.web_server import handler_for
-        server = TrialHTTPServer(('127.0.0.1', 8767), handler_for(env))
+        server = TrialHTTPServer(('127.0.0.1', 8767), handler_for(env, lifecycle=lifetime))
         http_entered, http_errors = start_http(server, stop)
         worker = launch('worker', [sys.executable, str(root / 'scripts/run_trial.py'), '_worker'])
         wait_for(worker, lambda: listeners(worker.pid, 'TCP') == ['127.0.0.1:8081'], 20)
@@ -332,16 +357,33 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
                 return has_route(state, host, port, target)
 
             wait_for(route, routed, 20)
+        if lifetime is not None:
+            from scripts.trial_lifecycle import start_monitor
+            lifetime.ready()
+            observer_thread = start_monitor(lifetime, env, stop, root=root)
+            report['user_ready_at'] = datetime.now(timezone.utc).isoformat()
+            report['audio_allowance'] = lifetime.snapshot()
         report['status'] = 'listeners_up'; save()
         print(json.dumps({'status': 'listeners_up', 'mode': args.mode, 'receipt': str(args.output)}), flush=True)
-        while datetime.now(timezone.utc) < until and not stop.wait(.2):
+        while (managed or datetime.now(timezone.utc) < until) and not stop.wait(.2):
+            if managed and observer_thread is not None and not observer_thread.is_alive():
+                with lifetime.lock:lifetime.reason='lifecycle_observer_unavailable'
+                raise RuntimeError('Lifecycle observer exited')
             if any(child.poll() is not None for child in children):
                 raise RuntimeError('Owned component exited')
+        if lifetime is not None and lifetime.reason in {'audio_meter_changed','lifecycle_observer_unavailable'}:
+            raise RuntimeError('Trial lifetime could not be confirmed')
     except BaseException as exc:
         report.update(status='incomplete', error_type=type(exc).__name__)
     finally:
         stop.set()
         errors = list(http_errors)
+        if observer_thread is not None:
+            try:observer_thread.join(timeout=6)
+            except Exception as exc:errors.append('LifecycleObserverClose:'+type(exc).__name__)
+        if lifetime is not None:
+            report['audio_allowance'] = lifetime.snapshot()
+            report['stop_reason'] = lifetime.reason or 'supervisor_stopped'
         report['http_loop_entered'] = http_entered is not None and http_entered.is_set()
         # shutdown() deadlocks if serve_forever never ran. Even after entry,
         # bound it in a daemon helper; no HTTP failure may gate PID/key cleanup.
@@ -382,6 +424,8 @@ def main(argv=None):
     parser.add_argument('--check-host', action='store_true', help='Also inspect existing local Serve state and port ownership; starts nothing')
     parser.add_argument('--mode', choices=('technical', 'product'), default='technical')
     parser.add_argument('--stop-at')
+    parser.add_argument('--lifecycle', action='store_true', help='Product: end on local audio allowance, user end or inactivity; no active-call wall timer')
+    parser.add_argument('--owner-stdin', action='store_true', help='Owned parent pipe EOF requests cleanup')
     parser.add_argument('--output', type=Path)
     for name, default in (('env-file', 'private/runtime.env'), ('route-plan', 'tmp/nexus-offline/private-media-route-plan.json'),
                           ('serve-baseline', 'tmp/nexus-offline/private-media-preflight.json'),

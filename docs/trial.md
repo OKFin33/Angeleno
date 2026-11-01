@@ -4,8 +4,8 @@
 
 ## 当前恢复点（2026-11-01）
 
-已发布开发分支为 `nexus-integrated-trial-20261031`，本次文档核对的代码 head 为
-[`b6e7b80ad722de7b09986bc960fb35073131ceba`](https://github.com/OKFin33/Angeleno/commit/b6e7b80ad722de7b09986bc960fb35073131ceba)；
+已发布开发分支为 `nexus-integrated-trial-20261031`，本次生命周期修复的基底 head 为
+[`911e1fbcbabe5a7094afefba0b8a575f45f5d459`](https://github.com/OKFin33/Angeleno/commit/911e1fbcbabe5a7094afefba0b8a575f45f5d459)；
 后续恢复须核该分支最新已交接 head，不回退到下文历史 PR28／旧 main。
 Nexus 唯一项目目录是 `/Users/nexus/project/GitHub/OKFin33/Angeleno`；
 旧任务目录只作归档，不从其中启动，也不另建运行 checkout。
@@ -22,9 +22,9 @@ Nexus 唯一项目目录是 `/Users/nexus/project/GitHub/OKFin33/Angeleno`；
    参考文件名、路径值、摘要值和凭据只留在原私有交接，不抄入 Git。
 3. 保留 [af1dbcb 的逐请求价格快照](https://github.com/OKFin33/Angeleno/commit/af1dbcb30b60740023f9b041991aca319af97ac8)
    和原账户账本；旧行、未知预留及既有请求的价格不重写、不重新定价。
-4. 交接时服务均已停止；启动前核实际进程、原 GPU／ASR 累计记录和当前明确 grant。
-   未批准的资源申请不是运行许可；
-   本页不冻结易变余额，不因重开进程或换目录获得新额度。余额不足以覆盖启动／预热及本次窗口时停在只读预检。
+4. 交接时服务均已停止；启动前核实际进程及 GPU 持续负载，低负载可依现有授权使用，高负载不抢占。
+   GPU 历史用时只作记录，不作为旧累计时长停工门槛；保留原 ASR 音频预留与费用账本，
+   不因重开进程或换目录重置用量。启动／预热不占可发送音频余量；实际账户拒绝或本地音频预留用尽时停止相应能力。
 5. 先执行下一节不带 `--run` 的 product 预检，再由原资源 runner 在获准窗口内启动。
    可选 `ANGELENO_TTS_PREFETCH_FRAMES=2`（默认 `0`，只允许 0／2）；
    可选 `ANGELENO_MEMORY_ATTRIBUTION_CHECK=1`（默认 `0`，会增加维护费用）。
@@ -53,16 +53,16 @@ DeepSeek Search/Fetch及定向来源卡片。默认`technical`仍关闭Web；未
 预检只读验证现有身份与seed、原费用账本账户／价格、ASR原累计保护、二进制指纹和媒体访问范围。
 不创建身份、账本或ASR额度。`--check-host`不验证远端余额、GPU健康、TLS签发或用户实听。
 
-原资源runner核GPU空闲后建立有界TTS/SSH窗口、ready后才运行下列入口；该入口不拥有GPU／SSH或18080。
+原资源 runner 确认 GPU 持续低负载后，以父进程管道管理 TTS／SSH，再启动以下 product 入口；它不直接拥有 GPU／SSH或18080。
+原私有用户启动器统一执行此接合，等待准备与闲置分别计时，不再用旧540秒墙钟截断正常通话。
 使用同一原身份、原账本和现有凭据；持久配置的paid/Web默认继续为0，仅子进程显式启用。
 product模式采用当前已获准的合理账户使用策略`ANGELENO_WEB_REQUEST_LIMIT=account`，
 历史请求与未知预留均保留，不制造新的金额／次数批次；每请求余额核查、账户拒绝、供应商403与单轮保护仍生效。
 
 ```sh
 trial_session_id=$(.venv/bin/python -c 'import uuid; print("product-" + uuid.uuid4().hex[:12])')
-trial_stop_utc=$(.venv/bin/python -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(minutes=8)).isoformat())')
 .venv/bin/python scripts/run_trial.py --mode product --env-file private/runtime.env --run \
-  --stop-at "$trial_stop_utc" --output "private/validation/$trial_session_id/supervisor.json"
+  --lifecycle --output "private/validation/$trial_session_id/supervisor.json"
 ```
 
 浏览器入口取既有路由计划的HTTPS9443；同机worker走内部ws7880，浏览器走WSS9444及已批TailnetUDP7882。
@@ -70,7 +70,14 @@ trial_stop_utc=$(.venv/bin/python -c 'from datetime import datetime,timedelta,ti
 product模式拒绝任何`ANGELENO_TRIAL_*`测试hook，不使用E6合成工具代替真实查询，也不强迫演员调用工具。
 需要实际查询覆盖时，记录是否自主选择Search/Fetch、真实工具回执与卡片接收；没有选择就标未覆盖，不自动刷输入。
 
-显式UTC截止不得超过十分钟；Ctrl-C/SIGTERM和组件失败都清理本次拥有的子进程组、临时密钥配置及Serve增量，
+`--lifecycle` 使用原本地 ASR 音频预留账本：发送的静音也计入，按流向上取整；
+它不是供应商账户余额或已结算费用。页面显示剩余秒数，余量不足60秒时提示；不重置原1200秒保护或历史消耗。
+准备最多90秒；ready 后无人加入300秒、连接后连续300秒无音频预留进展会结束；挂断后留5秒重拨宽限，
+用尽后留3秒收尾。正常传输中的通话没有额外540秒墙钟截止。临时静音未达闲置限时不会结束。
+旧 `--stop-at` 仅供固定期限技术诊断（UTC，最多十分钟），不与 `--lifecycle` 混用。
+父启动器通过 `--owner-stdin` 管道监督本进程；父退出即收尾。GPU／SSH使用90秒可续租的本实例健康租约，
+监督丢失会回收；它不是用户可聊时长。未连接的等待与静音闲置仍有上限，不无限占用 GPU。
+Ctrl-C/SIGTERM和组件失败都清理本次拥有的子进程组、临时密钥配置及Serve增量，
 清理回执须证明子进程退出和Serve恢复到原基线。TTS/SSH由原资源runner的finally单独收尾，
 不杀端口占用者、不删除原private资源。ASR与GPU历史额度不扩大；关停后不能声称页面仍可试用。
 HTTP使用独立daemon请求线程和2秒socket读取超时；服务循环未进入时不等待`shutdown()`。
