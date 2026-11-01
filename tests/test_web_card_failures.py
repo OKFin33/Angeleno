@@ -41,7 +41,8 @@ class WebCardFailureTests(unittest.IsolatedAsyncioTestCase):
         payload,_=service.reconcile('synthetic','web_fetch',payload,card,intent)
         self.assertEqual(payload['selected_result_id'],selected)
         self.assertEqual(payload['page_read_status'],'unavailable')
-        self.assertIn('未读到／未核验',payload['evidence_reading']['spoken_scope'])
+        self.assertIn('搜索摘要',payload['evidence_reading']['spoken_scope'])
+        self.assertIn('不含所选页正文或当前事实确认',payload['evidence_reading']['spoken_scope'])
         self.assertEqual(payload['evidence_reading']['source_assertions'],[])
         start,end=emit.call_args_list
         self.assertEqual(start.kwargs['result_id'],selected)
