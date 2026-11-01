@@ -11,6 +11,7 @@ import argparse
 import asyncio
 from copy import deepcopy
 from dataclasses import asdict
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -54,6 +55,75 @@ def voice_messages(messages):
     return result
 
 
+def _evidence_digest(source):
+    return hashlib.sha256(json.dumps(source, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def _visible_voice_sources(messages, scope):
+    """Only complete evidence actually present after the last visible user turn.
+
+    No service cache proves that an earlier tool message survived request fitting.
+    Reference-only entries and modified/truncated quotes cannot back a reference.
+    """
+    visible = {}
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if message.get('role') == 'user':
+            visible.clear()
+        if message.get('role') != 'tool' or not isinstance(message.get('tool_call_id'), str):
+            continue
+        try:
+            body = json.loads(message['content'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not isinstance(body, dict):
+            continue
+        if body.get('status') == 'cancelled':
+            visible.clear()
+        presentation = body.get('response_presentation', {})
+        if (not isinstance(presentation, dict) or presentation.get('evidence_scope') != scope
+                or body.get('accepted') is not True):
+            continue
+        for source in body.get('sources', []):
+            if (isinstance(source, dict) and isinstance(source.get('excerpt'), str)
+                    and isinstance(source.get('source_id'), str) and 'evidence_ref' not in source):
+                visible[(source['source_id'], _evidence_digest(source))] = message['tool_call_id']
+    return visible
+
+
+def _voice_evidence_view(payload, card, messages, tool_call_id, scope):
+    """Lossless presentation deduplication, never a semantic facts extractor."""
+    result = deepcopy(payload)
+    sources = result.get('sources', [])
+    on_card = [item.to_dict() for item in card.citations]
+    # Search has two copies of each snippet/link. Keep its complete, graded
+    # citation once (also supports explicit detailed/link reading), and point
+    # result metadata at it. Never merge equal IDs with different contents.
+    for candidate in result.get('results', []):
+        for source in sources:
+            if (source.get('claim_kind') == 'search_summary'
+                    and candidate.get('result_id') == source.get('source_id')
+                    and candidate.get('url') == source.get('url')
+                    and candidate.get('summary') == source.get('excerpt')):
+                candidate.pop('summary')
+                candidate.pop('url')
+                candidate['evidence_ref'] = {'tool_call_id': tool_call_id,
+                    'source_id': source['source_id'], 'sha256': _evidence_digest(source)}
+                break
+    if result.get('page_read_status') == 'unavailable':
+        visible = _visible_voice_sources(messages, scope)
+        for index, source in enumerate(sources):
+            digest = _evidence_digest(source)
+            key = (source.get('source_id'), digest)
+            if (source in on_card and source.get('claim_kind') == 'search_summary'
+                    and key in visible):
+                sources[index] = {'source_id': source['source_id'], 'claim_kind': source['claim_kind'],
+                    'evidence_ref': {'tool_call_id': visible[key],
+                                     'source_id': source['source_id'], 'sha256': digest}}
+    return result
+
+
 def voice_tool_payload(service, payload, card, session_id):
     """Keep all evidence; describe the actual current card path, not delivery."""
     from .voice_cards import VoiceCards
@@ -66,7 +136,57 @@ def voice_tool_payload(service, payload, card, session_id):
                     'card_delivery': 'not_confirmed' if separate else 'not_available'}
     if separate:
         presentation['card_request_id'] = card.request_id
+        # Opaque request scope prevents cross-session/turn references without
+        # transmitting an actual session/identity identifier.
+        scope = _evidence_digest([session_id, card.request_id])
+        presentation['evidence_scope'] = scope
     return {**payload, 'response_presentation': presentation}
+
+
+def voice_request_messages(service, messages, session_id):
+    """Project the final visible request anew, keeping canonical history raw.
+
+    References are never cached in the conversation. Fitting/cropping canonical
+    history before this seam therefore yields a fresh, self-contained view.
+    """
+    result = []
+    card = service.channel.card(session_id)
+    last_user = max((i for i, m in enumerate(messages) if m.get('role') == 'user'), default=-1)
+    for index, message in enumerate(messages):
+        message = deepcopy(message)
+        if index > last_user and message.get('role') == 'tool':
+            body = json.loads(message['content'])
+            hint = body.get('response_presentation', {})
+            if isinstance(hint, dict) and hint.get('output') == 'voice':
+                actual = voice_tool_payload(service, {}, card, session_id)['response_presentation']
+                scope = actual.get('evidence_scope')
+                if (scope is not None and hint.get('evidence_scope') == scope
+                        and body.get('accepted') is True and card.status != 'cancelled'):
+                    body = _voice_evidence_view(body, card, result, message['tool_call_id'], scope)
+                elif actual['source_details'] == 'voice_only':
+                    body['response_presentation'] = actual
+                message['content'] = encoded(body)
+        result.append(message)
+    # Refuse an incomplete already-projected reconstruction, rather than send a
+    # reference after its original quote has disappeared. Normal callers supply
+    # canonical raw messages, so this validation needs no hidden source cache.
+    for index, message in enumerate(result):
+        if message.get('role') != 'tool':
+            continue
+        body = json.loads(message['content'])
+        hint = body.get('response_presentation', {})
+        scope = hint.get('evidence_scope') if isinstance(hint, dict) else None
+        available = _visible_voice_sources(result[:index + 1], scope)
+        for source in [*body.get('sources', []), *body.get('results', [])]:
+            if 'evidence_ref' not in source:
+                continue
+            ref = source['evidence_ref']
+            if (not isinstance(ref, dict) or set(ref) != {'source_id', 'sha256', 'tool_call_id'}
+                    or any(not isinstance(v, str) or not v for v in ref.values())
+                    or source.get('source_id', source.get('result_id')) != ref['source_id']
+                    or available.get((ref['source_id'], ref['sha256'])) != ref['tool_call_id']):
+                raise ValueError('Voice evidence reference has no visible complete source')
+    return result
 
 _MEMORY_NEEDLE = (
     "当前没有搜索、外部操作或通话外自主运行的服务；不得声称系统已搜索、预订、联系、"
@@ -638,10 +758,11 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
     while requests < _MAX_ACTOR_REQUESTS:
         requests += 1
         tools = None if halted or requests == _MAX_ACTOR_REQUESTS else _remaining(service, used)
-        if request_chars(provider, current, tools) > MAX_REQUEST_CHARS:
+        outgoing = voice_request_messages(service, current, session_id) if voice_output else current
+        if request_chars(provider, outgoing, tools) > MAX_REQUEST_CHARS:
             raise ValueError("Lookup request exceeds the input budget")
         prefix, pending = [], None
-        iterator = provider.chat_events(current, tools=tools)
+        iterator = provider.chat_events(outgoing, tools=tools)
         try:
             async for event in iterator:
                 if isinstance(event, TextDelta):

@@ -1,5 +1,6 @@
 """Voice/card division through the existing actor loop, never semantic scores."""
 import json
+import hashlib
 from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -14,6 +15,24 @@ from her_agent.web_lookup import RecordedWebResult, WebFailure, WebLookup
 from test_lookup import CLOCK, PACK, Scripted, call
 
 FIXTURE=json.loads((Path(__file__).resolve().parents[1]/'examples/voice-presentation.development.json').read_text())
+
+
+def expand_evidence(messages, message):
+    """Independently resolve every reference against the actual supplied request."""
+    value=json.loads(message['content'])
+    def resolve(ref):
+        origin=next(m for m in messages if m.get('tool_call_id')==ref['tool_call_id'])
+        source=next(s for s in json.loads(origin['content'])['sources']
+                    if s['source_id']==ref['source_id'] and 'excerpt' in s
+                    and hashlib.sha256(json.dumps(s,ensure_ascii=False,sort_keys=True).encode()).hexdigest()==ref['sha256'])
+        return source
+    for i,source in enumerate(value.get('sources',[])):
+        if 'evidence_ref' in source:value['sources'][i]=resolve(source['evidence_ref'])
+    for candidate in value.get('results',[]):
+        if 'evidence_ref' in candidate:
+            source=resolve(candidate.pop('evidence_ref'))
+            candidate.update(summary=source['excerpt'],url=source['url'])
+    return value
 
 
 class PublicReplay:
@@ -52,7 +71,7 @@ class VoicePresentationTests(unittest.IsolatedAsyncioTestCase):
             if sender:await sender.close()
             await runtime.close(flush=False)
 
-    async def test_card_failure_keeps_evidence_and_only_adds_voice_presentation(self):
+    async def test_card_failure_keeps_lossless_evidence_and_deduplicates_voice_view(self):
         case=FIXTURE['cases'][0]
         before,_,_=await self.capture(case,voice=False)
         after,_,card=await self.capture(case)
@@ -61,12 +80,16 @@ class VoicePresentationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(card['status'],'unavailable');self.assertIsNone(card['conclusion'])
         for old,new in zip(before[-1][1:],after[-1][1:]):
             if old['role']=='tool':
-                a=json.loads(old['content']);b=json.loads(new['content']);hint=b.pop('response_presentation')
+                a=json.loads(old['content']);b=expand_evidence(after[-1],new);hint=b.pop('response_presentation')
                 self.assertEqual(a,b,'facts, excerpts, dates, IDs and source grades are not shortened')
                 self.assertEqual(hint['source_details'],'separate_card')
                 self.assertEqual(hint['card_delivery'],'not_confirmed')
             else:self.assertEqual(old,new)
         self.assertTrue(all(c['claim_kind']=='search_summary' for c in card['citations']))
+        search=json.loads(after[-1][3]['content']);failed=json.loads(after[-1][5]['content'])
+        self.assertTrue(all('summary' not in c and 'url' not in c for c in search['results']))
+        self.assertTrue(all('excerpt' in c and 'url' in c for c in search['sources']))
+        self.assertTrue(all('evidence_ref' in c and 'excerpt' not in c and 'url' not in c for c in failed['sources']))
 
     async def test_seen_w08_failure_prefix_is_not_filtered_or_cut(self):
         self.assertFalse(FIXTURE['observed_prefix_complete_reply'])
