@@ -23,7 +23,7 @@ def configuration(root):
     pack_at(root)
     return {'ANGELENO_AUTHOR_PACK': str(root / 'pack.json'),
             'ANGELENO_DATA_DIR': str(root / 'private/state'),
-            'ANGELENO_MEMORY_USER': 'synthetic', 'ANGELENO_MEMORY_CREATE': '1',
+            'ANGELENO_MEMORY_USER': 'synthetic', 'ANGELENO_MEMORY_PURPOSE': 'real_user', 'ANGELENO_MEMORY_CREATE': '1',
             'ANGELENO_PAID_ENABLED': '0', 'ANGELENO_ASR_MAX_SECONDS': '5',
             'DEEPSEEK_API_KEY': 'synthetic-key', 'DASHSCOPE_API_KEY': 'synthetic-key',
             'DEEPSEEK_MODEL': 'deepseek-flash',

@@ -66,7 +66,9 @@ class Batch:
 
 
 class MemoryStore:
-    def __init__(self, path, *, character, user, seed):
+    def __init__(self, path, *, character, user, seed, purpose=None):
+        if purpose not in {None, "real_user", "development"}:
+            raise ValueError("Unknown memory purpose")
         self.path = Path(path)
         if self.path.is_symlink():
             raise ValueError("Memory database must not be a symlink")
@@ -110,9 +112,21 @@ class MemoryStore:
                     for key, value in {"schema": "2", "character": character, "user": user, "seed": seed,
                                        "revision": "0", "watermark": "0"}.items():
                         self.db.execute("INSERT INTO meta VALUES (?,?)", (key, value))
-            for key, value in {"schema": "2", "character": character, "user": user, "seed": seed}.items():
+            if self._meta("schema") not in {"2", "3"}:
+                raise ValueError("Memory schema differs; explicit migration is required")
+            for key, value in {"character": character, "user": user, "seed": seed}.items():
                 if self._meta(key) != value:
                     raise ValueError(f"Memory {key} differs; explicit migration is required")
+            row = self.db.execute("SELECT value FROM meta WHERE key='purpose'").fetchone()
+            previous = row[0] if row else None
+            if previous is not None and previous != purpose:
+                raise ValueError("Memory purpose differs; development cannot open a real-user store")
+            if purpose is not None and previous is None:
+                with self.db:
+                    self.db.execute("INSERT INTO meta VALUES ('purpose',?)", (purpose,))
+                    # Old schema2 writers cannot honor quarantines/purpose.
+                    self._set_meta("schema", "3")
+            self.purpose = purpose
         except Exception:
             self.db.close()
             os.close(self.lock)
@@ -155,7 +169,7 @@ class MemoryStore:
         with self.db:
             parent = None
             if role == "assistant":
-                parent = self.db.execute("SELECT seq FROM events WHERE session=? AND role='user' AND delivery!='forgotten' ORDER BY seq DESC LIMIT 1", (session,)).fetchone()
+                parent = self.db.execute("SELECT seq FROM events WHERE session=? AND role='user' AND delivery NOT IN ('forgotten','quarantined') ORDER BY seq DESC LIMIT 1", (session,)).fetchone()
                 if parent is None:
                     raise ValueError("Delivered assistant speech needs a user turn")
             cursor = self.db.execute("INSERT INTO events(session,role,text,delivery,created) VALUES (?,?,?,?,?)",
@@ -163,13 +177,44 @@ class MemoryStore:
             self.db.execute("UPDATE events SET turn=? WHERE seq=?", (parent[0] if parent else cursor.lastrowid, cursor.lastrowid))
         return cursor.lastrowid
 
+    def quarantine_synthetic(self, seqs, *, reason):
+        """Reversibly hide explicitly evidenced development rows, never erase text.
+
+        Mixed-source summaries require separate review; do not discard their
+        genuine user facts by automatically labelling the whole record synthetic.
+        """
+        seqs = set(seqs)
+        if not seqs or any(type(n) is not int or n < 1 for n in seqs) or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("Explicit event IDs and evidence reference required")
+        placeholders = ','.join('?' for _ in seqs)
+        rows = self.db.execute(f"SELECT seq,delivery FROM events WHERE seq IN ({placeholders})", tuple(seqs)).fetchall()
+        if {r['seq'] for r in rows} != seqs:
+            raise ValueError("Unknown quarantine event")
+        affected = []
+        for record in self.records(include_hidden=True):
+            evidence = set(record['evidence'])
+            if evidence & seqs:
+                if not evidence <= seqs:
+                    raise ValueError("Mixed-source memory needs explicit repair; left untouched")
+                affected.append(record['id'])
+        with self.db:
+            self.db.execute("CREATE TABLE IF NOT EXISTS quarantined_events (seq INTEGER PRIMARY KEY, original_delivery TEXT NOT NULL, reason TEXT NOT NULL)")
+            for row in rows:
+                self.db.execute("INSERT OR IGNORE INTO quarantined_events VALUES (?,?,?)", (row['seq'],row['delivery'],reason))
+            self.db.execute(f"UPDATE events SET delivery='quarantined' WHERE seq IN ({placeholders})",tuple(seqs))
+            for rid in affected:
+                self.db.execute("UPDATE records SET active=0 WHERE id=?",(rid,))
+            self._set_meta('schema','3')
+            self._set_meta('revision',self.revision+1)
+        return {'event_ids':sorted(seqs),'record_ids':affected}
+
     def records(self, *, include_hidden=False):
         records = [json.loads(r[0]) for r in self.db.execute("SELECT payload FROM records WHERE active=1 ORDER BY rowid")]
         return [r for r in records if include_hidden or r["known"]]
 
     def pending(self):
         return [dict(r) for r in self.db.execute(
-            "SELECT * FROM events WHERE seq>? AND delivery!='forgotten' ORDER BY seq", (self.watermark,))]
+            "SELECT * FROM events WHERE seq>? AND delivery NOT IN ('forgotten','quarantined') ORDER BY seq", (self.watermark,))]
 
     def select(self, query):
         cards = [json.loads(r[0]) for r in self.db.execute(
@@ -199,7 +244,7 @@ class MemoryStore:
         # resolve references without a keyword match or a search tool. Prior
         # unprocessed turns retain their existing full-backlog budget below.
         recent = [dict(r) for r in self.db.execute(
-            "SELECT * FROM events WHERE session=? OR seq<=? ORDER BY seq DESC LIMIT ?",
+            "SELECT * FROM events WHERE (session=? OR seq<=?) AND delivery!='quarantined' ORDER BY seq DESC LIMIT ?",
             (session, self.watermark, MAX_HISTORY_MESSAGES))][::-1]
         hidden = {seq for row in self.db.execute("SELECT payload FROM records WHERE known=0")
                   for seq in json.loads(row[0])["evidence"]}
@@ -208,7 +253,7 @@ class MemoryStore:
             f"SELECT seq,turn,delivery FROM events WHERE turn IN ({','.join('?' for _ in turns)})",
             tuple(turns)) if turns else ()
         unavailable_turns = {r["turn"] for r in partners
-                             if r["delivery"] == "forgotten" or r["seq"] in hidden}
+                             if r["delivery"] in {"forgotten", "quarantined"} or r["seq"] in hidden}
         recent = [r for r in recent if r["turn"] not in unavailable_turns]
         # Match the compiler's usable window before removing these events from
         # unprocessed. Otherwise its leading-assistant trim loses pending evidence.
@@ -259,7 +304,7 @@ class MemoryStore:
     def current_turn(self, session):
         """Latest saved user turn, for opt-in actor tool exposure only."""
         row = self.db.execute("SELECT seq FROM events WHERE session=? AND role='user' "
-                              "AND delivery!='forgotten' ORDER BY seq DESC LIMIT 1", (session,)).fetchone()
+                              "AND delivery NOT IN ('forgotten','quarantined') ORDER BY seq DESC LIMIT 1", (session,)).fetchone()
         if row is None:
             raise ValueError("No saved user turn")
         return row[0]
@@ -397,7 +442,7 @@ class MemoryStore:
                 continue  # Never fall back to an older citation.
             turn = [dict(e) for e in self.db.execute(
                 "SELECT * FROM events WHERE session=? AND turn=? ORDER BY seq", (source["session"], source["turn"]))]
-            if any(e["delivery"] == "forgotten" or e["seq"] in hidden for e in turn):
+            if any(e["delivery"] in {"forgotten", "quarantined"} or e["seq"] in hidden for e in turn):
                 entry["omitted"] = "unavailable"
                 continue
             visible = [e for e in turn if e["seq"] not in excluded]
@@ -609,7 +654,9 @@ class MemoryStore:
         context = ("source_context" if "source_context" in {
             row[1] for row in self.db.execute("PRAGMA table_info(lookup_results)")}
             else "NULL AS source_context")
-        where = "" if ids is None else " WHERE assistant_seq IN (" + ",".join("?" for _ in ids) + ")"
+        where = " WHERE assistant_seq IN (SELECT seq FROM events WHERE delivery='complete')"
+        if ids is not None:
+            where += " AND assistant_seq IN (" + ",".join("?" for _ in ids) + ")"
         rows = [dict(row) for row in self.db.execute(
             "SELECT session,user_turn,request_id,assistant_seq,status,subject,conclusion,applicable_date,"
             "checked_at,source_id,source_url,excerpt,delivered_text," + context + " FROM lookup_results" + where + " ORDER BY id",

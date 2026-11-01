@@ -19,7 +19,7 @@ def open_memory(args, pack, *, create=False):
     user = getattr(args, "memory_user", None)
     if not user:
         return None
-    return open_store(ROOT, pack, user, create=create, data_dir=getattr(args, "data_dir", None))
+    return open_store(ROOT, pack, user, create=create, data_dir=getattr(args, "data_dir", None), purpose="real_user")
 
 
 def save_private(path, data):

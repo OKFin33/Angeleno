@@ -32,6 +32,11 @@ def voice_configuration(env, *, root=ROOT):
     user = env.get("ANGELENO_MEMORY_USER", "").strip()
     if not user:
         raise ValueError("ANGELENO_MEMORY_USER must explicitly select an independent trial identity")
+    purpose = env.get("ANGELENO_MEMORY_PURPOSE", "development")
+    if purpose not in {"real_user", "development"}:
+        raise ValueError("Explicit real_user or development memory purpose required")
+    if purpose == "development" and (not user.startswith("dev-") or env.get("ANGELENO_MEMORY_DATA_DIR") != "private/development-state"):
+        raise ValueError("Development voice requires dev- identity and private/development-state")
     variant = env.get("ANGELENO_AUTHOR_VARIANT", "guided")
     if variant not in {"raw", "guided"}:
         raise ValueError("Unknown ANGELENO_AUTHOR_VARIANT")
@@ -44,14 +49,16 @@ def voice_configuration(env, *, root=ROOT):
 def validate_voice_setup(env, *, root=ROOT):
     pack, user, _ = voice_configuration(env, root=root)
     store = open_store(root, pack, user, create=env.get("ANGELENO_MEMORY_CREATE") == "1",
-                       data_dir=env.get("ANGELENO_DATA_DIR", "private/state"))
+                       data_dir=env.get("ANGELENO_MEMORY_DATA_DIR", env.get("ANGELENO_DATA_DIR", "private/state")),
+                       purpose=env.get("ANGELENO_MEMORY_PURPOSE", "development"))
     store.close()
 
 
 def create_voice_runtime(env, *, root=ROOT, provider_factory=None):
     pack, user, variant = voice_configuration(env, root=root)
     store = open_store(root, pack, user, create=env.get("ANGELENO_MEMORY_CREATE") == "1",
-                       data_dir=env.get("ANGELENO_DATA_DIR", "private/state"))
+                       data_dir=env.get("ANGELENO_MEMORY_DATA_DIR", env.get("ANGELENO_DATA_DIR", "private/state")),
+                       purpose=env.get("ANGELENO_MEMORY_PURPOSE", "development"))
     try:
         actor, writer = (provider_factory(env) if provider_factory else configured_providers(env, root=root))
         from .live_sources import live_lookup

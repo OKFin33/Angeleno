@@ -148,7 +148,7 @@ class VoiceCardTests(unittest.IsolatedAsyncioTestCase):
     async def test_voice_runtime_opt_in_uses_live_checker_and_shared_memory(self):
         env = {"ANGELENO_CONVERSATION": "1", "LLM_PROVIDER": "deepseek",
             "ANGELENO_AUTHOR_PACK": str(self.root / "pack.json"), "ANGELENO_MEMORY_USER": "factory",
-            "ANGELENO_MEMORY_CREATE": "1", "ANGELENO_MEMORY_TOOLS": "1", "ANGELENO_PLACE_TOOLS": "1"}
+            "ANGELENO_MEMORY_PURPOSE": "real_user", "ANGELENO_MEMORY_CREATE": "1", "ANGELENO_MEMORY_TOOLS": "1", "ANGELENO_PLACE_TOOLS": "1"}
         with patch("socket.socket", side_effect=AssertionError("No network during construction")):
             runtime = create_voice_runtime(env, root=self.root, provider_factory=lambda _: (self.actor, IdleWriter()))
         self.assertTrue(runtime.memory_tools)

@@ -103,6 +103,10 @@ def trial_environment(settings, projection, mode, *, inherited=None):
     env.update(ANGELENO_PAID_ENABLED='1', ANGELENO_MEMORY_CREATE='0',
                ANGELENO_PLACE_TOOLS='0', ANGELENO_WEB_PORT='8767',
                LIVEKIT_WORKER_PORT='8081', ANGELENO_WEB_ENABLED='1' if mode == 'product' else '0')
+    env['ANGELENO_MEMORY_PURPOSE'] = 'real_user' if mode == 'product' else 'development'
+    if mode == 'technical' and (not env.get('ANGELENO_MEMORY_USER', '').startswith('dev-')
+                               or env.get('ANGELENO_MEMORY_DATA_DIR') != 'private/development-state'):
+        raise ValueError('Technical trials require dev- identity and private/development-state; never reuse real-user state')
     if mode == 'product':
         # Current reasonable-use account authorization, not a fresh batch or
         # permission inferred from a historical counter. All rows stay intact.
@@ -125,13 +129,18 @@ def check_state(env, *, root=ROOT):
     Ledger.validate_existing(ledger, prices, minimum_balance=env['ANGELENO_MIN_BALANCE'],
                             carryover=env['ANGELENO_BUDGET_CARRYOVER'], account=key)
     pack = configured_pack(env, root=root)
-    memory = resolve_path(env.get('ANGELENO_DATA_DIR', 'private/state'), root=root) / pack.id / env['ANGELENO_MEMORY_USER'] / 'memory.sqlite3'
+    memory = resolve_path(env.get('ANGELENO_MEMORY_DATA_DIR', env.get('ANGELENO_DATA_DIR', 'private/state')), root=root) / pack.id / env['ANGELENO_MEMORY_USER'] / 'memory.sqlite3'
     if memory.is_symlink() or not memory.is_file():
         raise ValueError('Existing memory identity required')
     with sqlite3.connect(memory.resolve().as_uri() + '?mode=ro', uri=True) as db:
         if db.execute('PRAGMA application_id').fetchone()[0] != APPLICATION_ID:
             raise ValueError('Existing memory identity invalid')
-        expected = {'schema': '2', 'character': pack.id, 'user': env['ANGELENO_MEMORY_USER'], 'seed': seed_digest(pack)}
+        purpose = db.execute("SELECT value FROM meta WHERE key='purpose'").fetchone()
+        if purpose is not None and purpose != (env['ANGELENO_MEMORY_PURPOSE'],):
+            raise ValueError('Memory purpose mismatch before GPU startup')
+        if db.execute("SELECT value FROM meta WHERE key='schema'").fetchone() not in [('2',),('3',)]:
+            raise ValueError('Unsupported memory schema')
+        expected = {'character': pack.id, 'user': env['ANGELENO_MEMORY_USER'], 'seed': seed_digest(pack)}
         if any(db.execute('SELECT value FROM meta WHERE key=?', (k,)).fetchone() != (v,) for k, v in expected.items()):
             raise ValueError('Existing identity/seed mismatch; no migration attempted')
     asr, maximum = asr_settings(env, root=root)

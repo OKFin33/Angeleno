@@ -57,7 +57,7 @@ class TrialConfigurationTests(unittest.TestCase):
         settings = {'ANGELENO_WEB_REQUEST_LIMIT': '6'}
         before = deepcopy(settings)
         old = {'ANGELENO_WEB_ENABLED': '1', 'ANGELENO_TRIAL_E6_DIR': 'stale'}
-        technical = trial.trial_environment(settings, {}, 'technical', inherited=old)
+        technical = trial.trial_environment({**settings,'ANGELENO_MEMORY_USER':'dev-synthetic','ANGELENO_MEMORY_DATA_DIR':'private/development-state'}, {}, 'technical', inherited=old)
         self.assertEqual(technical['ANGELENO_WEB_ENABLED'], '0')
         self.assertNotIn('ANGELENO_TRIAL_E6_DIR', technical)
         with self.assertRaisesRegex(ValueError, 'test hooks'):

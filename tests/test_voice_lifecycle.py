@@ -172,7 +172,7 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_or_locked_identity_refuses_before_provider_factory(self):
         env = {"ANGELENO_CONVERSATION": "1", "ANGELENO_AUTHOR_PACK": str(self.root / "pack.json"),
-               "LLM_PROVIDER": "deepseek", "ANGELENO_MEMORY_CREATE": "1"}
+               "LLM_PROVIDER": "deepseek", "ANGELENO_MEMORY_PURPOSE": "real_user", "ANGELENO_MEMORY_CREATE": "1"}
         called = []
         factory = lambda env: called.append(True)
         with self.assertRaisesRegex(ValueError, "ANGELENO_MEMORY_USER"):
@@ -306,7 +306,7 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
         original = (self.root / "private/state/synthetic/voice-test/memory.sqlite3").read_bytes()
         (self.root / "character.md").write_text("改变过的合成人物原稿。")
         env = {"ANGELENO_CONVERSATION": "1", "ANGELENO_AUTHOR_PACK": str(self.root / "pack.json"),
-               "LLM_PROVIDER": "deepseek", "ANGELENO_MEMORY_CREATE": "1", "ANGELENO_MEMORY_USER": "voice-test"}
+               "LLM_PROVIDER": "deepseek", "ANGELENO_MEMORY_PURPOSE": "real_user", "ANGELENO_MEMORY_CREATE": "1", "ANGELENO_MEMORY_USER": "voice-test"}
         with self.assertRaises(ValueError):
             create_voice_runtime(env, root=self.root,
                                  provider_factory=lambda env: self.fail("No provider before compatibility"))

@@ -98,7 +98,7 @@ class AttributionRuntimeOptionTests(StoreFixture, unittest.IsolatedAsyncioTestCa
             writer = TwoStage({'updates': [], 'retire': []})
             env = {'ANGELENO_AUTHOR_PACK': str(self.root / 'pack.json'),
                    'ANGELENO_MEMORY_USER': 'runtime-' + ('on' if mode else 'off'),
-                   'ANGELENO_MEMORY_CREATE': '1'}
+                   'ANGELENO_MEMORY_PURPOSE': 'real_user', 'ANGELENO_MEMORY_CREATE': '1'}
             if mode is not None:env['ANGELENO_MEMORY_ATTRIBUTION_CHECK'] = mode
             runtime = create_voice_runtime(env, root=self.root, provider_factory=lambda _: (actor, writer))
             try:
@@ -112,7 +112,7 @@ class AttributionRuntimeOptionTests(StoreFixture, unittest.IsolatedAsyncioTestCa
     async def test_invalid_option_refuses_before_provider_or_store_creation(self):
         from her_agent.voice import create_voice_runtime
         env = {'ANGELENO_AUTHOR_PACK': str(self.root / 'pack.json'), 'ANGELENO_MEMORY_USER': 'invalid',
-               'ANGELENO_MEMORY_CREATE': '1', 'ANGELENO_MEMORY_ATTRIBUTION_CHECK': 'yes'}
+               'ANGELENO_MEMORY_PURPOSE': 'real_user', 'ANGELENO_MEMORY_CREATE': '1', 'ANGELENO_MEMORY_ATTRIBUTION_CHECK': 'yes'}
         with self.assertRaisesRegex(ValueError, 'must be 0 or 1'):
             create_voice_runtime(env, root=self.root, provider_factory=lambda _: self.fail('No provider'))
         self.assertFalse((self.root / 'private/state').exists())

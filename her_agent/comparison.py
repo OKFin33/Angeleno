@@ -358,7 +358,7 @@ async def _run_segments(c, anchors, corpus, pack, *, provider_factory=None, bran
             fixed = FixedPack(packs[role], now, c['timezone'])
             segment_dir = Path(directory) / (aid + '-' + role)
             segment_dir.mkdir()
-            store = open_store(segment_dir, fixed, aid.lower(), create=True)
+            store = open_store(segment_dir, fixed, aid.lower(), create=True, purpose="development")
             if store.pending():
                 raise RunStopped('state_not_fresh')
             actor = GuardedProvider(factory('actor', aid, role), guard, aid, role, 'actor', max_turns)
