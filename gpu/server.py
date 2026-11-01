@@ -13,6 +13,8 @@ import re
 import time
 import uuid
 import hashlib
+from importlib.metadata import version
+from types import MappingProxyType
 from pathlib import Path
 import queue
 import threading
@@ -90,8 +92,58 @@ def audio_metrics(request_id):
     return AudioMetrics(tag)
 
 
+class ReferenceVoice:
+    """Reuse reference features only, scoped to this loaded model and asset.
+
+    VoxCPM2's generation KV state remains model-owned and serialized by the
+    existing generation lock. No generated audio/context is cached or saved.
+    """
+    def __init__(self, candidate, reference, model_identity):
+        self.candidate = candidate
+        self.reference = reference.resolve()
+        self.digest = self.fingerprint(reference)
+        self.key = (model_identity, self.digest)
+        cache = candidate.tts_model.build_prompt_cache(reference_wav_path=str(reference))
+        if cache.get('mode') != 'reference' or set(cache) != {'mode', 'ref_audio_feat'}:
+            raise RuntimeError('Expected isolated VoxCPM2 reference features')
+        # The installed API reads this mapping and constructs fresh generation
+        # tensors; never retain per-request KV/audio continuation in this cache.
+        self.cache = MappingProxyType(cache)
+
+    @staticmethod
+    def fingerprint(reference):
+        with reference.open('rb') as source:
+            return hashlib.file_digest(source, 'sha256').hexdigest()
+
+    def stream(self, text, reference):
+        if reference.resolve() != self.reference or self.fingerprint(reference) != self.digest:
+            raise ValueError('Reference asset changed; restart to rebuild verified conditioning')
+        text = re.sub(r'\s+', ' ', text.replace('\n', ' '))
+        stream = self.candidate.tts_model.generate_with_prompt_cache_streaming(
+            target_text=text, prompt_cache=self.cache, min_len=2, max_len=4096,
+            cfg_value=2.0, inference_timesteps=10, retry_badcase=False,
+        )
+        try:
+            for wav, _, _ in stream:
+                yield wav.squeeze(0).cpu().numpy()
+        finally:
+            stream.close()
+
+
+def prepare_reference(candidate, reference, model_path):
+    enabled = os.getenv('VOXCPM_REFERENCE_CACHE', '1')
+    if enabled not in {'0', '1'}:
+        raise ValueError('VOXCPM_REFERENCE_CACHE must be0or1')
+    if enabled == '0':
+        return candidate
+    identity = (version('voxcpm'), str(model_path.resolve()), id(candidate))
+    return ReferenceVoice(candidate, reference, identity)
+
+
 def generate_stream(candidate, text, reference):
     # Startup must exercise the same inference path as user speech.
+    if isinstance(candidate, ReferenceVoice):
+        return candidate.stream(text, reference)
     return candidate.generate_streaming(
         text=text, reference_wav_path=str(reference),
         cfg_value=2.0, inference_timesteps=10,
@@ -173,6 +225,7 @@ async def lifespan(app):
     )
     if candidate.tts_model.sample_rate != 48000:
         raise RuntimeError('This endpoint requires VoxCPM2 48 kHz output')
+    candidate = prepare_reference(candidate, reference, model_path)
     await warmup(candidate, reference)
     model = candidate
     reference_state = reference_metadata

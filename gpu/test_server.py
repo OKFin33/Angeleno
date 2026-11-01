@@ -74,7 +74,7 @@ class FakeModel:
 
 class ServerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.reference_mode = patch.dict(os.environ, {'VOXCPM_REFERENCE_PURPOSE':'diagnostic'})
+        self.reference_mode = patch.dict(os.environ, {'VOXCPM_REFERENCE_PURPOSE':'diagnostic', 'VOXCPM_REFERENCE_CACHE':'0'})
         self.reference_mode.start()
 
     async def asyncTearDown(self):
@@ -291,11 +291,88 @@ class ReferenceContractTests(unittest.TestCase):
             file=Path(tmp)/'synthetic.wav';file.touch()
             with patch.dict(os.environ,{'VOXCPM_REFERENCE_PURPOSE':'jo'},clear=True):
                 with self.assertRaisesRegex(ValueError,'REFERENCE_ID'):server.validate_reference_asset(file)
-            with patch.dict(os.environ,{'VOXCPM_REFERENCE_PURPOSE':'diagnostic'},clear=True):
+            with patch.dict(os.environ,{'VOXCPM_REFERENCE_PURPOSE':'diagnostic', 'VOXCPM_REFERENCE_CACHE':'0'},clear=True):
                 value=server.validate_reference_asset(file)
                 self.assertEqual(value['purpose'],'diagnostic');self.assertFalse(value['verified'])
                 with patch.object(Path,'open',side_effect=PermissionError):
                     with self.assertRaisesRegex(ValueError,'not readable'):server.validate_reference_asset(file)
+
+
+
+
+class ReferenceCacheTests(unittest.IsolatedAsyncioTestCase):
+    def fixture(self, reference):
+        calls = []
+        closed = []
+        class Tensor:
+            def squeeze(self, _): return self
+            def cpu(self): return self
+            def numpy(self): return np.array([.25, -.25], dtype=np.float32)
+        class TTS:
+            sample_rate = 48000
+            def build_prompt_cache(self, **kwargs):
+                calls.append(('build', kwargs))
+                return {'mode': 'reference', 'ref_audio_feat': object()}
+            def generate_with_prompt_cache_streaming(self, **kwargs):
+                calls.append(('generate', kwargs))
+                try:
+                    yield Tensor(), None, None
+                    yield Tensor(), None, None
+                finally:
+                    closed.append(True)
+        candidate = SimpleNamespace(tts_model=TTS())
+        return candidate, calls, closed
+
+    async def test_reference_encoded_once_with_fresh_generation_and_original_parameters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'reference.wav';path.write_bytes(b'synthetic reference')
+            candidate,calls,closed = self.fixture(path)
+            with patch.dict(os.environ, VOXCPM_REFERENCE_CACHE='1'), patch.object(server, 'version', return_value='2.0.3'):
+                voice = server.prepare_reference(candidate,path,Path(tmp))
+            first = list(server.generate_stream(voice, 'Hello\n  world', path))
+            second = list(server.generate_stream(voice, 'Another sentence.', path))
+            self.assertEqual([x[0] for x in calls], ['build','generate','generate'])
+            self.assertEqual(len(closed),2)
+            self.assertEqual(first[0].tobytes(),second[0].tobytes())
+            params = calls[1][1]
+            self.assertEqual(params['target_text'],'Hello world')
+            self.assertEqual((params['min_len'],params['max_len'],params['inference_timesteps'],params['cfg_value'],params['retry_badcase']), (2,4096,10,2.0,False))
+            self.assertEqual(voice.key[0][0], '2.0.3')
+            self.assertEqual(voice.key[1],hashlib.sha256(path.read_bytes()).hexdigest())
+            with self.assertRaises(TypeError): voice.cache['mode']='continuation'
+            self.assertEqual(set(voice.cache),{'mode','ref_audio_feat'})
+
+    async def test_changed_asset_fails_instead_of_reusing_stale_voice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'reference.wav';path.write_bytes(b'first')
+            candidate,calls,_=self.fixture(path)
+            voice=server.ReferenceVoice(candidate,path,('2.0.3','model-instance'))
+            path.write_bytes(b'other')
+            with self.assertRaisesRegex(ValueError,'Reference asset changed'):
+                list(server.generate_stream(voice,'Public text',path))
+            self.assertEqual(len(calls),1)
+            other=Path(tmp)/'other.wav';other.write_bytes(b'first')
+            with self.assertRaises(ValueError):list(server.generate_stream(voice,'Public text',other))
+
+    async def test_early_close_releases_generation_and_cache_survives_next_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'reference.wav';path.write_bytes(b'fixture')
+            candidate,calls,closed=self.fixture(path)
+            voice=server.ReferenceVoice(candidate,path,('test-model',))
+            stream=server.generate_stream(voice,'First',path);next(stream);stream.close()
+            self.assertEqual(closed,[True])
+            self.assertEqual(len(list(server.generate_stream(voice,'Next',path))),2)
+            self.assertEqual(len([x for x in calls if x[0]=='build']),1)
+
+    async def test_cache_preparation_failure_never_publishes_ready(self):
+        candidate=SimpleNamespace(tts_model=SimpleNamespace(sample_rate=48000,build_prompt_cache=lambda **_:(_ for _ in ()).throw(RuntimeError('synthetic cache failure'))))
+        module=SimpleNamespace(VoxCPM=SimpleNamespace(from_pretrained=lambda *a,**k:candidate))
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'reference.wav';path.write_bytes(b'fixture')
+            with patch.dict(os.environ, VOXCPM_REFERENCE_CACHE='1',VOXCPM_REFERENCE=str(path),VOXCPM_MODEL=tmp,VOXCPM_REFERENCE_PURPOSE='diagnostic'), patch.dict('sys.modules',voxcpm=module), patch.object(server,'version',return_value='2.0.3'):
+                with self.assertRaisesRegex(RuntimeError,'cache failure'):
+                    async with server.lifespan(server.app):pass
+            self.assertFalse(server.health()['ready'])
 
 
 if __name__ == '__main__':
