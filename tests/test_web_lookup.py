@@ -639,8 +639,8 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
         private_pack=replace(PACK,documents=(replace(PACK.documents[0],body=private),))
         with self.assertRaises(ValueError):
             configured_web_lookup({"ANGELENO_WEB_ENABLED":"1","ANGELENO_WEB_REQUEST_LIMIT":"6"},api.actor,pack=private_pack)
-        # A real pack is eligible only through an explicit closed egress policy;
-        # the adapter has no date or free-text escape hatch regardless of pack.
+        # A real pack uses the explicit structured egress policy; raw queries,
+        # context fields and dates remain disallowed regardless of the pack.
         service=configured_web_lookup({"ANGELENO_WEB_ENABLED":"1","ANGELENO_WEB_REQUEST_LIMIT":"6",
             "ANGELENO_WEB_EGRESS":"public-fields-v1"},api.actor,pack=private_pack)
         self.assertIsInstance(service,WebLookup)

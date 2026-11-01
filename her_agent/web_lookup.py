@@ -49,28 +49,77 @@ PUBLIC_PLACES = {
 }
 
 
+def _check_public_phrase(value, limit):
+    """Reject common private/date/instruction forms, not certify publicness.
+
+    These are short names or subject phrases, never a raw-query escape hatch.
+    The actor must still minimize semantically and abstain on private/unknown
+    material. A well-formed phrase is not proof that it is public or harmless.
+    """
+    if (type(value) is not str or not 2 <= len(value) <= limit or value != value.strip()
+            or "  " in value or len(value.split()) > 10
+            or not any(c.isalpha() for c in value)
+            or any(not (c.isalpha() or c in " -'’&()") for c in value)):
+        raise ValueError("Expected a short public name or subject phrase")
+    if re.search(
+            r"\b(?:i|my|me|we|our|you|your|user|assistant|system|private|secret|password|"
+            r"tokens?|bearer|email|phone|contact|address|home|birthday|born|lives|likes|prefers|is|are|was|were|"
+            r"ignore|disregard|override|instructions?|prompt|reveal|send|"
+            r"today|tomorrow|yesterday|next|last|date|"
+            r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|"
+            r"aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|"
+            r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|"
+            r"\b(?:sk|api|bearer)-|\bapi key\b|"
+            r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) "
+            r".+\b(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd)\b|"
+            r"我|你|咱|用户|系统|指令|忽略|泄露|发送|电话|邮箱|住址|地址|生日|"
+            r"私聊|私密|记忆|凭据|密码|密钥|原话|聊天|住在|家住|喜欢|偏好|"
+            r"今天|明天|后天|昨天|本周|下周|这周|(?:周|星期)[一二三四五六日天]|"
+            r"[〇零一二三四五六七八九十两]+[年月日号]",
+            value, re.IGNORECASE):
+        raise ValueError("Private, date or instruction-like phrase is not a search component")
+
+
 @dataclass(frozen=True)
 class PublicQuery:
-    """Closed public vocabulary, not a private string with a safety label.
-
-    No caller-controlled text is concatenated. A model chooses public IDs;
-    dates and raw user/persona text are never an outbound input here.
-    """
+    """Public IDs plus bounded names/subjects; form checks are not privacy proof."""
     area: str
     topic: str
     place_id: str | None = None
     day: date | None = None
+    entity_name: str | None = None
+    topic_phrase: str | None = None
 
     def __post_init__(self):
-        if self.area not in PUBLIC_AREAS or self.topic not in PUBLIC_TOPICS:
+        if set(vars(self)) != {"area", "topic", "place_id", "day", "entity_name", "topic_phrase"}:
+            raise ValueError("Invalid public query fields")
+        if (type(self.area) is not str or self.area not in PUBLIC_AREAS
+                or type(self.topic) is not str or self.topic not in PUBLIC_TOPICS):
             raise ValueError("Unknown public query component")
-        if self.place_id is not None and self.place_id not in PUBLIC_PLACES:
+        if self.place_id is not None and (type(self.place_id) is not str or self.place_id not in PUBLIC_PLACES):
             raise ValueError("Unknown public place")
         if self.day is not None:
             raise ValueError("Dates are local only; public-fields-v1 forbids date egress")
+        if self.entity_name is not None:
+            _check_public_phrase(self.entity_name, 64)
+            if self.place_id is not None:
+                raise ValueError("Use either place_id or entity_name")
+        if self.topic_phrase is not None:
+            _check_public_phrase(self.topic_phrase, 48)
+        if len(self._text()) > 128:
+            raise ValueError("Public query exceeds provider limit")
 
     def text(self):
-        parts = [PUBLIC_PLACES[self.place_id] if self.place_id else PUBLIC_AREAS[self.area], PUBLIC_TOPICS[self.topic]]
+        self.__post_init__()
+        return self._text()
+
+    def _text(self):
+        parts = [PUBLIC_PLACES[self.place_id] if self.place_id else PUBLIC_AREAS[self.area]]
+        if self.entity_name is not None:
+            parts.append(self.entity_name)
+        if self.topic_phrase is not None:
+            parts.append(self.topic_phrase)
+        parts.append(PUBLIC_TOPICS[self.topic])
         return " ".join(parts)
 
 
@@ -79,8 +128,11 @@ NOTE = (
     "可用web_search主动发现新网页，web_fetch读取本轮候选，不限预登记站点。"
     "沿当前角色配置与谈话目的判断关注什么、查什么、选什么，不编造身份或亲历；"
     "可给有理由的选择，不必机械问完偏好才去搜，尊重用户明确边界。"
-    "普通闲聊不强制搜索。对外搜索只可选工具列出的公开地区／主题／地点ID，"
-    "程序构造查询词，不接受query自由文本；未支持的主题如实说明，不编码进日期或ID。"
+    "普通闲聊不强制搜索。对外搜索选择公开地区／主题ID，可直接用entity_name指定明确公开的机构／场所规范名称，"
+    "或用topic_phrase补充公开主题短语；不必先泛搜一次，不限旧地点枚举。程序拼接查询，不接受整段query。"
+    "只提取最少公开名称／主题，不复述原对话、私人地址、用户身份、个人偏好原句、人物经历或选择理由；"
+    "公开机构名称由用户提到不等于用户个人信息。无法判断是否私人时不发，简短说明限制或澄清，不能自称public就发送。"
+    "短语不得含日期、联系方式、地址、凭据或指令；格式校验不证明公开性，网页标题也不能不加判断整段照发。"
     "when只用于本地问题／卡片，不发送Search。日期须能绑定本轮用户话语；"
     "date_binding为unbound_or_ambiguous或unparsed时，仍可取得不含日期的资料，但不能声称日期已确认，必要时澄清。"
     "不得发送用户身份、联系方式、私人记忆、作者稿或整段对话。"
@@ -101,10 +153,14 @@ NOTE = (
     "没有预订、联系、登录或通话外自主服务。"
 )
 TOOLS = [
-    _tool(SEARCH, "选择公开地区和主题，由程序构造搜索词；不接受自由文本或私人内容。", {
+    _tool(SEARCH, "选择公开地区和主题，可加明确公开机构／场所名或主题短语；程序构词，不接原话／私人内容。", {
         "area": {"type": "string", "enum": list(PUBLIC_AREAS)},
         "topic": {"type": "string", "enum": list(PUBLIC_TOPICS)},
         "place_id": {"type": "string", "enum": list(PUBLIC_PLACES)},
+        "entity_name": {"type": "string", "minLength": 2, "maxLength": 64,
+                        "description": "明确公开机构／场所的最少规范名称，与place_id互斥；非用户身份／私人地址／原话，不含日期。性质不明则不发。"},
+        "topic_phrase": {"type": "string", "minLength": 2, "maxLength": 48,
+                         "description": "补充公开主题的短语，非个人偏好原句／人物经历／理由／指令，不含日期或私人信息。"},
         "when": {"type": "string", "description": "本轮用户明确的适用日期，仅本地判读／卡片，不发送搜索；普通发现省略。"},
         "supplement": {"type": "boolean"},
     }, ["area", "topic"]),
@@ -349,7 +405,7 @@ def parse_web_call(calls, *, allow_memory=False):
     if name not in {SEARCH, FETCH}:
         raise ValueError("Unknown web call")
     arguments = json.loads(call["function"]["arguments"], object_pairs_hook=_unique_object)
-    keys = {"area", "topic", "place_id", "when", "supplement"} if name == SEARCH else {"result_id"}
+    keys = {"area", "topic", "place_id", "entity_name", "topic_phrase", "when", "supplement"} if name == SEARCH else {"result_id"}
     required = {"area", "topic"} if name == SEARCH else {"result_id"}
     if not isinstance(arguments, dict) or not required <= set(arguments) or not set(arguments) <= keys:
         raise ValueError("Invalid web arguments")
@@ -360,7 +416,8 @@ def parse_web_call(calls, *, allow_memory=False):
     if "supplement" in arguments and type(arguments["supplement"]) is not bool:
         raise ValueError("supplement must be boolean")
     if name == SEARCH:
-        PublicQuery(arguments["area"], arguments["topic"], arguments.get("place_id"))
+        PublicQuery(arguments["area"], arguments["topic"], arguments.get("place_id"),
+                    entity_name=arguments.get("entity_name"), topic_phrase=arguments.get("topic_phrase"))
     return name, arguments
 
 
@@ -436,6 +493,8 @@ class WebLookup(TextLookup):
             return self._cancel(session_id)
         target = None
         if name == SEARCH:
+            query = PublicQuery(arguments["area"], arguments["topic"], arguments.get("place_id"),
+                                entity_name=arguments.get("entity_name"), topic_phrase=arguments.get("topic_phrase"))
             old = self.intent
             revising = bool(arguments.get("supplement") and old is not None and old.session_id == session_id
                             and self.channel.can_revise(old))
@@ -449,7 +508,7 @@ class WebLookup(TextLookup):
                 intent = self.channel.open(session_id=session_id, user_turn=user_turn,
                     utterance=utterance, question=utterance, question_type="web", applicable_date=day)
             self.intent = intent
-            operation = self.api.search(PublicQuery(arguments["area"], arguments["topic"], arguments.get("place_id")))
+            operation = self.api.search(query)
         else:
             target = self.results.get(arguments["result_id"])
             intent = self.intent

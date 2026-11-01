@@ -123,7 +123,9 @@ manifest可用`historical_unresolved`逐字段固定原账本完整行，并以`
 回执可恢复证据和未做部分，**没有自动续跑HTTP**；未明确结果的请求先查原账本，不盲重放。
 
 真实模式仍只用双方相同的本地冻结`CorpusWeb`，不接在线Search／Fetch，不消费工具批次。
-24组合须显式映射；未收集的组合可写`"record_ids": [], "uncovered": true`，执行即停，
+原24组合须显式映射；新entity_name／topic_phrase在该冻结语料中一律停为corpus_uncovered，
+不沿相同area／topic／place_id借用原泛查询证据，empty等失败case也不例外。语料查询行不接受新字段假装已有映射。
+未收集的原组合可写`"record_ids": [], "uncovered": true`，执行即停，
 不能用空数组冒充现实无结果。同一出站query词即使内部ID不同也须有相同记录／未覆盖状态。
 语料可以保留合成控制或历史来源，但要明确接受范围，合成输出不能充当真实偏好证据。
 

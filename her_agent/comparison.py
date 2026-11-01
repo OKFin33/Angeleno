@@ -136,6 +136,9 @@ class CorpusWeb:
             raise ValueError('Duplicate corpus record')
         self.mapping, words = {}, {}
         for row in corpus['queries']:
+            if (not {'area', 'topic', 'place_id', 'record_ids'} <= row.keys()
+                    or not row.keys() <= {'area', 'topic', 'place_id', 'record_ids', 'uncovered', 'meaning'}):
+                raise ValueError('Unsupported corpus query fields')
             key = row['area'], row['topic'], row['place_id']
             query = PublicQuery(*key)
             ids = row['record_ids']
@@ -163,6 +166,10 @@ class CorpusWeb:
         if type(query) is not PublicQuery:
             raise RunStopped('nonpublic_query')
         query.__post_init__()
+        # This frozen corpus only covers the old 24 ID tuples. A new public
+        # entity/subject must never silently reuse a generic tuple's evidence.
+        if query.entity_name is not None or query.topic_phrase is not None:
+            raise RunStopped('corpus_uncovered')
         key = query.area, query.topic, query.place_id
         if key not in self.mapping or self.mapping[key] is None:
             raise RunStopped('corpus_uncovered')
