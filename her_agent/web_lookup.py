@@ -521,15 +521,23 @@ class WebLookup(TextLookup):
         extra['evidence_reading'] = _evidence_reading(mode, name, observation_outcome, assertions, source_texts)
         event = self._event(intent, "evidence" if citations and not incomplete else "insufficient",
                             citations, incomplete=incomplete, detail="truncated" if incomplete else None)
-        return self._publish(intent, event, extra)
+        publications = [{"source_id": item["result_id"], "published_at": item.get("published_at"),
+                         "published_at_kind": item.get("published_at_kind")}
+                        for item in (found if name == SEARCH else [target])]
+        return self._publish(intent, event, extra, publications=publications)
 
-    def _publish(self, intent, event, extra):
+    def _publish(self, intent, event, extra, *, publications=()):
         from .lookup import _from_card
         self.last_event = event
         self.checked_events.append(event)
         outcome = self.channel.publish(event)
         if not outcome.accepted:
             return _quiet("cancelled", "stale")
+        self.result_readings[intent.request_id] = {
+            key: extra[key] for key in ("evidence_reading", "replay", "date_binding", "event_occurrence")
+            if key in extra
+        }
+        self.result_readings[intent.request_id]["source_publications"] = list(publications)
         return _from_card(outcome.card, extra=extra), outcome.card, intent
 
 

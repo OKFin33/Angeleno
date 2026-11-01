@@ -532,6 +532,10 @@ class MemoryStore:
                 delivered_text TEXT NOT NULL
             )
         """)
+        # Additive, only on a delivered-result write. Reading/opening an older
+        # store never migrates it or guesses missing evidence grades.
+        if "source_context" not in {row[1] for row in self.db.execute("PRAGMA table_info(lookup_results)")}:
+            self.db.execute("ALTER TABLE lookup_results ADD COLUMN source_context TEXT")
 
     def _lookup_table_exists(self):
         return self.db.execute(
@@ -556,31 +560,60 @@ class MemoryStore:
         ).fetchone()
         if row is None or row["text"] != payload["delivered_text"] or row["turn"] != payload["user_turn"]:
             return None
+        context = payload.get("source_context")
+        if context is not None and not isinstance(context, dict):
+            raise ValueError("Lookup source context must be an object")
         self._ensure_lookup_table()
         try:
             with self.db:
                 self.db.execute(
                     "INSERT INTO lookup_results(session,user_turn,request_id,assistant_seq,status,subject,"
-                    "conclusion,applicable_date,checked_at,source_id,source_url,excerpt,delivered_text) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "conclusion,applicable_date,checked_at,source_id,source_url,excerpt,delivered_text,source_context) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         session, payload["user_turn"], payload["request_id"], row["seq"], payload["status"],
                         payload["subject"], payload["conclusion"], payload["applicable_date"], payload["checked_at"],
                         payload.get("source_id"), payload.get("source_url"), payload.get("excerpt"),
-                        payload["delivered_text"],
+                        payload["delivered_text"], None if context is None else encoded(context),
                     ),
                 )
         except sqlite3.IntegrityError:
             return None
         return row["seq"]
 
-    def lookup_results(self):
+    def lookup_results(self, *, assistant_seqs=None):
         if not self._lookup_table_exists():
             return []
-        return [dict(row) for row in self.db.execute(
+        ids = None if assistant_seqs is None else sorted(set(assistant_seqs))
+        if ids == []:
+            return []
+        context = ("source_context" if "source_context" in {
+            row[1] for row in self.db.execute("PRAGMA table_info(lookup_results)")}
+            else "NULL AS source_context")
+        where = "" if ids is None else " WHERE assistant_seq IN (" + ",".join("?" for _ in ids) + ")"
+        rows = [dict(row) for row in self.db.execute(
             "SELECT session,user_turn,request_id,assistant_seq,status,subject,conclusion,applicable_date,"
-            "checked_at,source_id,source_url,excerpt,delivered_text FROM lookup_results ORDER BY id",
+            "checked_at,source_id,source_url,excerpt,delivered_text," + context + " FROM lookup_results" + where + " ORDER BY id",
+            () if ids is None else ids,
         )]
+        for row in rows:
+            row["source_context"] = None if row["source_context"] is None else json.loads(row["source_context"])
+        return rows
+
+    def maintenance_lookup_sources(self, events):
+        """Only records tied to the exact raw evidence exposed to this writer.
+
+        This is a delivered-result log, not an exhaustive tool-attempt journal.
+        Missing/legacy data cannot certify either a fetch or that none occurred.
+        """
+        visible = {event["seq"] for event in events if event["delivery"] == "complete"}
+        rows = []
+        for result in self.lookup_results(assistant_seqs=visible):
+            row = {key: value for key, value in result.items() if key != "delivered_text"}
+            row["source_context_status"] = "recorded" if row["source_context"] is not None else "unrecorded_legacy"
+            rows.append(row)
+        return {"coverage": "delivered_results_for_exposed_evidence_only", "results": rows,
+                "missing_record": "no_recorded_delivered_result_not_proof_of_no_attempt"}
 
     def _drop_lookup_results(self, seqs=None):
         if not self._lookup_table_exists():

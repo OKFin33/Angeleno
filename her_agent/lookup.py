@@ -10,6 +10,7 @@ contact the network. The paid command is disabled unless both ``--live`` and
 import argparse
 import asyncio
 from copy import deepcopy
+from dataclasses import asdict
 import json
 import os
 from pathlib import Path
@@ -254,6 +255,7 @@ class TextLookup:
         self.last_event = None
         self.checked_events = []
         self.accepted = {}
+        self.result_readings = {}
         self._search_places = None
         self._clarifying = False
         self._cancel_requested = False
@@ -283,6 +285,7 @@ class TextLookup:
         self._clarifying = False
         self._cancel_requested = False
         self.accepted[(session_id, user_turn)] = None
+        self.result_readings = {}
 
     async def checkpoint(self, session_id, *, arm):
         """Cancellation runs after a read and before the result is shown to the model."""
@@ -518,6 +521,8 @@ class TextLookup:
                 or current.status != card.status or current.conclusion != card.conclusion):
             return None
         citation = next((item for item in card.citations if item.excerpt.strip()), None)
+        event = self.last_event
+        same_event = event is not None and event.request_id == card.request_id
         return store.remember_lookup(session_id, {
             "user_turn": user_turn,
             "request_id": card.request_id,
@@ -530,6 +535,14 @@ class TextLookup:
             "source_url": None if citation is None else citation.url,
             "excerpt": None if citation is None else citation.excerpt,
             "delivered_text": text,
+            "source_context": {
+                "scope": "accepted_delivered_result_only",
+                "citations": [asdict(item) for item in card.citations],
+                "reading": self.result_readings.get(card.request_id),
+                "conflicts": list(card.conflicts),
+                "incomplete": event.incomplete if same_event else None,
+                "detail": event.detail if same_event else None,
+            },
         })
 
 

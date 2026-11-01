@@ -40,13 +40,32 @@ batch.events 是待整理交流，record_evidence 是旧记录直接引用的完
 用户“下周日”等保留原表达，必要时在 text 写明“用户于<原created时间>说‘下周日’”；维护器换算不是用户确认的活动日期。明确日期同样看原话的提问、否认或假设性质。角色推算若有保留价值，只记作角色解释并引她的发言。
 前台 record_sources 是每条记录全部引用的时间范围，不是分句时间锚。需要精确锚的内容在 text 保留实际来源，不用多源范围猜日期。
 排练、作息或作者规则不证明本次发生过某事；人物说法与作者/日期冲突时可保留说错及确实发生的纠正，不登记为兼容近况，不编造纠正。
+evidence_domains 区分原话来源，lookup_sources 是程序提供的已交付查询记录，不是演员或网页的自我认证。
+查证、取得摘要或读取正文只沿 lookup_sources 中关联 assistant_seq/request_id/source_id 的记录、状态、日期和 claim_kind；
+Search摘要不升成Fetch正文，evidence不升成事实确认，历史或回放不升成本次实时读取。缺记录/旧记录缺等级只表示该范围未留证，不断言从未尝试。
+作者grounding的来源等级与as_of属于作者历史资料；角色说“我查过”只证明说过这句话。没有对应程序证据时，不将它写成真实查询事实；必要时按原来源记为角色说法。
+作者明确的虚构人生和既定过去仍按作者来源成立，包括自己的既定经历；新检索不能赋予亲历，也不能因此编造真实用户经历或共同约定。
+用户事实只沿 user_utterances 指向的完整用户原话。演员解释、含混指代及可选建议不变成用户确认；没有用户原话支持的性别、住处、习惯等不补出，称“用户”。
+明确纠正保留原意思，不把“没那么吸引”扩大成完全排除；对“这个/那里”的未确认解释只记用户原话/问题或保留未定，不替用户选一个对象。
 """
 
 
-def maintenance_messages(pack, batch, record_evidence):
+def maintenance_messages(pack, batch, record_evidence, lookup_sources=None):
     """One evidence-first request; author prose remains complete check material."""
     payload = {"batch": asdict(batch), "record_evidence": record_evidence,
                "author_material": pack.maintenance_material()}
+    events = {event["seq"]: event for event in (*record_evidence, *batch.events)}
+    payload["evidence_domains"] = {
+        "user_utterances": sorted(seq for seq, event in events.items() if event["role"] == "user"
+                                  and event["delivery"] == "complete"),
+        "delivered_agent_utterances": sorted(seq for seq, event in events.items() if event["role"] == "assistant"
+                                            and event["delivery"] == "complete"),
+        "interrupted_agent_utterances": sorted(seq for seq, event in events.items() if event["role"] == "assistant"
+                                              and event["delivery"] != "complete"),
+        "author_material": {"origin": "author_not_current_tool_execution", "as_of": pack.as_of},
+    }
+    payload["lookup_sources"] = lookup_sources if lookup_sources is not None else {
+        "coverage": "not_supplied", "results": [], "missing_record": "unknown"}
     return [{"role": "system", "content": MAINTAIN + SOURCE_MAINTENANCE},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
 
@@ -87,7 +106,9 @@ class Maintainer:
             batch = self.store.batch()
             if batch is None:
                 return False
-            messages = maintenance_messages(self.pack, batch, self.store.record_evidence(batch.records))
+            evidence = self.store.record_evidence(batch.records)
+            messages = maintenance_messages(self.pack, batch, evidence,
+                self.store.maintenance_lookup_sources((*evidence, *batch.events)))
             if sum(len(m["content"]) for m in messages) > MAX_REQUEST_CHARS:
                 raise ValueError("Maintenance sources exceed the input budget; inspect memory explicitly")
             pieces = [piece async for piece in self.provider.chat(messages, temperature=0.2)]
