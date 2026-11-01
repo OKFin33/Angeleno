@@ -5,32 +5,54 @@ const vm = require('node:vm');
 const path = process.argv[2] || require('node:path').join(__dirname, '../web/index.html');
 if (!path) throw new Error('Pass the web/index.html path');
 const html = fs.readFileSync(path, 'utf8');
-const start = html.indexOf('    const TOKEN_URL =');
+const start = html.indexOf('    const MODEL_NAMES =');
 const end = html.indexOf("    setStatus('connecting');\n    checkLiveKit();", start);
 assert(start >= 0 && end > start);
 const code = html.slice(start, end);
 function harness(fetchOverride, options={}) {
   const rooms = [], states = [], controls = {}, transcripts = [], toasts = [];
-  const node = tag => ({tag, children:[], hidden:true, textContent:'',
+  const timers = new Map(); let nextTimer = 0;
+  const schedule = (fn, delay, kind) => {
+    const id = ++nextTimer; timers.set(id, {fn, delay, kind, cancelled:false}); return id;
+  };
+  const cancel = id => {if(timers.has(id))timers.get(id).cancelled=true;};
+  const node = tag => ({tag, children:[], hidden:true, textContent:'', attributes:{}, dataset:{},
+    classList:{add(){},remove(){},toggle(){}},
+    setAttribute(name,value){this.attributes[name]=String(value);},
+    getAttribute(name){return this.attributes[name]??null;},
     set innerHTML(_){throw new Error('Source content must not become HTML');},
     appendChild(child){this.children.push(child);},replaceChildren(...children){this.children=children;}});
   const sourceCard=node('section');
   const transcript=node('p');
-  const button = name => ({classList:{add(){},remove(){},toggle(){}},setAttribute(){},addEventListener(type,fn){controls[name]=fn;}});
+  const button = name => Object.assign(node('button'), {addEventListener(type,fn){controls[name]=fn;}});
+  const elements={sourceCard,transcript,modelSelect:{value:'deepseek'},micButton:button('call'),muteButton:button('mute'),
+    callLabel:node('span'),statusText:node('p'),timer:node('p'),toast:node('div'),remoteAudio:node('audio'),
+    personaName:node('h1'),portraitLetter:node('span'),disclosure:node('p')};
   const events = Object.fromEntries(['Connected','Disconnected','ParticipantConnected','ParticipantAttributesChanged','ParticipantDisconnected','Reconnecting','Reconnected','TrackSubscribed','TrackUnsubscribed','ActiveSpeakersChanged','TranscriptionReceived','DataReceived'].map(x=>[x,x]));
   class Room {
-    constructor(){this.handlers={};this.actualConnected=false;this.remoteParticipants=new Map();this.micStopped=false;this.localParticipant={identity:'synthetic',isMicrophoneEnabled:true,audioTrackPublications:new Map([['mic',{track:{mediaStreamTrack:{stop:()=>{this.micStopped=true;}}}}]]),setMicrophoneEnabled:async()=>{if(options.micError)throw new Error("synthetic microphone denied");}};rooms.push(this);}
+    constructor(){this.handlers={};this.actualConnected=false;this.remoteParticipants=new Map();this.micStopped=false;this.localParticipant={identity:'synthetic',isMicrophoneEnabled:true,audioTrackPublications:new Map([['mic',{track:{mediaStreamTrack:{stop:()=>{this.micStopped=true;}}}}]]),setMicrophoneEnabled:async enabled=>{if(options.micError)throw new Error("synthetic microphone denied");this.localParticipant.isMicrophoneEnabled=enabled;}};rooms.push(this);}
     on(name,fn){this.handlers[name]=fn;}
     async connect(){this.actualConnected=true;this.handlers.Connected();}
     disconnect(){if(!this.actualConnected)return Promise.resolve();return new Promise(resolve=>this.finishDisconnect=()=>{this.actualConnected=false;this.handlers.Disconnected();resolve();});}
   }
   const defaultFetch = async url=>({ok:true,json:async()=>url.endsWith('/healthz')?{ready:true}:{token:'synthetic',livekit_url:'ws://synthetic'}});
-  const ctx={document:{getElementById:id=>id==='sourceCard'?sourceCard:id==='transcript'?transcript:{value:'deepseek'},createElement:node},window:{location:{origin:'http://synthetic'}},modelSelect:{value:'deepseek'},micButton:button('call'),muteButton:button('mute'),callLabel:{},remoteAudio:{},LivekitClient:{Room,RoomEvent:events,Track:{Kind:{Audio:'audio'}}},TextDecoder,URL,AbortController,setTimeout:()=>1,clearTimeout(){},fetch:fetchOverride||defaultFetch,console:{...console,error(){}},ensureAudioGraph(){},setStatus:(...args)=>states.push(args),startTimer(){},stopTimer(){},disconnectMicFromAnalyser(){},connectMicToAnalyser(){},showTranscript(text){transcripts.push(text);transcript.textContent=text;},modelDisplayName:()=>"Jo"};
+  const ctx={document:{getElementById:id=>elements[id],createElement:node},window:{location:{origin:'http://synthetic'}},
+    ...elements,remoteAudio:elements.remoteAudio,LivekitClient:{Room,RoomEvent:events,Track:{Kind:{Audio:'audio'}}},
+    TextDecoder,URL,AbortController,setTimeout:(fn,delay)=>schedule(fn,delay,'timeout'),clearTimeout:cancel,
+    setInterval:(fn,delay)=>schedule(fn,delay,'interval'),clearInterval:cancel,
+    fetch:fetchOverride||defaultFetch,console:{...console,error(){}}};
   vm.createContext(ctx);vm.runInContext(code,ctx);
-  ctx.showToast=text=>toasts.push(text);
-  return {ctx,rooms,states,controls,transcripts,toasts,sourceCard,transcript,state:()=>vm.runInContext('({connected,connecting,roomPresent:room!==null,callGeneration})',ctx)};
+  // Exercise real DOM/state/timer functions; only the media graph is synthetic.
+  ctx.ensureAudioGraph=()=>{}; ctx.connectMicToAnalyser=()=>{};
+  const showToast=ctx.showToast, setStatus=ctx.setStatus, showTranscript=ctx.showTranscript;
+  ctx.showToast=text=>{toasts.push(text);showToast(text);};
+  ctx.setStatus=(...args)=>{states.push(args);setStatus(...args);};
+  ctx.showTranscript=text=>{transcripts.push(text);showTranscript(text);};
+  return {ctx,rooms,states,controls,transcripts,toasts,sourceCard,transcript,elements,timers,
+    toastTimer:()=>[...timers.entries()].filter(([,t])=>t.kind==='timeout'&&t.delay===6000&&!t.cancelled).at(-1)?.[0],
+    state:()=>vm.runInContext('({connected,connecting,roomPresent:room!==null,callGeneration})',ctx)};
 }
-(async()=>{
+async function originalRegressions(){
   const h=harness();await h.ctx.connect();
   const leaving=h.ctx.disconnect();
   assert.equal(h.rooms[0].micStopped,true,'hangup stops capture before async leave completes');
@@ -149,4 +171,73 @@ function harness(fetchOverride, options={}) {
   sendStatus(status(1,'response_timeout',{session_id:'new-session'}),t.rooms[1]);
   assert.equal(t.toasts.length,2,'new dial establishes its own turn status sequence');
   console.log('15 page regressions passed: 7 call lifecycle, 6 source card and 2 turn-status groups');
+}
+
+const agent={identity:'agent-current',isAgent:true};
+const turnStatus=(session,sequence,state)=>new TextEncoder().encode(JSON.stringify({
+  type:'angeleno.turn_status',recipient:'synthetic',session_id:session,request_id:'r',sequence,state}));
+const sendTurn=(room,session,sequence,state)=>room.handlers.DataReceived(turnStatus(session,sequence,state),agent,0,'angeleno.turn_status');
+
+async function transientReset(){
+  const h=harness(); await h.ctx.connect();
+  h.elements.timer.textContent='00:42';
+  sendTurn(h.rooms[0],'old-session',1,'lookup_timeout');
+  const oldTimer=h.toastTimer();
+  assert.equal(h.elements.toast.hidden,false);
+  const ending=h.ctx.disconnect();
+  assert.equal(h.elements.toast.hidden,true,'hangup hides the previous timeout notice immediately');
+  assert.equal(h.elements.toast.textContent,'','hangup clears the previous notice text');
+  assert.equal(h.timers.get(oldTimer).cancelled,true,'hangup cancels the previous notice timer');
+  const dialing=h.ctx.connect();
+  assert.equal(h.elements.timer.textContent,'00:00','redial must not display the previous call duration');
+  assert.equal(h.elements.toast.hidden,true,'connecting does not show the previous notice');
+  h.rooms[0].finishDisconnect(); await ending; await dialing;
+  console.log('PASS transient-reset: rapid timeout -> hangup -> redial clears notice, timer and old duration');
+}
+
+async function timerIsolation(){
+  const h=harness(); await h.ctx.connect();
+  sendTurn(h.rooms[0],'old-session',1,'lookup_timeout'); const old=h.toastTimer();
+  const ending=h.ctx.disconnect(); h.rooms[0].finishDisconnect(); await ending;
+  await h.ctx.connect(); sendTurn(h.rooms[1],'new-session',1,'response_timeout');
+  const current=h.toastTimer(); const message=h.elements.toast.textContent;
+  // Model callbacks already queued when clearTimeout ran, as well as old SDK events.
+  h.timers.get(old).fn();
+  sendTurn(h.rooms[0],'old-session',2,'lookup_timeout');
+  assert.equal(h.elements.toast.hidden,false,'old callback cannot hide the new call notice');
+  assert.equal(h.elements.toast.textContent,message,'old room cannot replace the new call notice');
+  assert.equal(h.timers.get(current).cancelled,false,'old callback cannot cancel the new notice timer');
+  sendTurn(h.rooms[1],'new-session',2,'lookup_timeout'); const replacement=h.toastTimer();
+  h.timers.get(current).fn();
+  assert.equal(h.elements.toast.hidden,false,'replaced timer cannot hide a newer notice in the same call');
+  h.timers.get(replacement).fn();
+  assert.equal(h.elements.toast.hidden,true,'the current notice still expires normally');
+  console.log('PASS timer-isolation: old session/replaced callbacks preserve the current notice');
+}
+
+async function muteReset(){
+  const h=harness(); await h.ctx.connect(); await h.controls.mute();
+  assert.equal(h.ctx.muteButton.textContent,'取消静音');
+  assert.equal(h.ctx.muteButton.getAttribute('aria-label'),'取消静音');
+  const ending=h.ctx.disconnect(); h.rooms[0].finishDisconnect(); await ending;
+  assert.equal(h.ctx.muteButton.hidden,true);
+  assert.equal(h.ctx.muteButton.textContent,'静音');
+  assert.equal(h.ctx.muteButton.getAttribute('aria-label'),'静音麦克风','hangup resets the accessible mute action');
+  await h.ctx.connect();
+  assert.equal(h.ctx.muteButton.hidden,false);
+  assert.equal(h.rooms[1].localParticipant.isMicrophoneEnabled,true);
+  assert.equal(h.ctx.muteButton.textContent,'静音');
+  assert.equal(h.ctx.muteButton.getAttribute('aria-pressed'),'false');
+  assert.equal(h.ctx.muteButton.getAttribute('aria-label'),'静音麦克风','redial visual and accessible action agree');
+  await h.controls.mute();
+  assert.equal(h.ctx.muteButton.getAttribute('aria-pressed'),'true');
+  assert.equal(h.ctx.muteButton.getAttribute('aria-label'),'取消静音');
+  console.log('PASS mute-reset: muted -> hangup -> redial restores visual/ARIA consistency');
+}
+
+(async()=>{
+  const groups={'original':originalRegressions,'transient-reset':transientReset,'timer-isolation':timerIsolation,'mute-reset':muteReset};
+  const selected=process.argv[3];
+  if(selected){assert(groups[selected],`Unknown group ${selected}`);await groups[selected]();}
+  else for(const run of Object.values(groups))await run();
 })().catch(error=>{console.error(error);process.exitCode=1;});

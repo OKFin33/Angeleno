@@ -168,10 +168,23 @@ function bootAngeleno() {
     const transcriptEl = document.getElementById('transcript');
     const remoteAudio = document.getElementById('remoteAudio');
     let toastTimeout = null;
+    function clearToast() {
+        clearTimeout(toastTimeout); toastTimeout = null;
+        toastEl.hidden = true; toastEl.textContent = '';
+    }
     function showToast(text) {
+        clearToast();
         toastEl.textContent = text; toastEl.hidden = false;
-        clearTimeout(toastTimeout);
-        toastTimeout = setTimeout(() => {toastEl.hidden = true;}, 6000);
+        const generation = callGeneration;
+        const timeout = setTimeout(() => {
+            if (generation === callGeneration && toastTimeout === timeout) clearToast();
+        }, 6000);
+        toastTimeout = timeout;
+    }
+    function updateMuteControl(enabled) {
+        muteButton.textContent = enabled ? '静音' : '取消静音';
+        muteButton.setAttribute('aria-pressed', String(!enabled));
+        muteButton.setAttribute('aria-label', enabled ? '静音麦克风' : '取消静音');
     }
     function updatePersona(health) {
         if (typeof health.persona_label !== 'string' || !health.persona_label) return;
@@ -384,9 +397,9 @@ function bootAngeleno() {
         connected = false;
         connecting = false;
         clearTimeout(agentTimer);
+        clearToast();
         muteButton.hidden = true;
-        muteButton.textContent = '静音';
-        muteButton.setAttribute('aria-pressed', 'false');
+        updateMuteControl(true);
         callLabel.textContent = '开始通话';
         micButton.setAttribute('aria-label', '开始对话');
         micButton.classList.remove('connected', 'speaking');
@@ -417,6 +430,8 @@ function bootAngeleno() {
         if (connected || connecting) return;
         const generation = ++callGeneration;
         resetSourceCard();
+        clearToast();
+        timerEl.textContent = '00:00';
         connecting = true;
         ensureAudioGraph();
         setStatus('connecting');
@@ -523,9 +538,7 @@ function bootAngeleno() {
         try {
             await currentRoom.localParticipant.setMicrophoneEnabled(enabled);
             if (room !== currentRoom || generation !== callGeneration) return;
-            muteButton.textContent = enabled ? '静音' : '取消静音';
-            muteButton.setAttribute('aria-pressed', String(!enabled));
-            muteButton.setAttribute('aria-label', enabled ? '静音麦克风' : '取消静音');
+            updateMuteControl(enabled);
         } catch (_) {
             if (room === currentRoom && generation === callGeneration) failCall('麦克风不可用，请重新拨号');
         }
