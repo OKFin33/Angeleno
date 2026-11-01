@@ -9,8 +9,9 @@ import tempfile
 import unittest
 
 from her_agent.author import load_pack
-from her_agent.comparison import (CorpusWeb, GuardedProvider, RequestGuard, RunStopped,
+from her_agent.comparison import (CorpusWeb, GuardedProvider, RequestGuard, RunStopped, digest,
     ScriptedActor, ScriptedWriter, load_config, run_development)
+from her_agent.comparison_live import OperatorBranches
 from her_agent.provider import TextDelta
 from her_agent.web_lookup import PUBLIC_AREAS, PUBLIC_TOPICS, PUBLIC_PLACES, PublicQuery
 
@@ -89,6 +90,92 @@ class DevelopmentTests(unittest.IsolatedAsyncioTestCase):
             d1 = report['segments'][0]
             self.assertEqual(d1['reason'], 'branch_uncovered')
             self.assertEqual(len(d1['transcript']), 1)
+
+    async def test_d1_purpose_operator_cases_use_same_fixed_reply_for_both_arms(self):
+        # Explicit operator decisions for these examples, not an NLP classifier.
+        # The first question was observed in development; others are scripted cases.
+        for question, decision in (
+            ('你是想找点能去逛的，还是随便问问？', '3'),
+            ('你是准备实际去逛逛，还是只想聊聊附近？', '3'),
+            ('你只是想聊聊那一片，还是在找出门的建议？', '3'),
+            ('你坐什么交通工具去？', 'uncovered'),
+            ('想去逛还是随便聊？另外预算多少？', 'uncovered'),
+        ):
+            with self.subTest(question=question):
+                first_user = self.anchors[0]['user_turns'][0]
+                class PurposeQuestion(ScriptedActor):
+                    async def chat_events(self, messages, **kwargs):
+                        user = next(m['content'] for m in reversed(messages) if m['role'] == 'user')
+                        if user == first_user:
+                            yield TextDelta(question)
+                        else:
+                            async for event in super().chat_events(messages, **kwargs):
+                                yield event
+                prompts = []
+                def emit(text, **kwargs): prompts.append(json.loads(text))
+                def read():
+                    p = prompts[-1]
+                    return json.dumps({'output_sha256': p['output_sha256'],
+                        'decision': decision if p['anchor'] == 'DEV-D1' and p['turn'] == 1 else 'continue'})
+                report = await run_development(self.c, self.anchors, self.corpus, PACK,
+                    provider_factory=lambda kind, a, role: PurposeQuestion(self.c) if kind == 'actor' else ScriptedWriter(self.c),
+                    branch_selector=OperatorBranches(read, emit))
+                arms = [s for s in report['segments'] if s['anchor'] == 'DEV-D1']
+                self.assertEqual(len(arms), 2)
+                self.assertTrue(all(p['choices'] == self.anchors[0]['clarifications']
+                    for p in prompts if p['anchor'] == 'DEV-D1'))
+                for arm in arms:
+                    self.assertEqual(arm['transcript'][0]['output'], question)
+                    if decision == '3':
+                        self.assertEqual(arm['status'], 'completed')
+                        self.assertEqual(arm['transcript'][1]['user'], '先不安排出门，就是随便聊聊那一片和你喜欢的地方。')
+                        self.assertEqual(arm['transcript'][1]['origin'], 'clarification:3')
+                        self.assertEqual(len(arm['transcript']), 5)
+                    else:
+                        self.assertEqual(arm['reason'], 'branch_uncovered')
+                        self.assertEqual(len(arm['transcript']), 1)
+                self.assertEqual([t['user'] for t in arms[0]['transcript']],
+                                 [t['user'] for t in arms[1]['transcript']])
+                self.assertEqual((report['model_calls'], report['network_calls']), (0, 0))
+
+    async def test_d1_purpose_branch_cannot_be_repeated(self):
+        report = await run_development(self.c, self.anchors, self.corpus, PACK,
+            branch_selector=lambda a, row, turn: '3' if a['id'] == 'DEV-D1' else None)
+        for arm in [s for s in report['segments'] if s['anchor'] == 'DEV-D1']:
+            self.assertEqual(arm['reason'], 'branch_uncovered')
+            self.assertEqual(len(arm['transcript']), 2)
+            self.assertEqual(arm['transcript'][1]['origin'], 'clarification:3')
+
+    async def test_all_listed_branches_fit_recomputed_batch_guards(self):
+        class PlaceAnswer(ScriptedActor):
+            async def chat_events(self, messages, **kwargs):
+                yield TextDelta('Fisher（离线分支接线样本，不是模型回答）。')
+        def every_branch(a, row, turn):
+            branch = next((b for b in a['clarifications'] if b['id'] not in row['used_clarifications']), None)
+            if branch is None: return None
+            command = {'decision': branch['id'], 'output_sha256': digest(row['output'])}
+            if 'reply_rule' in branch:
+                command.update(span=[0, 6], rule='first_concrete_place_v1')
+            return command
+        report = await run_development(self.c, self.anchors, self.corpus, PACK,
+            provider_factory=lambda kind, a, role: PlaceAnswer(self.c) if kind == 'actor' else ScriptedWriter(self.c),
+            branch_selector=every_branch)
+        self.assertEqual(report['status'], 'completed')
+        maxima = [len(a['user_turns']) + len(a['clarifications']) for a in self.anchors]
+        self.assertEqual(maxima, [7, 7, 9])
+        self.assertEqual(sum(len(s['transcript']) for s in report['segments']), 46)
+        self.assertEqual(self.c['actor_requests_total'], 2 * sum(maxima) * self.c['actor_requests_per_turn'])
+        self.assertEqual(self.c['writer_requests_total'], 2 * sum((n + 2) // 3 for n in maxima))
+        self.assertEqual(sum(r['kind'] == 'writer' for r in report['requests']), 18)
+        self.assertEqual((self.c['actor_requests_per_turn'], self.c['tools_per_turn']), (4, 3))
+        for a in self.anchors:
+            arms = [s for s in report['segments'] if s['anchor'] == a['id']]
+            self.assertEqual([t['user'] for t in arms[0]['transcript']], [t['user'] for t in arms[1]['transcript']])
+            for arm in arms:
+                self.assertEqual([t['user'] for t in arm['transcript'] if t['origin'] == 'base'], a['user_turns'])
+                self.assertEqual({t['origin'] for t in arm['transcript'] if t['origin'] != 'base'},
+                                 {'clarification:' + b['id'] for b in a['clarifications']})
+                self.assertEqual(arm['pending_events'], 0)
 
     async def test_failed_and_cancelled_attempts_count_before_provider_dispatch(self):
         c = deepcopy(self.c); c['actor_requests_total'] = 1

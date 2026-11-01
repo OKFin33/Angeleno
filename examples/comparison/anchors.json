@@ -3,7 +3,7 @@
   "anchors": [
     {
       "id": "DEV-D1",
-      "origin": "Spec sections 2 and 8: neighborhood, preference follow-up, everyday topic",
+      "origin": "Spec sections 2 and 8: neighborhood, preference follow-up, everyday topic; outing-purpose clarification added after observed development branch_uncovered on 2026-11-01, not unseen holdout",
       "coverage_opportunities": [
         "E1",
         "E2"
@@ -24,6 +24,11 @@
           "if": "asks which place the follow-up refers to",
           "reply_rule": "Repeat the first concrete place named in this arm's immediately preceding delivered answer; if none exists, mark branch_uncovered.",
           "id": "2"
+        },
+        {
+          "if": "asks whether the neighborhood/liked-place discussion is for planning an outing or casual chat",
+          "reply": "先不安排出门，就是随便聊聊那一片和你喜欢的地方。",
+          "id": "3"
         }
       ],
       "observations_from_spec": [
