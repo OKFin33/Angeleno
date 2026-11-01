@@ -605,12 +605,12 @@ function bootAngeleno() {
         if (!allowanceNotice || !data || data.enabled !== true
             || data.allowance_source !== 'local_reserved_audio_not_account_balance'
             || !Number.isInteger(data.remaining_audio_seconds) || data.remaining_audio_seconds < 0) return;
-        const endings = {local_audio_exhausted:'本地音频预留已用完，正在结束通话',
+        const endings = {local_audio_exhausted:'语音识别测试预算已用完，正在结束通话',
             user_ended:'通话已结束，试用资源正在释放', no_user_joined:'长时间无人接入，试用已结束',
-            connected_audio_idle:'长时间未发送音频，试用已结束', audio_meter_changed:'音频预留状态变化，通话已结束',
+            connected_audio_idle:'长时间未发送音频，试用已结束', audio_meter_changed:'语音识别测试预算状态变化，通话已结束',
             lifecycle_observer_unavailable:'连接状态不可确认，试用已安全结束'};
         let text = endings[data.stop_reason]
-            || '剩余可发送音频约 ' + data.remaining_audio_seconds + ' 秒（本地预留，并非账户余额；发送的静音也计入）';
+            || '语音识别测试预算：还可发送约 ' + data.remaining_audio_seconds + ' 秒（本机自设保护，并非账户余额；发送的静音也计入；Jo语音合成在本地运行）';
         if (!data.stop_reason && data.audio_warning) text += '，即将用完，请准备结束';
         if (!data.stop_reason && data.idle_warning && Number.isInteger(data.idle_seconds_remaining))
             text += '；长时间未发送音频，约 ' + data.idle_seconds_remaining + ' 秒后收尾';
