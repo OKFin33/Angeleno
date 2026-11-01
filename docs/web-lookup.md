@@ -26,11 +26,11 @@ API只接**精确类型** `PublicQuery`，在实际发送前再次验证所有�
 
 ## 运行开关与计费
 
-实际端点和数据载荷获准后，操作者在进程中显式设置 `ANGELENO_WEB_ENABLED=1`、`ANGELENO_WEB_EGRESS=public-fields-v1` 及 `ANGELENO_WEB_REQUEST_LIMIT`（首批1–6），继续用原配置和统一账本。CLI沿已有 `ANGELENO_LOOKUP_LIVE=1` 与 `python -m her_agent.lookup --live --utterance ...`，语音沿原入口。Web优先于ANGELENO_PLACE_TOOLS，不并行建两套查询服务；开关本身不是授权。本次没有修改操作者运行配置或发送实际Jo新搜索。
+实际端点和数据载荷获准后，操作者在进程中显式设置 `ANGELENO_WEB_ENABLED=1`、`ANGELENO_WEB_EGRESS=public-fields-v1` 及 `ANGELENO_WEB_REQUEST_LIMIT`（显式正整数、原账本累计总数），继续用原配置和统一账本。续批须有当前有效许可，累计上限包含旧请求，不清零历史；原首批6次是历史授权，不是永久代码上限。每轮3工具／4模型及累计Web等待10秒保护不变。CLI沿已有 `ANGELENO_LOOKUP_LIVE=1` 与 `python -m her_agent.lookup --live --utterance ...`，语音沿原入口。Web优先于ANGELENO_PLACE_TOOLS，不并行建两套查询服务；开关和计数上限本身不是授权。
 
 [官方指南](https://api-docs.deepseek.com/zh-cn/guides/search/)、[Search schema](https://api-docs.deepseek.com/zh-cn/api/search/)、[Fetch schema](https://api-docs.deepseek.com/zh-cn/api/fetch/)于2026-10-31核对：固定官方 `/v1/tools/search` 与 `/v1/tools/fetch`，有结果请求各CNY0.005，空结果／失败不收费。演员和工具共用Ledger及每请求余额检查，模型仍按token计费。取消、响应未知或HTTP200无法解析保留全额预留，不猜免费；计数跨adapter／进程累计，不用新账本重置。
 
-Owner批准的本批仅公开测试查询／URL，合计最多6次／¥0.03。实际记录：
+以下为历史首批许可与当时检查点，不代表当前剩余额度：Owner当时批准仅公开测试查询／URL，合计最多6次／¥0.03。实际记录：
 
 - 14:00Z，`35441a9`：一次Search成功，5条结果，约0.502秒；Fetch在本地DNS预检拒绝，未发请求。旧回执未留底层分类，不能事后推断原因。
 - 14:47Z，已审 `bfc2ebfd`：一次公开建筑／空间Search成功，约1.573秒，经现有URL规则得到3个候选；选本轮首个China Daily网页，Fetch在约0.006秒预检返回 `candidate_dns_refused:non_public`，未进入HTTP或费用预留，无正文。该分类来自应用，不是工具审批拒绝或供应商403。没有换目标／DNS／代理／机器重试。
