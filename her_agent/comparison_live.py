@@ -32,7 +32,8 @@ def historical_unresolved(manifest):
             for row in rows)
             or len({row['id'] for row in rows}) != len(rows)):
         raise ValueError('Explicit closed historical unresolved rows required')
-    if rows and not str(manifest.get('historical_unresolved_authorization', '')).strip():
+    reference = manifest.get('historical_unresolved_authorization', '')
+    if rows and (not isinstance(reference, str) or not reference.strip()):
         raise ValueError('Historical unresolved continuation needs an authorization reference')
     return rows
 

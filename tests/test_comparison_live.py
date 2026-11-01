@@ -99,12 +99,28 @@ class RealEntryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_authorized_exact_historical_unknown_remains_reserved_through_six_segments(self):
         row = self.historical_web_row()
-        self.m.update(historical_unresolved=[row], historical_unresolved_authorization='Synthetic explicit continuation approval')
+        self.m.update(historical_unresolved=[row], historical_unresolved_authorization='  Synthetic explicit continuation approval  ')
         r = await self.run_entry(branch_selector=lambda *args:None)
         self.assertEqual(r['status'], 'completed')
         self.assertEqual(r['ledger_current']['rows'][0], row)
         self.assertEqual(r['ledger_current']['unresolved_reserved_micros'], 5000)
         self.assertEqual(r['historical_unresolved'], [row])
+
+    async def test_historical_authorization_reference_requires_nonblank_string_before_payload_or_http(self):
+        row = self.historical_web_row()
+        path = self.root/'manifest.json'
+        for reference in (None, False, {}, [], '', ' \t\n'):
+            with self.subTest(reference=reference):
+                self.m.update(historical_unresolved=[row], historical_unresolved_authorization=reference)
+                path.write_text(json.dumps(self.m))
+                with patch('her_agent.comparison_live.load_pack', side_effect=AssertionError('no payload load')):
+                    with self.assertRaisesRegex(ValueError, 'authorization reference'):
+                        load_manifest(path, CONFIG)
+                with self.assertRaisesRegex(ValueError, 'authorization reference'):
+                    await self.run_entry(branch_selector=lambda *args:None)
+                self.assertEqual(self.http, [])
+                self.assertFalse(self.out.exists())
+                self.assertEqual(self.ledger.summary()['rows'], [row])
 
     async def test_new_unknown_stops_even_with_authorized_historical_reserve(self):
         row = self.historical_web_row()
