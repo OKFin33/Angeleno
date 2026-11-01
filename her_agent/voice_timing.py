@@ -1,12 +1,14 @@
 """Turn deadlines and audio provenance. No transcript is playback evidence."""
 
 import asyncio
+from contextlib import aclosing
 from collections import deque
 from dataclasses import dataclass, field, replace
 import time
 
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
 from livekit.agents.voice import io
+from livekit.agents.utils import aio
 from .diagnostics import emit
 
 
@@ -155,7 +157,59 @@ class TurnDeadlines:
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def tagged_tts(text, bridge, synthesizer):
+async def tagged_tts(text, bridge, synthesizer, *, prefetch_frames=0):
+    """Optional bounded lookahead; current production default stays serial.
+
+    One producer owns sequential synthesize contexts: no concurrent GPU calls.
+    Only two SDK frames may be queued plus one awaiting enqueue. Existing SDK
+    internal buffers are separate; this is not a claim to cap their memory.
+    No initial fill threshold or extra startup sleep is introduced.
+    """
+    if type(prefetch_frames) is not int or prefetch_frames not in (0, 2):
+        raise ValueError('Audio lookahead must be explicitly0or2frames')
+    frames = _serial_tagged_tts(text, bridge, synthesizer)
+    if not prefetch_frames:
+        try:
+            async for frame in frames:
+                yield frame
+        finally:
+            await frames.aclose()
+        return
+    channel = aio.Chan(maxsize=prefetch_frames)
+    failure = None
+
+    async def produce():
+        nonlocal failure
+        try:
+            async for frame in frames:
+                await channel.send(frame)
+        except BaseException as exc:
+            failure = exc
+        finally:
+            try:
+                await frames.aclose()
+            except BaseException as exc:
+                if failure is None:
+                    failure = exc
+            channel.close()
+
+    producer = asyncio.create_task(produce(), name='bounded-tts-lookahead')
+    try:
+        async for frame in channel:
+            tag = frame.userdata.get(AUDIO_TAG)
+            if (isinstance(failure, asyncio.CancelledError) or not tag
+                    or not bridge.deadlines.accepts(tag[0])):
+                raise asyncio.CancelledError
+            yield frame
+        if failure is not None:
+            raise failure
+    finally:
+        channel.close()
+        producer.cancel()
+        await asyncio.gather(producer, return_exceptions=True)
+
+
+async def _serial_tagged_tts(text, bridge, synthesizer):
     """Synthesize sentences with an exact turn/phase tag outside spoken text.
 
     Phase boundaries use separate streams, so waiting audio cannot hide the
@@ -187,8 +241,9 @@ async def tagged_tts(text, bridge, synthesizer):
         for piece, current_tag in bridge.consume_speech(chunk, request_id=request_id):
             request_id = current_tag[0]
             if tag is not None and current_tag != tag and buffer.strip():
-                async for frame in frames(buffer, tag):
-                    yield frame
+                async with aclosing(frames(buffer, tag)) as audio:
+                    async for frame in audio:
+                        yield frame
                 buffer = ""
             tag = current_tag
             buffer += piece
@@ -198,11 +253,13 @@ async def tagged_tts(text, bridge, synthesizer):
                     break
                 sentence, buffer = buffer[:end], buffer[end:]
                 if sentence.strip():
-                    async for frame in frames(sentence, tag):
-                        yield frame
+                    async with aclosing(frames(sentence, tag)) as audio:
+                        async for frame in audio:
+                            yield frame
     if buffer.strip():
-        async for frame in frames(buffer, tag):
-            yield frame
+        async with aclosing(frames(buffer, tag)) as audio:
+            async for frame in audio:
+                yield frame
 
 
 class PhaseAudioOutput(io.AudioOutput):
