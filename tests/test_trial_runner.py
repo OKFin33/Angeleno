@@ -4,7 +4,10 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import socketserver
 import tempfile
+import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -112,7 +115,8 @@ class TrialConfigurationTests(unittest.TestCase):
 
 
 class TrialOwnershipTests(unittest.TestCase):
-    def simulate(self, root, *, failure=None, cancel=False, close_failure=False):
+    def simulate(self, root, *, failure=None, cancel=False, close_failure=False,
+                 start_failure=False, blocked_shutdown=False, blocked_close=False, stop_reason='request'):
         args = SimpleNamespace(stop_at=(datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat(),
                                output=root / 'private/receipt.json', mode='product',
                                tailscale_bin=Path('/synthetic/tailscale'), livekit_bin=Path('/synthetic/livekit'))
@@ -124,9 +128,29 @@ class TrialOwnershipTests(unittest.TestCase):
         for child in children:
             child.poll.return_value = None
         server = Mock()
+        release_shutdown = threading.Event()
         if close_failure:
             server.shutdown.side_effect = RuntimeError('synthetic close failure')
+        if blocked_shutdown:
+            server.shutdown.side_effect = release_shutdown.wait
+        if blocked_close:
+            server.server_close.side_effect = release_shutdown.wait
         stop = Mock(); stop.is_set.return_value = cancel; stop.wait.return_value = True
+        entered = threading.Event(); entered.set()
+        handlers = {}
+        clock = Mock()
+        clock.now.return_value = datetime.now(timezone.utc)
+        clock.fromisoformat.side_effect = datetime.fromisoformat
+        def signal_handler(sig, handler):
+            handlers[sig] = handler
+        def wait(_):
+            if stop_reason == 'signal':
+                handlers[trial.signal.SIGTERM](trial.signal.SIGTERM, None)
+                return True
+            clock.now.return_value = datetime.fromisoformat(args.stop_at) + timedelta(seconds=1)
+            return False
+        if stop_reason in {'signal', 'deadline'}:
+            stop.wait.side_effect = wait
         def stopped(owned):
             for child in owned:
                 child.poll.return_value = 0
@@ -139,27 +163,60 @@ class TrialOwnershipTests(unittest.TestCase):
              patch.object(trial.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='')), \
              patch.object(trial.subprocess, 'Popen', side_effect=spawns) as spawn, \
              patch.object(trial, 'stop_children', side_effect=stopped) as cleanup, \
-             patch.object(trial, 'HTTPServer', return_value=server), \
-             patch.object(trial.threading, 'Thread') as thread, \
-             patch.object(trial.threading, 'Event', return_value=stop), \
-             patch.object(trial.signal, 'signal'), patch('worker.web_server.handler_for', return_value=object()):
-            result = trial.supervise(args, prepared, root=root)
+             patch.object(trial, 'TrialHTTPServer', return_value=server), \
+             patch.object(trial, 'start_http', side_effect=OSError('synthetic thread start failure') if start_failure else None,
+                          return_value=(entered, [])) as start, \
+             patch.object(trial, 'datetime', clock), \
+             patch.object(trial, 'HTTP_CLOSE_TIMEOUT', .03), \
+             patch.object(trial.signal, 'signal', side_effect=signal_handler), patch('worker.web_server.handler_for', return_value=object()):
+            try:
+                began = time.monotonic()
+                result = trial.supervise(args, prepared, root=root, stop_event=stop)
+                if blocked_shutdown or blocked_close:
+                    self.assertLess(time.monotonic() - began, .5)
+            finally:
+                release_shutdown.set()
         self.assertTrue(result['temporary_key_config_removed'])
         self.assertTrue(result['owned_children_stopped'])
         self.assertTrue(result['serve_restored_exactly'])
         self.assertFalse(list((root / 'private').rglob('livekit.json')))
         self.assertEqual(result, json.loads(args.output.read_text()))
         if cancel:
-            spawn.assert_not_called(); cleanup.assert_not_called(); thread.assert_not_called()
+            spawn.assert_not_called(); cleanup.assert_not_called(); start.assert_not_called()
         else:
-            self.assertEqual(spawn.call_count, 2 if failure else 4)
-            self.assertEqual(cleanup.call_count, 1 if failure else 4)
+            self.assertEqual(spawn.call_count, 1 if start_failure else 2 if failure else 4)
+            self.assertEqual(cleanup.call_count, 1 if start_failure or failure else 4)
             server.server_close.assert_called_once()
+        if start_failure:
+            server.shutdown.assert_not_called()
+            self.assertFalse(result['http_loop_entered'])
+        if stop_reason == 'signal':
+            self.assertGreaterEqual(stop.set.call_count, 2, 'signal and final cleanup both request stop')
         return result
 
     def test_normal_deadline_exit_stops_only_owned_resources(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(self.simulate(Path(tmp))['status'], 'stopped')
+            self.assertEqual(self.simulate(Path(tmp), stop_reason='deadline')['status'], 'stopped')
+
+    def test_SIGTERM_cleans_all_owned_children_and_temporary_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.simulate(Path(tmp), stop_reason='signal')['status'], 'stopped')
+
+    def test_HTTP_thread_creation_failure_never_waits_for_unstarted_stdlib_loop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.simulate(Path(tmp), start_failure=True)['status'], 'incomplete')
+
+    def test_nonreturning_HTTP_shutdown_cannot_prevent_four_child_stops_and_key_removal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.simulate(Path(tmp), blocked_shutdown=True)
+            self.assertEqual(result['status'], 'incomplete')
+            self.assertEqual(result['cleanup_error_types'], ['HTTPShutdownTimeout'])
+
+    def test_nonreturning_socket_close_is_also_bounded_after_child_and_key_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.simulate(Path(tmp), blocked_close=True)
+            self.assertEqual(result['status'], 'incomplete')
+            self.assertEqual(result['cleanup_error_types'], ['HTTPServerCloseTimeout'])
 
     def test_partial_launch_failure_and_cancel_remove_keys_without_restart(self):
         for kwargs in ({'failure': True}, {'cancel': True}):
@@ -182,6 +239,74 @@ class TrialOwnershipTests(unittest.TestCase):
                 trial.supervise(args, ({}, {}, '', [], {}), root=Path(tmp))
             spawn.assert_not_called()
             self.assertFalse(args.output.exists())
+
+
+class HTTPShutdownTests(unittest.TestCase):
+    def test_real_stdlib_unstarted_shutdown_wait_is_bounded_without_any_listening_socket(self):
+        server = socketserver.BaseServer(('synthetic', 0), None)  # creates no socket
+        try:
+            with patch.object(trial, 'HTTP_CLOSE_TIMEOUT', .02):
+                began = time.monotonic()
+                self.assertEqual(trial.bounded_http_close(server.shutdown, 'HTTPShutdown'), ['HTTPShutdownTimeout'])
+                self.assertLess(time.monotonic() - began, .5)
+        finally:
+            server._BaseServer__is_shut_down.set()  # release only this fake server's waiter
+
+    def test_connections_have_a_read_timeout_and_daemon_handler_close_policy(self):
+        server = trial.TrialHTTPServer.__new__(trial.TrialHTTPServer)
+        request = Mock()
+        with patch.object(socketserver.TCPServer, 'get_request', return_value=(request, ('synthetic', 0))):
+            self.assertEqual(server.get_request(), (request, ('synthetic', 0)))
+        request.settimeout.assert_called_once_with(trial.HTTP_READ_TIMEOUT)
+        self.assertTrue(server.daemon_threads)
+        self.assertFalse(server.block_on_close)
+
+    def test_standard_request_dispatch_with_blocked_body_read_does_not_hold_serve_shutdown(self):
+        body_entered, release_body, body_finished = threading.Event(), threading.Event(), threading.Event()
+        request = Mock()
+        def read(_):
+            body_entered.set()
+            release_body.wait(2)
+            return b''
+        request.rfile.read.side_effect = read
+        def handler(sock, _address, _server):
+            sock.rfile.read(10)
+            body_finished.set()
+        class Selector:
+            def __init__(self):
+                self.sent = False
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                pass
+            def register(self, *_):
+                pass
+            def select(self, timeout):
+                time.sleep(min(timeout, .005))
+                if not self.sent:
+                    self.sent = True
+                    return [(None, None)]
+                return []
+        # Standard BaseServer loop + ThreadingMixIn dispatch, synthetic selector
+        # and request. No real bind/listen/accept, API or product service.
+        server = trial.TrialHTTPServer.__new__(trial.TrialHTTPServer)
+        socketserver.BaseServer.__init__(server, ('synthetic', 0), handler)
+        server.socket = Mock()
+        server.get_request = Mock(return_value=(request, ('synthetic', 0)))
+        stop = threading.Event()
+        try:
+            with patch.object(socketserver, '_ServerSelector', Selector):
+                entered, errors = trial.start_http(server, stop)
+                self.assertTrue(body_entered.wait(.5))
+                self.assertTrue(entered.is_set())
+                self.assertFalse(body_finished.is_set())
+                self.assertEqual(trial.bounded_http_close(server.shutdown, 'HTTPShutdown'), [])
+                self.assertEqual(trial.bounded_http_close(server.server_close, 'HTTPServerClose'), [])
+                self.assertFalse(body_finished.is_set(), 'cleanup must not wait for the body to arrive')
+                self.assertEqual(errors, [])
+        finally:
+            stop.set(); release_body.set()
+            body_finished.wait(.5)
 
 
 class AccountPolicyTests(unittest.IsolatedAsyncioTestCase):

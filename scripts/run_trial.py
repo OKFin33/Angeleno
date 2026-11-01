@@ -12,7 +12,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from functools import partial
 import hashlib
-from http.server import HTTPServer
+from http.server import ThreadingHTTPServer
 import ipaddress
 import json
 import os
@@ -31,6 +31,59 @@ if str(ROOT) not in sys.path:
 
 from her_agent.config import load_env, resolve_path
 from scripts.run_voice import check_configuration, stop_children
+
+
+HTTP_READ_TIMEOUT = 2.0
+HTTP_CLOSE_TIMEOUT = 1.0
+
+
+class TrialHTTPServer(ThreadingHTTPServer):
+    # A stalled client must neither serialize other requests nor hold shutdown.
+    daemon_threads = True
+    block_on_close = False
+
+    def get_request(self):
+        request, address = super().get_request()
+        request.settimeout(HTTP_READ_TIMEOUT)
+        return request, address
+
+
+def start_http(server, stop):
+    entered = threading.Event()
+    errors = []
+
+    def serve():
+        if stop.is_set():
+            return
+        entered.set()
+        try:
+            server.serve_forever(poll_interval=.1)
+        except Exception as exc:
+            errors.append(type(exc).__name__)
+            stop.set()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()  # if this fails, caller must not call BaseServer.shutdown
+    return entered, errors
+
+
+def bounded_http_close(action, label):
+    """Never let a stdlib shutdown wait block independent owned-resource cleanup."""
+    errors = []
+
+    def call():
+        try:
+            action()
+        except Exception as exc:
+            errors.append(type(exc).__name__)
+
+    thread = threading.Thread(target=call, daemon=True)
+    try:
+        thread.start()
+        thread.join(HTTP_CLOSE_TIMEOUT)
+    except Exception as exc:
+        return [type(exc).__name__]
+    return [label + 'Timeout'] if thread.is_alive() else errors
 
 
 def trial_environment(settings, projection, mode, *, inherited=None):
@@ -191,7 +244,7 @@ def check_host(cli, baseline):
             raise RuntimeError('Trial port occupied or inventory unavailable; no owner stopped')
 
 
-def supervise(args, prepared, *, root=ROOT):
+def supervise(args, prepared, *, root=ROOT, stop_event=None):
     root = Path(root).resolve()
     env, config, host, udp, baseline = prepared
     now = datetime.now(timezone.utc)
@@ -210,7 +263,8 @@ def supervise(args, prepared, *, root=ROOT):
     config_path = directory / 'livekit.json'
     children, logs = [], []
     server = None
-    stop = threading.Event()
+    http_entered, http_errors = None, []
+    stop = threading.Event() if stop_event is None else stop_event
     old_signals = {}
     report = {'status': 'starting', 'mode': args.mode, 'stop_at': until.isoformat(),
               'supervisor_pid': os.getpid(), 'owned_children': [], 'serve_before': baseline,
@@ -254,8 +308,8 @@ def supervise(args, prepared, *, root=ROOT):
         if listeners(child.pid, 'UDP') != udp:
             raise RuntimeError('Actual RTC listener scope mismatch')
         from worker.web_server import handler_for
-        server = HTTPServer(('127.0.0.1', 8767), handler_for(env))
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        server = TrialHTTPServer(('127.0.0.1', 8767), handler_for(env))
+        http_entered, http_errors = start_http(server, stop)
         worker = launch('worker', [sys.executable, str(root / 'scripts/run_trial.py'), '_worker'])
         wait_for(worker, lambda: listeners(worker.pid, 'TCP') == ['127.0.0.1:8081'], 20)
         for port, target in ((9443, 8767), (9444, 7880)):
@@ -275,13 +329,13 @@ def supervise(args, prepared, *, root=ROOT):
     except BaseException as exc:
         report.update(status='incomplete', error_type=type(exc).__name__)
     finally:
-        errors = []
-        if server:
-            for action in (server.shutdown, server.server_close):
-                try:
-                    action()
-                except Exception as exc:
-                    errors.append(type(exc).__name__)
+        stop.set()
+        errors = list(http_errors)
+        report['http_loop_entered'] = http_entered is not None and http_entered.is_set()
+        # shutdown() deadlocks if serve_forever never ran. Even after entry,
+        # bound it in a daemon helper; no HTTP failure may gate PID/key cleanup.
+        if server and report['http_loop_entered']:
+            errors.extend(bounded_http_close(server.shutdown, 'HTTPShutdown'))
         for child in reversed(children):
             try:
                 stop_children([child])
@@ -293,6 +347,8 @@ def supervise(args, prepared, *, root=ROOT):
             config_path.unlink(missing_ok=True)
         except OSError as exc:
             errors.append(type(exc).__name__)
+        if server:
+            errors.extend(bounded_http_close(server.server_close, 'HTTPServerClose'))
         for sig, previous in old_signals.items():
             signal.signal(sig, previous)
         report['owned_children_stopped'] = all(c.poll() is not None for c in children)

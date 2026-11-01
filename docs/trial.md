@@ -45,6 +45,9 @@ product模式拒绝任何`ANGELENO_TRIAL_*`测试hook，不使用E6合成工具�
 显式UTC截止不得超过十分钟；Ctrl-C/SIGTERM和组件失败都清理本次拥有的子进程组、临时密钥配置及Serve增量，
 清理回执须证明子进程退出和Serve恢复到原基线。TTS/SSH由原资源runner的finally单独收尾，
 不杀端口占用者、不删除原private资源。ASR与GPU历史额度不扩大；关停后不能声称页面仍可试用。
+HTTP使用独立daemon请求线程和2秒socket读取超时；服务循环未进入时不等待`shutdown()`。
+HTTP shutdown／socket close各最多等待1秒，超时记为清理未完成，仍继续退出自有子进程及删除临时密钥配置，
+不把HTTP关闭失败误报为全部清理成功。
 
 ## 只读状态与已有证据
 
