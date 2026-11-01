@@ -100,10 +100,10 @@ def author_reading(doc, *, use=None):
     blocks = []
     offset = 0
     for section in reading_sections(doc.body):
-        blocks.append(f"[作者段落 source={doc.path} body_chars={offset}:{offset + len(section)}]\n"
+        blocks.append(f"[作者段落 source={doc.source_id} body_chars={offset}:{offset + len(section)}]\n"
                       + section)
         offset += len(section)
-    return f"[作者材料 kind={doc.kind} source={doc.path} sha256={doc.sha256}]\n用途：{use if use is not None else READING_USES[doc.kind]}\n" + "\n".join(blocks)
+    return f"[作者材料 kind={doc.kind} source={doc.source_id} sha256={doc.sha256}]\n用途：{use if use is not None else READING_USES[doc.kind]}\n" + "\n".join(blocks)
 
 
 def omit_readback_turn(context):
@@ -137,6 +137,12 @@ class Document:
     body: str
     examples: str
 
+    @property
+    def source_id(self):
+        """Wire label independent of location; path/provenance stay local and unchanged."""
+        identity = json.dumps([self.kind, self.sha256], ensure_ascii=False)
+        return "author-source-" + hashlib.sha256(identity.encode()).hexdigest()
+
 
 @dataclass(frozen=True)
 class AuthorPack:
@@ -157,7 +163,7 @@ class AuthorPack:
                 continue
             parts.append(author_reading(doc, use=uses[doc.kind] if uses is not None else None))
             if doc.examples:
-                rehearsals.append(f"[作者练习 source={doc.path} sha256={doc.sha256}]\n{doc.examples}")
+                rehearsals.append(f"[作者练习 source={doc.source_id} sha256={doc.sha256}]\n{doc.examples}")
         if rehearsals:
             parts.append("\n" + rehearsal_heading + "\n" + "\n\n".join(rehearsals))
         return parts

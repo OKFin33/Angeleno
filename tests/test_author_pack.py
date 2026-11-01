@@ -1,4 +1,6 @@
 """Portable author input and local-date checks, using a public synthetic pack."""
+from dataclasses import replace
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -6,13 +8,41 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from her_agent.author import load_pack
+from her_agent.author import AuthorPack, Document, assistant_control_pack, load_pack, reading_sections
 from her_agent.memory import seed_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class AuthorPackTests(unittest.TestCase):
+    def test_wire_source_labels_hide_paths_but_keep_complete_sources_and_local_provenance(self):
+        body = "# Synthetic source\nUnchanged opening.\n\n## Limits\nPast author fiction, not a current lookup.\n"
+        examples = "## Rehearsal\nNot a real user conversation."
+        fingerprint = hashlib.sha256((body + examples).encode()).hexdigest()
+        document = Document('/Users/synthetic-owner/private/persona.md', 'grounding', fingerprint, body, examples)
+        pack = AuthorPack('synthetic', '2026-10-30', (document,))
+        provenance, seed = pack.provenance(), seed_digest(pack)
+        moved = replace(pack, documents=(replace(document, path=r'C:\Users\other-owner\private\source.md'),))
+        for role_pack in (pack, assistant_control_pack(pack)):
+            for text in (role_pack.instructions('guided', today='2026-10-30'),
+                         role_pack.instructions('raw', today='2026-10-30'), role_pack.maintenance_material()):
+                self.assertNotIn(document.path, text)
+                self.assertNotIn('synthetic-owner', text)
+                self.assertIn('source=' + document.source_id, text)
+                self.assertIn('sha256=' + fingerprint, text)
+                self.assertIn(examples, text)
+                offset = 0
+                for section in reading_sections(body):
+                    self.assertIn(f'body_chars={offset}:{offset + len(section)}]\n' + section, text)
+                    offset += len(section)
+        self.assertEqual(pack.instructions(today='2026-10-30'), moved.instructions(today='2026-10-30'))
+        self.assertEqual(pack.maintenance_material(), moved.maintenance_material())
+        self.assertEqual(pack.provenance(), provenance)
+        self.assertEqual(seed_digest(pack), seed)
+        self.assertEqual(provenance['documents'][0]['path'], document.path)
+        self.assertNotEqual(document.source_id, replace(document, sha256='0' * 64).source_id)
+        self.assertNotEqual(document.source_id, replace(document, kind='character').source_id)
+
     def test_relocation_preserves_author_identity_and_seed(self):
         original = load_pack(ROOT / 'examples/demo/author-pack.json')
         with tempfile.TemporaryDirectory() as tmp:
