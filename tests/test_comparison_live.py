@@ -86,6 +86,46 @@ class RealEntryTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(r['ledger_current']['unresolved_reserved_micros'],0)
         self.assertEqual(r['segments'][0]['transcript'][0]['delivery'],'interrupted')
 
+    def historical_web_row(self):
+        ident = self.ledger.reserve_web('web_fetch', 100000000, 0, 6)
+        self.ledger.finish_web(ident, charged=None, status='cancelled')
+        return self.ledger.summary()['rows'][-1]
+
+    async def test_historical_unknown_default_still_refuses_before_http(self):
+        self.historical_web_row()
+        with self.assertRaisesRegex(Exception, 'existing_unresolved_usage'):
+            await self.run_entry(branch_selector=lambda *args:None)
+        self.assertEqual(self.http, [])
+
+    async def test_authorized_exact_historical_unknown_remains_reserved_through_six_segments(self):
+        row = self.historical_web_row()
+        self.m.update(historical_unresolved=[row], historical_unresolved_authorization='Synthetic explicit continuation approval')
+        r = await self.run_entry(branch_selector=lambda *args:None)
+        self.assertEqual(r['status'], 'completed')
+        self.assertEqual(r['ledger_current']['rows'][0], row)
+        self.assertEqual(r['ledger_current']['unresolved_reserved_micros'], 5000)
+        self.assertEqual(r['historical_unresolved'], [row])
+
+    async def test_new_unknown_stops_even_with_authorized_historical_reserve(self):
+        row = self.historical_web_row()
+        self.m.update(historical_unresolved=[row], historical_unresolved_authorization='Synthetic explicit continuation approval')
+        self.fail = True
+        r = await self.run_entry(branch_selector=lambda *args:None)
+        self.assertEqual(r['status'], 'incomplete')
+        self.assertEqual(len(r['requests']), 1)
+        self.assertEqual(len(r['segments']), 1)
+        self.assertEqual(r['ledger_current']['rows'][0], row)
+        self.assertGreater(r['ledger_current']['unresolved_reserved_micros'], 5000)
+
+    async def test_historical_unknown_drift_pending_or_missing_authority_refuses(self):
+        row = self.historical_web_row()
+        for rows, reference in (([row], ''), ([{**row, 'status':'reserved'}], 'explicit'),
+                                ([{**row, 'reserved_micros':1}], 'explicit')):
+            self.m.update(historical_unresolved=rows, historical_unresolved_authorization=reference)
+            self.out=self.out.with_name(self.out.stem+'-next.json')
+            with self.assertRaises(Exception):await self.run_entry(branch_selector=lambda *args:None)
+        self.assertEqual(self.http, [])
+
     async def test_cancelled_real_stream_persists_prefix_unknown_cost_and_stops(self):
         ready=asyncio.Event()
         class Hanging(httpx.AsyncByteStream):

@@ -21,6 +21,22 @@ def revision():
     return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 
 
+def historical_unresolved(manifest):
+    """Explicitly pin already closed unknown usage, never hide it in accounting."""
+    rows = manifest.get('historical_unresolved', [])
+    if (not isinstance(rows, list) or any(not isinstance(row, dict)
+            or type(row.get('id')) is not int or row['id'] < 1
+            or type(row.get('reserved_micros')) is not int or row['reserved_micros'] <= 0
+            or row.get('estimated_micros', 'missing') is not None
+            or row.get('status') not in {'cancelled', 'interrupted', 'usage_missing'}
+            for row in rows)
+            or len({row['id'] for row in rows}) != len(rows)):
+        raise ValueError('Explicit closed historical unresolved rows required')
+    if rows and not str(manifest.get('historical_unresolved_authorization', '')).strip():
+        raise ValueError('Historical unresolved continuation needs an authorization reference')
+    return rows
+
+
 def load_manifest(path, config_path):
     """All materials and branch status validated before loading credentials."""
     path = Path(path).resolve()
@@ -34,6 +50,7 @@ def load_manifest(path, config_path):
     for field in ('authorization_reference', 'corpus_acceptance', 'model_version_limitation'):
         if not isinstance(m[field], str) or not m[field].strip():
             raise ValueError('Record authorization, corpus scope and model-version limits')
+    historical_unresolved(m)
     def pinned(row):
         p = (path.parent / row['path']).resolve()
         if file_hash(p) != row['sha256']:
@@ -115,6 +132,9 @@ async def run_models(c, anchors, corpus, pack, env, manifest, *, output,
     """
     if manifest.get('execution_hold', False) is not False:
         raise ValueError('Execution hold remains; do not retry a rejected payload')
+    checkpoint = historical_unresolved(manifest)
+    def same_unresolved(summary):
+        return [row for row in summary['rows'] if row['estimated_micros'] is None] == checkpoint
     if manifest.get('branch_policy') == 'operator_v1' and branch_selector is None:
         raise ValueError('Frozen operator policy requires an operator interface')
     if manifest['model_alias'] != c['model']:
@@ -141,7 +161,7 @@ async def run_models(c, anchors, corpus, pack, env, manifest, *, output,
                 raise ValueError('Providers must share frozen model and original ledger')
             if before is None:
                 before = actor.budget.ledger.summary()
-                if before['unresolved_reserved_micros']:
+                if not same_unresolved(before):
                     raise RunStopped('existing_unresolved_usage')
         return pairs[key][0 if kind == 'actor' else 1]
     def save(report):
@@ -149,13 +169,14 @@ async def run_models(c, anchors, corpus, pack, env, manifest, *, output,
         report.update(candidate_commit=manifest['candidate_commit'], manifest_sha256=digest(manifest),
                       corpus_acceptance=manifest['corpus_acceptance'],
                       model_version_limitation=manifest['model_version_limitation'],
+                      historical_unresolved=checkpoint,
                       external_web_requests=0, ledger_before=before)
         if pairs:
             report['ledger_current'] = next(iter(pairs.values()))[0].budget.ledger.summary()
         receipt.save(report)
         last = report
     def request_check():
-        if next(iter(pairs.values()))[0].budget.ledger.summary()['unresolved_reserved_micros']:
+        if not same_unresolved(next(iter(pairs.values()))[0].budget.ledger.summary()):
             raise RunStopped('unresolved_usage')
     try:
         # Validate actual provider settings before creating any conversation state.
