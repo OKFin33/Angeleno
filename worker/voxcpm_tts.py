@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import aiohttp
 from worker.pcm import PCMResampler
+from her_agent.diagnostics import emit
 from livekit.agents import APIConnectOptions, APIStatusError, DEFAULT_API_CONNECT_OPTIONS
 from livekit.agents.tts import SynthesizeStream, TTS, TTSCapabilities
 
@@ -157,6 +158,8 @@ class _VoxCPMSynthesizeStream(SynthesizeStream):
             last_exc: Exception | None = None
             for attempt in range(3):
                 pending_before = len(pending_pcm)
+                reason = "error"
+                emit("tts_http_start", request_id=request_id, attempt=attempt + 1)
                 try:
                     # 每次请求重新获取 session（force_close 保证新 TCP 连接）
                     sess = await self._vox._ensure_session()
@@ -190,14 +193,22 @@ class _VoxCPMSynthesizeStream(SynthesizeStream):
                             if pcm:
                                 emitted = push_pcm(pcm) or emitted
                         resampler.finish()
+                        emit("tts_http_eof", request_id=request_id, attempt=attempt + 1)
+                    reason = "eof"
                     return  # 成功，退出重试循环
+                except asyncio.CancelledError:
+                    reason = "cancelled"
+                    raise
                 except (aiohttp.ClientConnectionError, aiohttp.ClientPayloadError, asyncio.TimeoutError) as exc:
+                    reason = "transport_error"
                     if emitted:
                         raise  # Never replay a sentence after partial playback.
                     del pending_pcm[pending_before:]
                     last_exc = exc
                     print(f"[tts] voxcpm disconnect attempt={attempt+1}: {exc!r}", flush=True)
                     await asyncio.sleep(0.3)
+                finally:
+                    emit("tts_http_end", request_id=request_id, attempt=attempt + 1, reason=reason)
             raise RuntimeError(f"VoxCPM TTS failed after 3 attempts: {last_exc}")
 
         async for token_or_sentinel in self._input_ch:

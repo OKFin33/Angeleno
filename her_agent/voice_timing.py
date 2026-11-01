@@ -7,6 +7,7 @@ import time
 
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
 from livekit.agents.voice import io
+from .diagnostics import emit
 
 
 ORDINARY_SECONDS = 15.0
@@ -83,6 +84,7 @@ class TurnDeadlines:
 
     def generation_done(self, request_id):
         if self.accepts(request_id):
+            emit("generation_finished", request_id=request_id)
             self.current.generation_finished = True
             self.current.mark("generation_finished", time.monotonic())
             self.current.changed.set()
@@ -166,12 +168,20 @@ async def tagged_tts(text, bridge, synthesizer):
         if not bridge.deadlines.accepts(current_tag[0]):
             raise asyncio.CancelledError
         options = replace(DEFAULT_API_CONNECT_OPTIONS, max_retry=0)
-        async with synthesizer.synthesize(sentence, conn_options=options) as stream:
-            async for event in stream:
-                if not bridge.deadlines.accepts(current_tag[0]):
-                    raise asyncio.CancelledError
-                event.frame.userdata[AUDIO_TAG] = current_tag
-                yield event.frame
+        reason = "error"
+        try:
+            async with synthesizer.synthesize(sentence, conn_options=options) as stream:
+                async for event in stream:
+                    if not bridge.deadlines.accepts(current_tag[0]):
+                        raise asyncio.CancelledError
+                    event.frame.userdata[AUDIO_TAG] = current_tag
+                    yield event.frame
+            reason = "eof"
+        except (asyncio.CancelledError, GeneratorExit):
+            reason = "cancelled"
+            raise
+        finally:
+            emit("tts_stream_end", request_id=current_tag[0], phase=current_tag[1], reason=reason)
 
     async for chunk in text:
         for piece, current_tag in bridge.consume_speech(chunk, request_id=request_id):
@@ -267,6 +277,8 @@ class PhaseAudioOutput(io.AudioOutput):
             return
         # Partial transcript estimates belong to the upper SDK synchronizer,
         # which sees the complete reply, not an individual leaf phase.
+        emit("playout_finished", request_id=self.tag[0], phase=self.tag[1],
+             interrupted=event.interrupted or not self.bridge.deadlines.accepts(self.tag[0]))
         super()._forward_next_playback_finished(replace(event,
             playback_position=self.played + event.playback_position, synchronized_transcript=None,
             interrupted=event.interrupted or not self.bridge.deadlines.accepts(self.tag[0])))
