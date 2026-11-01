@@ -304,6 +304,7 @@ async def start_voice_session(ctx, agent_factory, env):
     bridge.status = statuses.offer
     statuses.on_error = bridge.fail
     cleanup_task = None
+    agent = None
 
     async def cleanup():
         try:
@@ -312,9 +313,16 @@ async def start_voice_session(ctx, agent_factory, env):
                 await cards.close()
             await session.aclose()  # cancels generation and clears playout first
         finally:
-            bridge.settle_unconfirmed()
-            await bridge.deadlines.close()
-            await runtime.close(flush=not bridge.failed and bridge.last_complete, timeout=5)
+            try:
+                # AgentSession stops streams but does not close model owners.
+                # This job's VoiceAgent owns the cached HTTP session in its TTS.
+                voice_tts = getattr(agent, "voice_tts", None)
+                if voice_tts is not None:
+                    await voice_tts.aclose()
+            finally:
+                bridge.settle_unconfirmed()
+                await bridge.deadlines.close()
+                await runtime.close(flush=not bridge.failed and bridge.last_complete, timeout=5)
 
     async def finish(reason=None):
         nonlocal cleanup_task
@@ -334,7 +342,8 @@ async def start_voice_session(ctx, agent_factory, env):
 
     ctx.add_shutdown_callback(finish)
     try:
-        await session.start(agent=agent_factory("", llm_instance=HerVoiceLLM(bridge)), room=ctx.room)
+        agent = agent_factory("", llm_instance=HerVoiceLLM(bridge))
+        await session.start(agent=agent, room=ctx.room)
         install_phase_audio(session, bridge)
     except BaseException:
         bridge.failed = True

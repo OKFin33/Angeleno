@@ -239,6 +239,11 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
             async def start(self, agent, **kwargs):
                 self.output.audio = SyntheticAudio()
                 return await super().start(agent, record=False)
+        from worker.voxcpm_tts import VoxCPMHttpTTS
+        owned_tts = VoxCPMHttpTTS(url="http://127.0.0.1:18080")
+        # Allocate the real production owner's session without making HTTP calls.
+        http_session = await owned_tts._ensure_session()
+        self.addAsyncCleanup(owned_tts.aclose)
         def factory(instructions, llm_instance):
             class TaggedAgent(SyntheticAgent):
                 async def tts_node(self, text, model_settings):
@@ -246,7 +251,9 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     async for frame in super().tts_node(text, model_settings):
                         frame.userdata[AUDIO_TAG] = (llm_instance.bridge.active_id, "ordinary")
                         yield frame
-            return TaggedAgent(instructions=instructions, llm=llm_instance)
+            agent = TaggedAgent(instructions=instructions, llm=llm_instance)
+            agent.voice_tts = owned_tts
+            return agent
         with patch("her_agent.voice.create_voice_runtime", return_value=runtime), \
              patch("her_agent.voice.AgentSession", Session):
             self.session = await start_voice_session(ctx, factory, {})
@@ -254,12 +261,43 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
         await self.session.aclose()
         await asyncio.wait_for(ctx.stopped.wait(), 3)
         await ctx.callbacks[0]("job ended")
+        await ctx.callbacks[0]("repeated job shutdown")
+        self.assertTrue(http_session.closed)
+        self.assertIsNone(owned_tts._http_session)
         self.assertTrue(runtime.closed)
         self.assertEqual(len(self.writer.requests), 1)
         self.assertTrue(self.writer.closed)
         store = open_store(self.root, self.pack, "voice-test")
         self.assertEqual(store.pending(), [])
         store.close()
+
+    async def test_failed_session_start_closes_owned_tts_and_runtime(self):
+        runtime = self.core()
+        class Context:
+            room = SimpleNamespace(local_participant=SimpleNamespace(publish_data=AsyncMock()))
+            job = SimpleNamespace(metadata='{"user_identity":"user-0123456789abcdef"}')
+            def add_shutdown_callback(self, fn):
+                self.finish = fn
+        class Session(AgentSession):
+            async def start(self, agent, **kwargs):
+                raise RuntimeError("synthetic startup failure")
+        from worker.voxcpm_tts import VoxCPMHttpTTS
+        owned_tts = VoxCPMHttpTTS(url="http://127.0.0.1:18080")
+        http_session = await owned_tts._ensure_session()
+        self.addAsyncCleanup(owned_tts.aclose)
+        def factory(instructions, llm_instance):
+            agent = SyntheticAgent(instructions=instructions, llm=llm_instance)
+            agent.voice_tts = owned_tts
+            return agent
+        ctx = Context()
+        with patch("her_agent.voice.create_voice_runtime", return_value=runtime), \
+             patch("her_agent.voice.AgentSession", Session):
+            with self.assertRaisesRegex(RuntimeError, "synthetic startup failure"):
+                await start_voice_session(ctx, factory, {})
+        await ctx.finish("job ended")
+        self.assertTrue(http_session.closed)
+        self.assertTrue(runtime.closed)
+        self.assertEqual(self.writer.requests, [])
 
     async def test_identity_seed_change_rejected_without_factory_or_reset(self):
         runtime = self.core()
