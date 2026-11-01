@@ -1,0 +1,105 @@
+{
+  "scope": "Captured model JSON for fixed synthetic development exchanges; no real user data. Replay verifies storage/normalization/reopening, not future model reliability.",
+  "exchanges": [
+    [
+      "午饭我临时凑合吃了三明治，下午要开会。你平时更喜欢安静还是热闹？",
+      "我比较喜欢安静；太吵的时候我会想走。"
+    ],
+    [
+      "明确纠正一下，我本人更喜欢热闹，不是安静。今天那顿三明治只是凑合，不能当作我的偏好。",
+      "明白，喜欢热闹是你的偏好；三明治只是那一顿，我喜欢安静是我自己的。"
+    ]
+  ],
+  "proposals": [
+    {
+      "retire": [],
+      "updates": [
+        {
+          "id": "card.user",
+          "kind": "user",
+          "text": "用户于2026-11-01T20:51:07Z说，午饭临时凑合吃了三明治，下午要开会；并问Jo平时更喜欢安静还是热闹。",
+          "keywords": [
+            "午饭三明治",
+            "下午开会",
+            "安静还是热闹"
+          ],
+          "evidence": [
+            1
+          ],
+          "known": true
+        },
+        {
+          "id": "card.character",
+          "kind": "character",
+          "text": "Jo说她自己比较喜欢安静，太吵的时候会想走。",
+          "keywords": [
+            "喜欢安静",
+            "太吵想走"
+          ],
+          "evidence": [
+            2
+          ],
+          "known": true
+        },
+        {
+          "id": "episode.20261101-quiet-preference",
+          "kind": "episode",
+          "text": "用户提到午饭临时吃了三明治、下午要开会，并问Jo更喜欢安静还是热闹；Jo回答自己比较喜欢安静，太吵时会想走。",
+          "keywords": [
+            "三明治",
+            "开会",
+            "安静",
+            "热闹",
+            "偏好"
+          ],
+          "evidence": [
+            1,
+            2
+          ],
+          "known": true
+        }
+      ]
+    },
+    {
+      "retire": [],
+      "updates": [
+        {
+          "id": "card.user",
+          "kind": "user",
+          "text": "用户于2026-11-01T20:51:07Z说，午饭临时凑合吃了三明治，下午要开会；并问Jo平时更喜欢安静还是热闹。用户于2026-11-01T20:51:09Z明确纠正：本人更喜欢热闹，不是安静；那顿三明治只是凑合，不能当作自己的偏好。",
+          "keywords": [
+            "喜欢热闹",
+            "纠正安静偏好",
+            "三明治只是凑合",
+            "下午开会"
+          ],
+          "evidence": [
+            1,
+            3
+          ],
+          "known": true
+        },
+        {
+          "id": "episode.20261101-quiet-preference",
+          "kind": "episode",
+          "text": "用户提到午饭临时吃了三明治、下午要开会，并问Jo更喜欢安静还是热闹；Jo回答自己比较喜欢安静，太吵时会想走。随后用户明确纠正：自己更喜欢热闹，不是安静，三明治只是凑合、不算偏好；Jo接受，并区分开两人各自的偏好。",
+          "keywords": [
+            "三明治",
+            "开会",
+            "安静",
+            "热闹",
+            "偏好",
+            "用户纠正"
+          ],
+          "evidence": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "known": true
+        }
+      ]
+    }
+  ]
+}
