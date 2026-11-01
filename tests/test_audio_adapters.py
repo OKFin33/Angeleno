@@ -193,6 +193,25 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIsNot(connections[0],connections[1])
                 finally:await tts.aclose()
 
+    async def test_reused_socket_disconnect_before_audio_retries_on_fresh_connection(self):
+        connections=[];raw=b'\x01\x00'*9600
+        async def handler(request):
+            connections.append(request.transport);await request.json()
+            if len(connections)==2:
+                request.transport.close()
+                return web.Response()
+            return web.Response(body=raw,content_type='audio/pcm')
+        tts=VoxCPMHttpTTS(url=await self.serve('/v1/audio/speech/stream',handler),sample_rate=48000)
+        try:
+            for _ in range(2):
+                async with tts.synthesize('合成句。',conn_options=APIConnectOptions(max_retry=0)) as stream:
+                    received=b''.join([bytes(item.frame.data) async for item in stream])
+                self.assertEqual(received[:len(raw)],raw)
+            self.assertEqual(len(connections),3)
+            self.assertIs(connections[0],connections[1])
+            self.assertIsNot(connections[1],connections[2])
+        finally:await tts.aclose()
+
     async def test_cancelled_body_is_closed_not_reused_and_next_sentence_succeeds(self):
         connections=[];release=asyncio.Event();raw=b'\x01\x00'*19200
         async def handler(request):
