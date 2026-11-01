@@ -159,10 +159,17 @@ class Conversation:
         self.pack, self.store, self.variant = pack, store, variant
         self.session = new_session()
 
+    @staticmethod
+    def _sourced_history(context, history):
+        # Internal seq annotations move with the exact raw message through the
+        # compiler's final window/leading-assistant trim; never sent on the wire.
+        return [{**message, "_source_seq": source["seq"]}
+                for message, source in zip(history, context["history_sources"], strict=True)]
+
     def begin(self, user):
         turn = self.store.append(self.session, "user", user)
         context, history = self.store.context(self.session, user)
-        messages = self.pack.messages(history, self.variant, memory_context=context)
+        messages = self.pack.messages(self._sourced_history(context, history), self.variant, memory_context=context)
         self.store.capture_input(turn, context)
         return messages
 
@@ -174,4 +181,5 @@ class Conversation:
         query = history[-1]["content"]
         context, public = self.store.context(self.session, query)
         context["temporary_mode"] = "本段临时对话不保存、不整理；退出后不会作为持久记忆继续使用。"
-        return self.pack.messages([*public, *history], self.variant, memory_context=context)
+        return self.pack.messages([*self._sourced_history(context, public), *history],
+                                  self.variant, memory_context=context)

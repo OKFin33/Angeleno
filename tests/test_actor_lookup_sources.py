@@ -142,6 +142,67 @@ class ActorLookupSourcesTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('SOURCE_CANARY', json.dumps(messages))
         self.assertNotIn('LONG_RAW_', json.dumps(messages))
 
+    async def test_temporary_call_final_history_window_controls_query_source_visibility(self):
+        # Real runtime delivery then durable padding; no synthetic sidecar is
+        # injected. At20 messages, the appended temporary user drops the first
+        # user and then its leading assistant, although history_sources has seq2.
+        for total, duplicate in ((18, False), (20, False), (20, True), (22, False)):
+            with self.subTest(durable_messages=total, duplicate_words=duplicate):
+                store = MemoryStore(self.root / f'temporary{total}-{duplicate}.sqlite3',
+                    character=self.pack.id, user='synthetic', seed=seed_digest(self.pack))
+                lookup, actor = TextLookup(load_bundle(), CLOCK), Scripted()
+                raw = 'ORIGINAL_DELIVERED_REPLY'
+                actor.rounds = [[call('place_check', check_args('周六下午'))], [TextDelta(raw)],
+                                [TextDelta('公开临时回答。')]]
+                runtime = ConversationRuntime(self.pack, actor, store=store, writer=IdleWriter(), lookup=lookup)
+                try:
+                    first = runtime.begin('公开核对开放时间。')
+                    text = ''.join([p async for p in runtime.stream(first)])
+                    runtime.delivered(first, text, complete=True)
+                    original = store.lookup_results()[0]
+                    self.assertEqual(original['assistant_seq'], 2)
+                    for index in range((total - 2) // 2):
+                        store.append(runtime.conversation.session, 'user', f'公开填充问题{index}。')
+                        reply = raw if duplicate and index == (total - 2) // 2 - 1 else f'公开填充回答{index}。'
+                        store.append(runtime.conversation.session, 'assistant', reply)
+                    before = (store.db.total_changes, len(store.pending()), len(store.lookup_results()),
+                              store.db.execute('SELECT count(*) FROM turn_inputs').fetchone()[0])
+                    user = '不要保存，临时聊聊公开话题。'
+                    expected = runtime.conversation.temporary([{'role': 'user', 'content': user}])
+                    exact_budget = sum(len(m['content']) for m in expected)
+                    # A tight final-request budget includes source data only if
+                    # the raw binding actually survived the window.
+                    with patch('her_agent.author.MAX_REQUEST_CHARS', exact_budget):
+                        temporary = runtime.begin(user)
+                    self.assertTrue(temporary.temporary)
+                    self.assertEqual(temporary.messages, expected)
+                    self.assertEqual(temporary.messages[-1], {'role': 'user', 'content': user})
+                    self.assertNotIn('_source_seq', json.dumps(temporary.messages))
+                    sidecar = [m for m in temporary.messages if m['content'].startswith('[lookup_sources：')]
+                    if total in (18, 22):
+                        self.assertEqual(len(sidecar), 1)
+                        if total == 18:
+                            self.assertIn(raw, [m['content'] for m in temporary.messages])
+                        else:
+                            # Beyond the recent window, unmaintained original
+                            # events remain complete visible backlog evidence.
+                            self.assertIn(raw, temporary.messages[0]['content'])
+                        row = self.projected(temporary.messages)['results'][0]
+                        self.assertEqual(row['assistant_seq'], 2)
+                        self.assertEqual(row['source_context'], original['source_context'])
+                    else:
+                        self.assertEqual(sidecar, [])
+                        # Identical later words do not authenticate seq2's old
+                        # lookup; source binding follows identity, not text match.
+                        self.assertEqual(raw in [m['content'] for m in temporary.messages], duplicate)
+                    output = ''.join([p async for p in runtime.stream(temporary)])
+                    runtime.delivered(temporary, output, complete=True)
+                    self.assertEqual((store.db.total_changes, len(store.pending()), len(store.lookup_results()),
+                        store.db.execute('SELECT count(*) FROM turn_inputs').fetchone()[0]), before)
+                    self.assertEqual(store.lookup_results()[0], original)
+                finally:
+                    await runtime.close(flush=False)
+
     async def test_source_over_budget_fails_before_actor_without_dropping_pending_correction(self):
         store = MemoryStore(self.root / 'budget.sqlite3', character=self.pack.id,
                             user='synthetic', seed=seed_digest(self.pack))
@@ -160,4 +221,3 @@ class ActorLookupSourcesTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(store.pending()[-1]['text'], '更正：我没有决定去。')
         finally:
             await runtime.close(flush=False)
-
