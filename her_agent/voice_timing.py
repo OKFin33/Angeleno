@@ -157,6 +157,14 @@ class TurnDeadlines:
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
+def configured_prefetch_frames(env):
+    """Explicit bounded audio lookahead; absent configuration keeps serial."""
+    value = env.get('ANGELENO_TTS_PREFETCH_FRAMES', '0')
+    if not isinstance(value, str) or value not in ('0', '2'):
+        raise ValueError('ANGELENO_TTS_PREFETCH_FRAMES must be 0 or 2')
+    return int(value)
+
+
 async def tagged_tts(text, bridge, synthesizer, *, prefetch_frames=0):
     """Optional bounded lookahead; current production default stays serial.
 

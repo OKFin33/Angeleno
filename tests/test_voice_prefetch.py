@@ -87,3 +87,50 @@ class PrefetchTests(unittest.IsolatedAsyncioTestCase):
             synth=Synth()
             with self.assertRaises(ValueError):await anext(tagged_tts(text('甲。'),Bridge(),synth,prefetch_frames=value))
             self.assertEqual(synth.calls,[])
+
+
+class PrefetchConfigurationTests(unittest.TestCase):
+    def test_only_explicit_bounded_runtime_modes(self):
+        from her_agent.voice_timing import configured_prefetch_frames
+        self.assertEqual(configured_prefetch_frames({}), 0)
+        self.assertEqual(configured_prefetch_frames({'ANGELENO_TTS_PREFETCH_FRAMES':'0'}), 0)
+        self.assertEqual(configured_prefetch_frames({'ANGELENO_TTS_PREFETCH_FRAMES':'2'}), 2)
+        for invalid in ('1', '3', '-1', ' 2', '', None, False, 2):
+            with self.subTest(value=invalid), self.assertRaisesRegex(ValueError, '0 or 2'):
+                configured_prefetch_frames({'ANGELENO_TTS_PREFETCH_FRAMES':invalid})
+
+    def test_product_mode_preserves_explicit_process_choice(self):
+        from scripts.run_trial import trial_environment
+        from her_agent.voice_timing import configured_prefetch_frames
+        env = trial_environment({}, {}, 'product', inherited={'ANGELENO_TTS_PREFETCH_FRAMES':'2'})
+        self.assertEqual(configured_prefetch_frames(env), 2)
+
+    def test_worker_passes_runtime_choice_to_audio_path(self):
+        from unittest.mock import patch
+        from worker.agent import VoiceAgent
+        for mode in (0, 2):
+            agent = SimpleNamespace(bridge=object(), voice_tts=object(), tts_prefetch_frames=mode)
+            chunks = object()
+            with patch('worker.agent.tagged_tts') as audio:
+                self.assertIs(VoiceAgent.tts_node(agent, chunks, None), audio.return_value)
+                audio.assert_called_once_with(chunks, agent.bridge, agent.voice_tts, prefetch_frames=mode)
+
+    def test_invalid_mode_fails_before_worker_creates_tts_owner(self):
+        from unittest.mock import patch
+        from worker.agent import VoiceAgent
+        with patch('worker.agent.VoxCPMHttpTTS') as owner:
+            with self.assertRaisesRegex(ValueError, '0 or 2'):
+                VoiceAgent('', llm_instance=SimpleNamespace(bridge=object()),
+                           env={'ANGELENO_TTS_PREFETCH_FRAMES':'99'})
+            owner.assert_not_called()
+
+
+class SerialCloseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_default_serial_close_awaits_sentence_context(self):
+        synth = Synth((100,))
+        stream = tagged_tts(text('公开合成短句。'), Bridge(), synth)
+        await anext(stream)
+        await stream.aclose()
+        # Baseline left active=1 until later event-loop finalization.
+        self.assertEqual(synth.active, 0)
+        self.assertEqual(synth.closed, 1)

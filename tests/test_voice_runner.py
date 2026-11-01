@@ -51,6 +51,17 @@ class RunnerTests(unittest.TestCase):
             self.assertFalse((root / 'private').exists(), 'Check must not initialize memory or ledgers')
             self.assertIn('ANGELENO_PAID_ENABLED=1', ';'.join(run_voice.check_configuration(env, root=root, starting=True)))
 
+    def test_prefetch_mode_check_is_local_and_rejects_unbounded_capacity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = configuration(root)
+            with patch('socket.socket', side_effect=AssertionError('No endpoint probe')), \
+                 patch('subprocess.Popen', side_effect=AssertionError('No resource start')):
+                self.assertEqual(run_voice.check_configuration({**env, 'ANGELENO_TTS_PREFETCH_FRAMES':'2'}, root=root), [])
+                errors = run_voice.check_configuration({**env, 'ANGELENO_TTS_PREFETCH_FRAMES':'99'}, root=root)
+                self.assertIn('ANGELENO_TTS_PREFETCH_FRAMES must be 0 or 2', errors)
+            self.assertFalse((root / 'private').exists())
+
     def test_missing_budget_or_asr_allowance_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
