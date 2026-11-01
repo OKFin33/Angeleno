@@ -101,6 +101,41 @@ def prepare_check(proposal, batch, record_evidence):
     return messages, payload
 
 
+
+# Narrow fail-closed boundary, not a general referent or entailment parser.
+_REFUSAL = re.compile(r'拒绝|排除|不要|不合适|不(?:太|怎么|那么|很|特别)?(?:喜欢|想去|想要|接受|考虑|愿意)|没(?:有|什么|太大)?兴趣')
+_SINGULAR = re.compile(r'(?:这|那)(?:个|项|种|条|家|位|处)|(?:它|他|她)(?!们)')
+_PLURAL = re.compile(r'(?:[两二三四五六七八九十百]|[2-9][0-9]*)\s*(?:个|项|种|条|家|位|处|所|类)|两者|二者|双方|全部|所有|全都|都|均|每(?:个|项|种|条|家|位|处|所|类)')
+_NONASSERTION = re.compile(r'不是|并非|不代表|不意味着|不能说|未必|不一定')
+
+
+def _refusal_parts(text):
+    return re.findall(r'[^。！？!?；;\n，,]+[。！？!?；;\n，,]?', text)
+
+
+def _unconfirmed_refusal_scope(candidate, cited):
+    """A singular refusal alone cannot certify an expanded quantified scope.
+
+    Use complete cited user utterances, so a shortened quote does not hide an
+    explicit plural statement. Role suggestions never supply user confirmation.
+    This intentionally leaves other semantic judgments to the existing checker.
+    """
+    claims = [p for clause in candidate['clauses'] for p in _refusal_parts(clause)
+              if '用户' in p and _REFUSAL.search(p) and _PLURAL.search(p)
+              and not _NONASSERTION.search(p)
+              and not re.search(r'未(?:明确|确认)|没有(?:明确|表示|确认)', p)
+              and not re.search(r'用户(?:又|还|曾)?(?:问|询问|追问|想知道)', p)]
+    if not claims:
+        return False
+    parts = [p for source in cited if source['role'] == 'user'
+             for p in _refusal_parts(source['text'])]
+    singular = any(_REFUSAL.search(p) and _SINGULAR.search(p) for p in parts)
+    explicit = any(_REFUSAL.search(p) and _PLURAL.search(p)
+                   and not _NONASSERTION.search(p) and not p.rstrip().endswith(('?', '？'))
+                   for p in parts)
+    return singular and not explicit
+
+
 def validate_check(result, payload):
     if not isinstance(result, dict) or set(result) != {'checks'} or not isinstance(result['checks'], list):
         raise ValueError('Invalid attribution verdict')
@@ -137,6 +172,8 @@ def validate_check(result, payload):
                 raise ValueError('User attribution requires an actual user quote')
             if value['scope'] == 'no_user_claims' and not any(e['role'] == 'assistant' for e in cited):
                 raise ValueError('Non-user context requires delivered role speech')
+            if value['scope'] == 'user_claims' and _unconfirmed_refusal_scope(candidate, cited):
+                raise AttributionRejected('User refusal scope unresolved; proposal and raw events left pending')
             if candidate['action'] == 'retire' and not any(e['role'] == 'user' and e['new_in_batch'] for e in cited):
                 raise ValueError('Retirement needs current user evidence')
         else:

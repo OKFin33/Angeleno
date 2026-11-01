@@ -35,7 +35,7 @@ def voice_configuration(env, *, root=ROOT):
     variant = env.get("ANGELENO_AUTHOR_VARIANT", "guided")
     if variant not in {"raw", "guided"}:
         raise ValueError("Unknown ANGELENO_AUTHOR_VARIANT")
-    for key in ("ANGELENO_MEMORY_CREATE", "ANGELENO_MEMORY_TOOLS", "ANGELENO_PLACE_TOOLS", "ANGELENO_WEB_ENABLED"):
+    for key in ("ANGELENO_MEMORY_CREATE", "ANGELENO_MEMORY_TOOLS", "ANGELENO_PLACE_TOOLS", "ANGELENO_WEB_ENABLED", "ANGELENO_MEMORY_ATTRIBUTION_CHECK"):
         if env.get(key, "0") not in {"0", "1"}:
             raise ValueError(f"{key} must be 0 or 1")
     return pack, user, variant
@@ -60,7 +60,7 @@ def create_voice_runtime(env, *, root=ROOT, provider_factory=None):
                   else live_lookup() if env.get("ANGELENO_PLACE_TOOLS") == "1" else None)
         return ConversationRuntime(pack, actor, store=store, writer=writer, variant=variant,
                                    memory_tools=env.get("ANGELENO_MEMORY_TOOLS") == "1",
-                                   lookup=lookup)
+                                   lookup=lookup, attribution_check=env.get("ANGELENO_MEMORY_ATTRIBUTION_CHECK") == "1")
     except BaseException:
         store.close()
         raise

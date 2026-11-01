@@ -50,7 +50,9 @@ class ConversationRuntime:
     """
 
     def __init__(self, pack, provider, *, store=None, writer=None, variant="guided",
-                 memory_tools=False, lookup=None):
+                 memory_tools=False, lookup=None, attribution_check=False):
+        if type(attribution_check) is not bool or (attribution_check and store is None):
+            raise ValueError('Attribution check requires an explicit boolean and persistent memory')
         if memory_tools and store is None:
             raise ValueError("Memory tools require a persistent identity")
         if store is not None and writer is None:
@@ -61,7 +63,7 @@ class ConversationRuntime:
         self.voice_output = False  # Set only by the voice adapter, never user text.
         self._lookup_turns = 0
         self.conversation = Conversation(pack, store, variant=variant) if store else None
-        self.maintainer = Maintainer(store, pack, writer) if store else None
+        self.maintainer = Maintainer(store, pack, writer, attribution_check=attribution_check) if store else None
         self.history, self.temporary_history = [], []
         self.temporary = False
         self.completed = 0

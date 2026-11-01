@@ -235,8 +235,8 @@ class AttributionCandidateTests(StoreFixture,unittest.IsolatedAsyncioTestCase):
         await runtime.close(flush=False);self.store=self.open();self.assertEqual(self.store.records(),[])
 
     async def test_quote_validation_is_not_semantic_entailment_and_false_positive_is_possible(self):
-        ev=self.exchange('这个不太喜欢。','你是两个都不喜欢吗？')
-        bad=record('card.user','用户不喜欢两个方向。',[ev[0]],kind='user')
+        ev=self.exchange('我只是在问你为什么选它。','先聊聊理由。')
+        bad=record('card.user','用户决定周六去看展。',[ev[0]],kind='user')
         m,p=self.candidate({'retire':[],'updates':[bad]})  # deliberately WRONG fake supported verdict
         self.assertTrue(await m.once())
         self.assertEqual(self.store.records()[0]['text'],bad['text'])

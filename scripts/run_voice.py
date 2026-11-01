@@ -34,7 +34,7 @@ def check_configuration(env, *, root=ROOT, starting=False):
         configured_prefetch_frames(env)
     except ValueError as exc:
         errors.append(str(exc))
-    for name in ('ANGELENO_PAID_ENABLED', 'ANGELENO_MEMORY_CREATE', 'ANGELENO_MEMORY_TOOLS', 'ANGELENO_PLACE_TOOLS', 'LIVEKIT_FORCE_TCP'):
+    for name in ('ANGELENO_PAID_ENABLED', 'ANGELENO_MEMORY_CREATE', 'ANGELENO_MEMORY_TOOLS', 'ANGELENO_MEMORY_ATTRIBUTION_CHECK', 'ANGELENO_PLACE_TOOLS', 'LIVEKIT_FORCE_TCP'):
         if env.get(name, '1' if name == 'LIVEKIT_FORCE_TCP' else '0') not in {'0', '1'}:
             errors.append(f'{name} must be 0 or 1')
     if starting and env.get('ANGELENO_PAID_ENABLED', '0') != '1':
