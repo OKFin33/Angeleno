@@ -222,6 +222,11 @@ class MemoryStore:
         # Keep all-citation time anchors compact. Optional raw turns below use
         # only spare space; maintenance still reads full direct evidence.
         context["record_sources"] = self.record_sources(context["records"])
+        # Reuse the delivered-result projection for the same complete raw
+        # utterances the actor actually sees, not every lookup in this identity.
+        sources = self.maintenance_lookup_sources((*recent, *backlog))
+        if sources["results"]:
+            context["lookup_sources"] = sources
         if len(encoded(context)) > CONTEXT_LIMIT:
             raise BacklogFull("Continuity sources exceed the budget; inspect memory and pending maintenance before continuing")
         # Optional source material uses only remaining space; it never displaces
@@ -231,7 +236,14 @@ class MemoryStore:
         readback = self.source_readback(context["records"], query,
                                         ids | {e["seq"] for e in backlog}, budget)
         if readback is not None:
-            context["source_readback"] = readback
+            candidate = {**context, "source_readback": readback}
+            sources = self.maintenance_lookup_sources((*recent, *backlog, *readback["events"]))
+            if sources["results"]:
+                candidate["lookup_sources"] = sources
+            # Optional raw readback and its source records travel together;
+            # neither may displace mandatory corrections or hide their grade.
+            if len(encoded(candidate)) <= CONTEXT_LIMIT:
+                context = candidate
         history = [{"role": r["role"], "content": r["text"] if r["delivery"] == "complete"
                     else "[交付中断或范围不确定的发言] " + r["text"]} for r in recent]
         return context, history

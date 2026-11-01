@@ -1,6 +1,7 @@
 """Source card stays beside the reply; memory stores only a delivered result."""
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -89,7 +90,7 @@ class SourceCardTests(unittest.IsolatedAsyncioTestCase):
         finally:
             reopened.close()
 
-    async def test_delivered_result_does_not_enter_the_next_turn(self):
+    async def test_delivered_result_enters_only_bound_historical_source_data_not_current_card_or_speech(self):
         await self.ask(
             FIRST,
             [call("place_search", {"query": FIRST}, "c-search")],
@@ -105,13 +106,27 @@ class SourceCardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([row["applicable_date"] for row in rows], ["2026-10-31", "2026-11-07"])
         self.assertEqual(len({row["request_id"] for row in rows}), 2)
         context, history = self.store.context(self.runtime.conversation.session, SECOND)
-        self.assertNotIn(STANDING, dumped(context))
+        self.assertNotIn(STANDING, dumped({k: v for k, v in context.items() if k != 'lookup_sources'}))
         self.assertNotIn(STANDING, dumped(history))
         self.assertNotIn("2026-10-31", dumped(history))
+        reads, requests = self.lookup.bundle.library.reads, len(self.scripted.sent)
         follow = self.runtime.begin("今天想聊做饭。")
-        self.assertNotIn(STANDING, dumped(follow.messages))
-        self.assertNotIn(rows[0]["request_id"], dumped(follow.messages))
-        self.assertNotIn(rows[1]["request_id"], dumped(follow.messages))
+        source_data = [m for m in follow.messages if m['content'].startswith('[lookup_sources：')]
+        self.assertEqual(len(source_data), 1)
+        projected = json.loads(source_data[0]['content'].split('\n', 1)[1])['results']
+        # Spec6 keeps old evidence separate from long-term cards and never
+        # refreshes it into "now". The new actor source sidecar preserves the
+        # original dates/grades/utterance links instead of replaying tool calls.
+        self.assertEqual([r['request_id'] for r in projected], [r['request_id'] for r in rows])
+        self.assertEqual([r['applicable_date'] for r in projected], ['2026-10-31', '2026-11-07'])
+        self.assertEqual([r['checked_at'] for r in projected], [r['checked_at'] for r in rows])
+        self.assertTrue(all(r['source_context_status'] == 'synthetic_fixture' for r in projected))
+        self.assertTrue(all(r['assistant_seq'] in context['history_evidence'] for r in projected))
+        self.assertTrue(all(r['user_turn'] < follow.user_seq for r in projected))
+        self.assertNotIn(STANDING, follow.messages[0]['content'])
+        self.assertIsNone(getattr(follow, 'source_card', None))
+        self.assertEqual((self.lookup.bundle.library.reads, len(self.scripted.sent)), (reads, requests))
+        self.assertEqual(self.store.records(), [])
         self.assertTrue(all(message.get("role") != "tool" for message in follow.messages))
         self.store.forget(None)
         self.assertEqual(self.store.lookup_results(), [])
