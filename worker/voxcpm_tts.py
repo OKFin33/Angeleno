@@ -3,8 +3,8 @@
 """VoxCPM2 流式 TTS plugin for LiveKit agents.
 
 streaming=True：LLM 边生成边按句子边界触发 TTS，首句延迟目标 ~1.5s。
-关键：aiohttp 使用 force_close=True 禁止连接复用，防止 SSH 隧道空闲超时
-导致下一句 ServerDisconnectedError（这是6/17卡顿的根因）。
+相邻分句短暂复用连接；闲置后重新连接，未完整读取或取消的响应不复用。
+只有尚未交付音频时允许原有重试，部分播放后绝不重播。
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from livekit.agents.tts import SynthesizeStream, TTS, TTSCapabilities
 _SENT_ENDS = frozenset('。！？；!?;')
 
 TARGET_SAMPLE_RATE = 24000
+HTTP_KEEPALIVE_SECONDS = 2.0  # Shorter than the local Uvicorn server's 5s idle timeout.
 
 
 def _split_with_remainder(text: str) -> tuple[list[str], str]:
@@ -99,10 +100,10 @@ class VoxCPMHttpTTS(TTS):
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
-            # force_close=True：每次请求用新 TCP 连接，不复用。
-            # 必须设置，否则 SSH 隧道在句子间隙空闲超时后断连，
-            # aiohttp 复用旧连接会触发 ServerDisconnectedError。
-            connector = aiohttp.TCPConnector(force_close=True)
+            # Reuse only completely consumed responses between nearby sentences.
+            # aiohttp closes an incomplete/cancelled body instead of pooling it;
+            # stale/disconnected requests retain the existing pre-audio retry.
+            connector = aiohttp.TCPConnector(keepalive_timeout=HTTP_KEEPALIVE_SECONDS)
             self._http_session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=aiohttp.ClientTimeout(total=120, sock_read=60),
@@ -185,7 +186,7 @@ class _VoxCPMSynthesizeStream(SynthesizeStream):
                 reason = "error"
                 emit("tts_http_start", request_id=request_id, attempt=attempt + 1)
                 try:
-                    # 每次请求重新获取 session（force_close 保证新 TCP 连接）
+                    # Share the owner session; the connector expires idle sockets.
                     sess = await self._vox._ensure_session()
                     headers = {'X-Angeleno-Audio-Request': metric_tag} if measuring else {}
                     received = 0

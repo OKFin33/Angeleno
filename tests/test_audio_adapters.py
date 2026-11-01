@@ -153,6 +153,72 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         # The SDK may pad the final 10ms frame with zeros.
         self.assertTrue(all(b == 0 for b in received[len(raw)*2:]))
 
+    async def test_adjacent_sentences_reuse_connection_and_owner_close_releases_it(self):
+        connections=[];raw=b'\x01\x00'*9600
+        async def handler(request):
+            connections.append(request.transport)
+            await request.json()
+            return web.Response(body=raw,content_type='audio/pcm')
+        tts=VoxCPMHttpTTS(url=await self.serve('/v1/audio/speech/stream',handler),sample_rate=48000)
+        try:
+            for text in ('第一句。','第二句。'):
+                async with tts.synthesize(text,conn_options=APIConnectOptions(max_retry=0)) as stream:
+                    received=b''.join([bytes(item.frame.data) async for item in stream])
+                self.assertEqual(received[:len(raw)],raw)
+            self.assertIs(connections[0],connections[1])
+            self.assertFalse(tts._http_session.closed)
+        finally:await tts.aclose()
+        for _ in range(10):
+            if connections[0].is_closing():break
+            await asyncio.sleep(.01)
+        self.assertTrue(connections[0].is_closing())
+
+    async def test_idle_expiry_and_server_closed_socket_reconnect_without_replay(self):
+        import worker.voxcpm_tts as module
+        for expire in (False,True):
+            connections=[];raw=b'\x01\x00'*9600
+            async def handler(request):
+                connections.append(request.transport);await request.json()
+                return web.Response(body=raw,content_type='audio/pcm')
+            with patch.object(module,'HTTP_KEEPALIVE_SECONDS',.02 if expire else 2):
+                tts=VoxCPMHttpTTS(url=await self.serve('/v1/audio/speech/stream',handler),sample_rate=48000)
+                try:
+                    for index in range(2):
+                        async with tts.synthesize('合成句。',conn_options=APIConnectOptions(max_retry=0)) as stream:
+                            self.assertTrue([item async for item in stream])
+                        if index==0:
+                            if not expire:connections[0].close()
+                            await asyncio.sleep(.04)
+                    self.assertEqual(len(connections),2)
+                    self.assertIsNot(connections[0],connections[1])
+                finally:await tts.aclose()
+
+    async def test_cancelled_body_is_closed_not_reused_and_next_sentence_succeeds(self):
+        connections=[];release=asyncio.Event();raw=b'\x01\x00'*19200
+        async def handler(request):
+            connections.append(request.transport);await request.json()
+            if len(connections)>1:return web.Response(body=raw,content_type='audio/pcm')
+            response=web.StreamResponse(headers={'Content-Length':str(len(raw)*2)})
+            await response.prepare(request);await response.write(raw)
+            await release.wait()
+            return response
+        tts=VoxCPMHttpTTS(url=await self.serve('/v1/audio/speech/stream',handler),sample_rate=48000)
+        stream=tts.synthesize('被打断。',conn_options=APIConnectOptions(max_retry=0))
+        try:
+            await asyncio.wait_for(stream.__anext__(),1)
+            await asyncio.wait_for(stream.aclose(),.5)
+            for _ in range(20):
+                if connections[0].is_closing():break
+                await asyncio.sleep(.01)
+            self.assertTrue(connections[0].is_closing())
+            async with tts.synthesize('下一句。',conn_options=APIConnectOptions(max_retry=0)) as next_stream:
+                received=b''.join([bytes(item.frame.data) async for item in next_stream])
+            self.assertEqual(received[:len(raw)],raw)
+            self.assertEqual(len(connections),2,'cancelled audio must not be replayed')
+            self.assertIsNot(connections[0],connections[1])
+        finally:
+            release.set();await stream.aclose();await tts.aclose()
+
     async def test_audio_metrics_opt_in_preserves_pcm_and_counts_short_sentence_flush(self):
         raw = struct.pack('<2400h', *([500, -500] * 1200))
         for flag in ('0', '1'):
