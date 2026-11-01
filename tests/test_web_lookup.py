@@ -719,6 +719,26 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(b"public exhibit",raw)
         self.assertNotIn(URL.encode(),raw)
 
+    async def test_explicit_renewed_cumulative_cap_preserves_old_web_history_and_unknown(self):
+        from her_agent.budget import BudgetExceeded
+        def handle(request):
+            if request.method=='GET':return balance_response()
+            return httpx.Response(200,json={'results':[RESULT]})
+        api=self.api(handle,6)
+        ledger=api.actor.budget.ledger
+        for i in range(6):
+            ident=ledger.reserve_web('web_fetch',100000000,ledger.settled_before_check(),6)
+            ledger.finish_web(ident,charged=None if i==5 else True,status='cancelled' if i==5 else 'complete')
+        history=ledger.summary()['rows']
+        with self.assertRaises(BudgetExceeded):await api.search(QUERY)
+        renewed=DeepSeekWeb(api.actor,request_limit=8)
+        await renewed.search(QUERY);await renewed.search(QUERY)
+        with self.assertRaises(BudgetExceeded):await DeepSeekWeb(api.actor,request_limit=8).search(QUERY)
+        result=ledger.summary()
+        self.assertEqual(result['rows'][:6],history)
+        self.assertEqual(len(result['rows']),8)
+        self.assertEqual(result['unresolved_reserved_micros'],5000)
+
     async def test_empty_failure_and_ambiguous_body_have_distinct_charges_no_retry(self):
         replies = [httpx.Response(200,json={"results":[]}), httpx.Response(503,text="private provider error"),
                    httpx.Response(200,text="not json"), httpx.Response(302,headers={"Location":"https://127.0.0.1/"})]

@@ -123,8 +123,8 @@ class Ledger:
     def reserve_web(self, purpose, balance, settled_before, request_limit):
         if purpose not in {"web_search", "web_fetch"} or self.prices.currency != "CNY":
             raise ValueError("Web requests require explicit CNY pricing")
-        if type(request_limit) is not int or not 1 <= request_limit <= 6:
-            raise ValueError("Initial web request batch limit must be 1..6")
+        if type(request_limit) is not int or request_limit < 1:
+            raise ValueError("Explicit positive cumulative web request limit required")
         # Official 2026-10-31 tariff: CNY .005 per nonempty response. Unknown
         # outcomes retain the full reserve; the existing account ledger is used.
         return self._reserve(5000, purpose, balance, settled_before, request_limit)

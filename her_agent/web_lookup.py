@@ -251,8 +251,8 @@ class DeepSeekWeb:
     def __init__(self, actor, *, request_limit):
         if actor.budget is None or actor.budget.ledger.prices.currency != "CNY":
             raise ValueError("Web tools require the existing CNY actor ledger")
-        if type(request_limit) is not int or not 1 <= request_limit <= 6:
-            raise ValueError("Explicit initial web batch limit 1..6 required")
+        if type(request_limit) is not int or request_limit < 1:
+            raise ValueError("Explicit positive cumulative web request limit required")
         self.actor, self.limit = actor, request_limit
 
     async def search(self, query):
