@@ -486,6 +486,25 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
 
 
 class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fetch_metadata_hash_matches_sent_body_without_headers_or_query(self):
+        sent=[]
+        def handle(request):
+            if request.method=='GET':return balance_response()
+            sent.append(request)
+            return httpx.Response(200,json={'content':'Public response not retained in diagnostic'})
+        api=self.api(handle)
+        with patch('her_agent.web_lookup.emit') as emit:
+            await api.fetch(URL)
+        start,end=emit.call_args_list
+        import hashlib
+        self.assertEqual(start.args[0],'web_fetch_http_start')
+        self.assertEqual(start.kwargs['request_hash'],hashlib.sha256(sent[0].content).hexdigest())
+        self.assertEqual(start.kwargs['url'],URL)
+        self.assertEqual(end.kwargs['reason'],'complete')
+        self.assertEqual(end.kwargs['http_status'],200)
+        self.assertNotIn('synthetic-account-key',str(emit.call_args_list))
+        self.assertNotIn('Public response',str(emit.call_args_list))
+
     async def test_local_dns_categories_remain_diagnostic_only(self):
         loop = asyncio.get_running_loop()
         public = (2,1,6,'',('93.184.216.34',443))

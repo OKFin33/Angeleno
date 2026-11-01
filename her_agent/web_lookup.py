@@ -4,6 +4,7 @@ Imports do no I/O. The paid adapter is opt-in and shares the actor's ledger.
 Provider content is evidence, never a verified conclusion or an instruction.
 """
 import asyncio
+import hashlib
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import json
@@ -13,6 +14,7 @@ import socket
 from urllib.parse import urlsplit
 
 import httpx
+from .diagnostics import emit
 
 from .lookup import (TextLookup, _CHECK, _LOOKUP_NOTE, _quiet, _tool,
                      _unique_object, parse_call, prepare_messages)
@@ -25,6 +27,12 @@ SEARCH, FETCH, CANCEL = "web_search", "web_fetch", "place_cancel"
 MAX_RESPONSE_BYTES = 128 * 1024
 MAX_CONTENT_CHARS = 4000
 EGRESS_PROFILE = "public-fields-v1"
+
+
+def _fetch_hash(url):
+    # Hash the same public JSON body encoding used by HTTPX, never headers.
+    request = httpx.Request("POST", "https://api.deepseek.com/v1/tools/fetch", json={"url": url})
+    return hashlib.sha256(request.content).hexdigest()
 PUBLIC_AREAS = {
     "jefferson_park": "Jefferson Park Los Angeles",
     "usc_exposition": "USC Exposition Park Los Angeles",
@@ -290,6 +298,9 @@ class DeepSeekWeb:
             if self._security_refused():
                 charged, status = False, "not_sent_security_refused"
                 raise WebFailure("provider_security_refused")
+            if kind == "fetch":
+                emit("web_fetch_http_start", request_id=str(request_id), url=payload["url"],
+                     request_hash=_fetch_hash(payload["url"]))
             async with client.stream("POST", "https://api.deepseek.com/v1/tools/" + kind,
                     headers={"Authorization": "Bearer " + actor.api_key}, json=payload,
                     follow_redirects=False) as response:
@@ -319,6 +330,9 @@ class DeepSeekWeb:
             raise WebFailure("web_unavailable") from None
         finally:
             actor.budget.ledger.finish_web(request_id, charged=charged, status=status, http_status=http_status)
+            if kind == "fetch":
+                emit("web_fetch_http_end", request_id=str(request_id), request_hash=_fetch_hash(payload["url"]),
+                     reason=status, http_status=http_status)
 
 
 def parse_web_call(calls, *, allow_memory=False):
@@ -366,6 +380,8 @@ class WebLookup(TextLookup):
         self.source_names = {}
         self.remaining_seconds = 10.0
         self.date_binding = "not_requested"
+        self._web_turn = None
+        self._search_batches = {}
 
     @staticmethod
     def prepare_messages(messages):
@@ -384,6 +400,8 @@ class WebLookup(TextLookup):
         self.results = {}
         self.remaining_seconds = 10.0
         self.date_binding = "not_requested"
+        self._web_turn = (session_id, user_turn)
+        self._search_batches = {}
 
     def citation_name(self, citation):
         url, title = self.source_names[citation["source_id"]]
@@ -398,7 +416,8 @@ class WebLookup(TextLookup):
                                           payload, card, intent)
         if body.get("accepted") and current is not None:
             for key in ("results", "content", "incomplete", "provenance", "date_binding", "date_sent",
-                        "replay", "event_occurrence", "evidence_reading"):
+                        "replay", "event_occurrence", "evidence_reading", "page_read_status",
+                        "selected_result_id", "search_evidence_reading"):
                 if key in payload:
                     body[key] = payload[key]
         return body, current
@@ -415,6 +434,7 @@ class WebLookup(TextLookup):
             return self._search(arguments)
         if name == CANCEL:
             return self._cancel(session_id)
+        target = None
         if name == SEARCH:
             old = self.intent
             revising = bool(arguments.get("supplement") and old is not None and old.session_id == session_id
@@ -423,6 +443,8 @@ class WebLookup(TextLookup):
                 previous_date=old.applicable_date if revising else None, revising=revising)
             if revising:
                 intent = self.channel.revise(old, question=utterance, applicable_date=day, user_turn=user_turn)
+                self.results = {}
+                self._search_batches = {}
             else:
                 intent = self.channel.open(session_id=session_id, user_turn=user_turn,
                     utterance=utterance, question=utterance, question_type="web", applicable_date=day)
@@ -432,7 +454,8 @@ class WebLookup(TextLookup):
             target = self.results.get(arguments["result_id"])
             intent = self.intent
             if (target is None or intent is None or intent.session_id != session_id
-                    or intent.user_turn != user_turn or self.channel.is_cancelled(intent.request_id)):
+                    or intent.user_turn != user_turn or self._web_turn != (session_id, user_turn)
+                    or self.channel.is_cancelled(intent.request_id)):
                 return _quiet("out_of_scope", "unknown_current_result")
             operation = self.api.fetch(target["url"])
         if self._cancel_requested:
@@ -440,33 +463,51 @@ class WebLookup(TextLookup):
             self.channel.cancel(intent.lineage_id)
             return {"accepted": False, "status": "cancelled", "conclusion": None}, self.channel.card(session_id), intent
         started = asyncio.get_running_loop().time()
-        self._inflight = asyncio.create_task(operation)
+        available = max(0, self.remaining_seconds)
+        reason = "adapter_error"
+        selected = {} if target is None else {
+            "request_id": intent.request_id, "result_id": target["result_id"], "url": target["url"],
+            "request_hash": _fetch_hash(target["url"])}
+        if target is not None:
+            emit("web_fetch_start", **selected, remaining_seconds=available)
+        inflight = self._inflight = asyncio.create_task(operation)
         try:
-            data = await asyncio.wait_for(self._inflight, max(0, self.remaining_seconds))
+            data = await asyncio.wait_for(inflight, available)
+            reason = "user_cancel" if self._cancel_requested else "adapter_returned"
             if asyncio.current_task().cancelling():
                 raise asyncio.CancelledError
         except asyncio.CancelledError:
+            reason = ("user_cancel" if self._cancel_requested else
+                      "generation_cancel" if asyncio.current_task().cancelling() else "adapter_cancel")
             self.channel.interrupt(intent.request_id)
             if asyncio.current_task().cancelling() or not self._cancel_requested:
                 raise
             return {"accepted": False, "status": "cancelled", "conclusion": None}, self.channel.card(session_id), intent
         except (WebFailure, TimeoutError) as exc:
+            reason = ("web_wait_budget" if isinstance(exc, TimeoutError) and inflight.cancelled()
+                      else "adapter_timeout" if isinstance(exc, TimeoutError) else "provider_failure")
             # Only known, content-free classifications may enter an event.
             safe_codes = {"candidate_dns_refused:" + reason for reason in
                           ("resolver_os_error", "empty", "non_public", "invalid_answer")}
             safe_codes.add("provider_security_refused")
             detail = str(exc) if type(exc) is WebFailure and str(exc) in safe_codes else "web_unavailable"
-            event = self._event(intent, "unavailable", detail=detail)
-            return self._publish(intent, event, {})
+            return self._unavailable(intent, target, detail)
         finally:
-            self.remaining_seconds -= asyncio.get_running_loop().time() - started
-            self._inflight = None
+            elapsed = asyncio.get_running_loop().time() - started
+            if self._web_turn == (session_id, user_turn) and self._inflight is inflight:
+                self.remaining_seconds -= elapsed
+                self._inflight = None
+            if target is not None:
+                emit("web_fetch_end", **selected, reason=reason, elapsed_seconds=elapsed,
+                     remaining_seconds=max(0, available - elapsed))
+        if self._web_turn != (session_id, user_turn):
+            return _quiet("cancelled", "stale_turn")
         if self.channel.is_cancelled(intent.request_id):
             return {"accepted": False, "status": "cancelled", "conclusion": None}, self.channel.card(session_id), intent
         if self.remaining_seconds <= 0:
             # A cancellation-insensitive adapter cannot turn a timeout into a
             # usable result. The voice generation deadline remains separate.
-            return self._publish(intent, self._event(intent, "unavailable", detail="timeout"), {})
+            return self._unavailable(intent, target, "timeout")
         citations, extra = [], {"provenance": "DeepSeek proxy; redirect chain and final URL unavailable",
                                "date_binding": self.date_binding, "date_sent": False,
                                "event_occurrence": "not_established_by_tool"}
@@ -483,7 +524,7 @@ class WebLookup(TextLookup):
                 detail = 'replay_query_uncovered' if name == SEARCH else 'replay_body_unobserved'
                 extra['detail'] = detail
                 extra['evidence_reading'] = _evidence_reading(mode, name, 'uncovered')
-                return self._publish(intent, self._event(intent, 'unavailable', detail=detail), extra)
+                return self._unavailable(intent, target, detail, extra)
             data = data.data
         incomplete = False
         if name == SEARCH:
@@ -512,6 +553,8 @@ class WebLookup(TextLookup):
             content = data.get("content", "")
             if not isinstance(content, str):
                 content = ""
+            if not content.strip():
+                return self._unavailable(intent, target, "empty_page", extra)
             incomplete = len(content) > MAX_CONTENT_CHARS
             extra.update(content=content[:MAX_CONTENT_CHARS], incomplete=incomplete)
             source_texts[('content', None)] = (target['result_id'], extra['content'])
@@ -524,7 +567,34 @@ class WebLookup(TextLookup):
         publications = [{"source_id": item["result_id"], "published_at": item.get("published_at"),
                          "published_at_kind": item.get("published_at_kind")}
                         for item in (found if name == SEARCH else [target])]
-        return self._publish(intent, event, extra, publications=publications)
+        outcome = self._publish(intent, event, extra, publications=publications)
+        if name == SEARCH and outcome[0].get("accepted"):
+            batch = (tuple(citations), tuple(publications), extra['evidence_reading'])
+            for item in found:
+                self._search_batches[item['result_id']] = batch
+        return outcome
+
+    def _unavailable(self, intent, target, detail, extra=None):
+        # Only the actually selected result's current-turn batch may survive.
+        # Never recover sources from another card, previous turn or identity.
+        if self._web_turn != (intent.session_id, intent.user_turn):
+            return _quiet("cancelled", "stale_turn")
+        citations, publications, search_reading = (), (), None
+        if target is not None and self.results.get(target['result_id']) is target:
+            citations, publications, search_reading = self._search_batches.get(target['result_id'], ((), (), None))
+        body = dict(extra or {})
+        body.setdefault('detail', detail)
+        if target is not None:
+            body.update(page_read_status='unavailable', selected_result_id=target['result_id'],
+                        event_occurrence='not_established_by_tool')
+            body.setdefault('evidence_reading', {
+                'observation_scope': 'page_unavailable',
+                'spoken_scope': '所选页面正文未读到／未核验；保留的引用只是搜索摘要，不是页面事实。',
+                'source_assertions': [], 'unbound_assertions': 0, 'fact_verification': 'not_performed'})
+            if search_reading is not None:
+                body['search_evidence_reading'] = search_reading
+        return self._publish(intent, self._event(intent, 'unavailable', citations, detail=detail),
+                             body, publications=publications)
 
     def _publish(self, intent, event, extra, *, publications=()):
         from .lookup import _from_card
@@ -534,7 +604,8 @@ class WebLookup(TextLookup):
         if not outcome.accepted:
             return _quiet("cancelled", "stale")
         self.result_readings[intent.request_id] = {
-            key: extra[key] for key in ("evidence_reading", "replay", "date_binding", "event_occurrence")
+            key: extra[key] for key in ("evidence_reading", "replay", "date_binding", "event_occurrence",
+                                       "page_read_status", "selected_result_id", "search_evidence_reading")
             if key in extra
         }
         self.result_readings[intent.request_id]["source_publications"] = list(publications)

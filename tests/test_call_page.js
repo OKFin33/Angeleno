@@ -129,6 +129,9 @@ async function originalRegressions(){
   assert(flat(ev.sourceCard).some(n=>n.textContent==='由搜索服务读取；最终地址和跳转过程未提供'),'proxy boundary is visible in actual source details');
   ev.rooms[0].handlers.DataReceived(packet(2,{phase:'result',status:'evidence',conclusion:null,citations:[{name:'搜索结果',url:'https://example.org/exhibit',excerpt:'摘要',claim_kind:'search_summary'}]}),agent,0,'angeleno.source');
   assert(flat(ev.sourceCard).some(n=>n.textContent==='搜索摘要，尚未读取正文'),'search summary is distinguished from fetched page');
+  ev.rooms[0].handlers.DataReceived(packet(3,{phase:'result',status:'unavailable',conclusion:null,citations:[{name:'搜索结果',url:'https://example.org/exhibit',excerpt:'摘要',claim_kind:'search_summary'}]}),agent,0,'angeleno.source');
+  assert(flat(ev.sourceCard).some(n=>n.textContent==='搜索摘要，页面未读到／未核验'),'failed fetch retains an explicitly unverified search reference');
+  assert.equal(flat(ev.sourceCard).filter(n=>n.tag==='a').length,1,'fetch failure does not silently clear its search source');
 
   const shown=c.sourceCard.children[0];
   send(packet(1)); send(packet(3),{identity:'user-peer',isAgent:false});
