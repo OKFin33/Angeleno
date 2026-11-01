@@ -139,8 +139,10 @@ class Document:
 
     @property
     def source_id(self):
-        """Wire label independent of location; path/provenance stay local and unchanged."""
-        identity = json.dumps([self.kind, self.sha256], ensure_ascii=False)
+        """Bind wire coordinates to the rendered body/examples, never the location."""
+        identity = json.dumps([self.kind, self.sha256,
+                               hashlib.sha256(self.body.encode()).hexdigest(),
+                               hashlib.sha256(self.examples.encode()).hexdigest()], ensure_ascii=False)
         return "author-source-" + hashlib.sha256(identity.encode()).hexdigest()
 
 

@@ -17,11 +17,26 @@ from test_web_lookup import FakeWeb
 
 
 class RoleConfigurationTests(unittest.IsolatedAsyncioTestCase):
-    def test_existing_character_prompt_and_seed_are_unchanged(self):
+    def test_wire_labels_change_but_character_prompt_meaning_and_seed_are_unchanged(self):
         with patch.dict('os.environ', {'ANGELENO_TIMEZONE': 'America/Los_Angeles'}):
             prompt = PACK.instructions(today='2026-10-30')
+            maintenance = PACK.maintenance_material()
         self.assertEqual(hashlib.sha256(prompt.encode()).hexdigest(),
+                         '650310864779221238c6f47165d6dcd139dfdda22f4e999d702d726b3471f756')
+        # Reverse ONLY the three existing source-label seams. The exact pinned
+        # pre-projection prompt/material must remain; no author prose, limits,
+        # dates or rehearsal semantics can be changed by updating a wire hash.
+        def original_labels(text):
+            for doc in PACK.documents:
+                text = text.replace('source=' + doc.source_id + ' ', 'source=' + doc.path + ' ')
+            return text
+        self.assertEqual(hashlib.sha256(original_labels(prompt).encode()).hexdigest(),
                          'beb4e182a0af42b31b77ffaa137a183d0c5668b98747b070e0ebfb29ddeeae1c')
+        self.assertEqual(hashlib.sha256(original_labels(maintenance).encode()).hexdigest(),
+                         '4a35381feaad10743c00391e9b44513ed08343a136c85badd58e410bfef503f4')
+        for doc in PACK.documents:
+            self.assertNotIn('source=' + doc.path + ' ', prompt)
+            self.assertIn('source=' + doc.source_id + ' ', prompt)
         self.assertEqual(seed_digest(PACK), 'f345d56d1eafe764323fdbf36c0d1b690cac482023e5117ba14f5dbfddeeb729')
         self.assertEqual(PACK.role, 'character')
 
