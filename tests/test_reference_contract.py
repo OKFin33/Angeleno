@@ -52,3 +52,26 @@ class ReferenceWorkerTests(unittest.TestCase):
         response.read.return_value=b'invalid'
         with patch('worker.reference.build_opener',return_value=opener):
             with self.assertRaisesRegex(ValueError,'startup stopped'):check_jo_endpoint(env())
+
+
+class OptimizationContractTests(unittest.TestCase):
+    def test_requested_candidate_must_match_ready_endpoint(self):
+        validate_jo_health(env(),health())  # Old eager health remains compatible.
+        compiled={**env(),'VOXCPM_COMPILE':'1'}
+        for value in (None,health(),{**health(),'optimization_active':False}):
+            with self.assertRaisesRegex(ValueError,'Compiled'):validate_jo_health(compiled,value)
+        validate_jo_health(compiled,{**health(),'optimization_active':True})
+        with self.assertRaisesRegex(ValueError,'Expected eager'):
+            validate_jo_health(env(),{**health(),'optimization_active':True})
+        with patch('worker.reference.build_opener',side_effect=AssertionError('No endpoint')):
+            with self.assertRaisesRegex(ValueError,'VOXCPM_COMPILE'):check_jo_endpoint({**env(),'VOXCPM_COMPILE':'auto'})
+
+    def test_candidate_failure_precedes_ASR_and_agent_creation(self):
+        from worker import agent
+        with patch.object(agent,'load_env',return_value={**env(),'VOXCPM_COMPILE':'1'}), \
+             patch('scripts.run_voice.check_configuration',return_value=[]), \
+             patch.object(agent,'validate_voice_setup'), \
+             patch('worker.reference.check_jo_endpoint',side_effect=ValueError('compiled not ready')), \
+             patch.object(agent,'AgentServer') as server, patch.object(agent,'ParaformerSTT') as asr:
+            with self.assertRaisesRegex(ValueError,'not ready'):agent.main()
+            server.assert_not_called();asr.assert_not_called()

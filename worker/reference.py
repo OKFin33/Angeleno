@@ -20,8 +20,20 @@ def expected_jo_reference(env):
     return asset_id, digest.lower()
 
 
+def optimization_requested(env):
+    value=env.get('VOXCPM_COMPILE','0')
+    if value not in ('0','1'):
+        raise ReferenceConfigurationError('VOXCPM_COMPILE must be0or1')
+    return value=='1'
+
+
 def validate_jo_health(env, health):
     asset_id, digest = expected_jo_reference(env)
+    compiled=optimization_requested(env)
+    if compiled and (not isinstance(health,dict) or health.get("optimization_active") is not True):
+        raise ValueError("Compiled TTS candidate has not completed optimized warmup")
+    if not compiled and isinstance(health,dict) and health.get("optimization_active") is True:
+        raise ValueError("Expected eager TTS candidate, received compiled endpoint")
     if (not isinstance(health, dict) or health.get('ready') is not True
             or health.get('model') != 'VoxCPM2' or health.get('sample_rate') != 48000
             or health.get('reference_purpose') != 'jo' or health.get('reference_verified') is not True
@@ -35,6 +47,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 def check_jo_endpoint(env):
     expected_jo_reference(env)  # Missing local selection fails before network.
+    optimization_requested(env)
     url = env['VOXCPM_URL'].rstrip('/') + '/health'
     handlers = [_NoRedirect()]
     if urlsplit(url).hostname in {'localhost', '127.0.0.1', '::1'}:

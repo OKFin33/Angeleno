@@ -57,7 +57,7 @@ def handler_for(env, *, lifecycle=None):
                 # This is local configuration readiness, not a remote liveness
                 # claim. Remote connections occur only when the user dials.
                 from scripts.run_voice import check_configuration
-                ready = not check_configuration(env, starting=True)
+                ready = not check_configuration(env, starting=True) and (lifecycle is None or lifecycle.can_join())
                 try:
                     pack_id = configured_pack(env).id
                     label = {'jo': 'Jo', 'demo-local': '合成示例（林）'}.get(pack_id, '自定义人物')
@@ -79,6 +79,9 @@ def handler_for(env, *, lifecycle=None):
             origin = self.headers.get('Origin')
             if origin not in origins:
                 self.send_json(403, {'error': 'origin not allowed'})
+                return
+            if lifecycle is not None and not lifecycle.can_join():
+                self.send_json(503, {'error':'trial is preparing or closed'})
                 return
             try:
                 size = int(self.headers.get('Content-Length', '0'))

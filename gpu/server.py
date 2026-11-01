@@ -208,11 +208,28 @@ async def warmup(candidate, reference):
         raise RuntimeError('Voice startup warmup failed')
 
 
+def configured_optimization():
+    value=os.getenv('VOXCPM_COMPILE','0')
+    if value not in ('0','1'):raise ValueError('VOXCPM_COMPILE must be0or1')
+    return value=='1'
+
+
+def optimized_model(candidate):
+    if isinstance(candidate,ReferenceVoice):candidate=candidate.candidate
+    inner=getattr(candidate,'tts_model',None)
+    return inner is not None and all((
+        hasattr(getattr(getattr(inner,'base_lm',None),'forward_step',None),'_torchdynamo_orig_callable'),
+        hasattr(getattr(getattr(inner,'residual_lm',None),'forward_step',None),'_torchdynamo_orig_callable'),
+        hasattr(getattr(inner,'feat_encoder',None),'_orig_mod'),
+        hasattr(getattr(getattr(inner,'feat_decoder',None),'estimator',None),'_orig_mod')))
+
+
 @asynccontextmanager
 async def lifespan(app):
     global model, reference_state
     model = None
     reference_state = None
+    compile_requested=configured_optimization()
     reference = configured_reference()
     model_path = Path(os.environ.get('VOXCPM_MODEL', ''))
     if not os.environ.get('VOXCPM_MODEL') or not model_path.is_dir():
@@ -222,7 +239,7 @@ async def lifespan(app):
     candidate = VoxCPM.from_pretrained(
         str(model_path),
         device='cuda', load_denoiser=False,
-        optimize=os.getenv('VOXCPM_COMPILE', '0') == '1',
+        optimize=compile_requested,
     )
     if candidate.tts_model.sample_rate != 48000:
         raise RuntimeError('This endpoint requires VoxCPM2 48 kHz output')
@@ -305,6 +322,8 @@ def health(x_angeleno_control_instance: str | None = Header(default=None)):
     control_heartbeat(x_angeleno_control_instance)
     return {'ready': model is not None, 'model': 'VoxCPM2',
             'backend': 'official-pytorch', 'sample_rate': 48000,
+            'optimization_requested':os.getenv('VOXCPM_COMPILE','0')=='1',
+            'optimization_active':bool(model is not None and optimized_model(model)),
             'busy': generation_lock.locked(),
             'reference_purpose': reference_state['purpose'] if reference_state else None,
             'reference_asset_id': reference_state['asset_id'] if reference_state else None,

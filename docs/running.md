@@ -117,6 +117,10 @@ uv run --no-project --python gpu/.venv/bin/python --env-file private/runtime.env
 
 句流结束／取消会显式关闭正在使用的TTS流，不依赖垃圾回收。可在worker启动配置中设置 `ANGELENO_TTS_PREFETCH_FRAMES=2`，用有界顺序预取覆盖下游消费停顿时的部分后句准备；默认 `0` 保持串行。仅允许0或2，错误配置在启动资源前报错。启用时最多缓存2个SDK音频帧及1个等待入队帧，单GPU合成仍串行，取消会丢弃旧轮待播帧并关闭句流；SDK内部缓冲不在这个容量承诺内。不新增起播等待、不改变15／30秒保护，也不能弥补长期RTF≥1的生成不足。现有真实AB有顺序与随机性混杂，参数可运行不等于浏览器连续性已改善；下一次实际对照需明确开启该参数。
 
+显式 `VOXCPM_COMPILE=1` 选择官方编译路径，默认 `0`。`/health` 的优化活动标记只有模型完成预热后才有效；
+worker要求它与本次候选匹配。私有资源启动器和 `scripts/run_trial.py` 使用同一 `--tts-candidate compiled`，
+独立预热成功后才开放用户加入；失败可回到默认 `eager`，不改变用户身份、音色或账本。
+
 GPU 启动时对已验证参考音频编码一次，随后按同一已加载模型和参考内容摘要复用 VoxCPM2 的 reference 特征；每句仍创建独立生成状态，保留原10步、CFG与取消释放。缓存只在本进程内存中，不保存或上传；运行期间参考路径或内容改变会拒绝合成，须重新验证并重启。`VOXCPM_REFERENCE_CACHE=0` 可回退原逐句编码路径作诊断，默认 `1`。此项不自动打开 `VOXCPM_COMPILE`，编译仍按原配置。
 
 音频性能观测默认关闭。仅在有界诊断中给GPU与worker进程显式设置 `ANGELENO_AUDIO_METRICS=1`；worker另需既有 `ANGELENO_DIAGNOSTICS_FILE` 指向本仓ignored `private/` 内0600文件。GPU数值计量、worker新增块计量各自每进程最多2048条，跨句／请求共享，不随请求重置；到限只停止计量，服务和原生命周期事件继续。GPU输出仅数值JSON到当前私有进程日志；HTTP相关ID是每句新生成的随机值，不含对白或参考声音标识。记录生成／收块时序、PCM累计秒数、RTF（墙钟秒／音频秒）与本地队列；GPU推理RTF扣除输出队列等待，EOF排空不增加推理时长。worker同步push耗时不等于实际播放队列，SDK未公开的队列时长记为未知。预缓冲可跨句累积，不能把对应推帧精确归因到单句。

@@ -14,6 +14,24 @@ import numpy as np
 from gpu import server
 
 
+class OptimizationReadinessTests(unittest.TestCase):
+    def test_config_and_health_do_not_call_unready_compilation_ready(self):
+        def compiled():pass
+        compiled._torchdynamo_orig_callable=lambda:None
+        inner=SimpleNamespace(base_lm=SimpleNamespace(forward_step=compiled),
+            residual_lm=SimpleNamespace(forward_step=compiled),feat_encoder=SimpleNamespace(_orig_mod=True),
+            feat_decoder=SimpleNamespace(estimator=SimpleNamespace(_orig_mod=True)))
+        candidate=SimpleNamespace(tts_model=inner)
+        with patch.dict(os.environ,VOXCPM_COMPILE='1'),patch.object(server,'model',None):
+            self.assertTrue(server.configured_optimization())
+            self.assertFalse(server.health()['ready']);self.assertFalse(server.health()['optimization_active'])
+        with patch.object(server,'model',candidate):self.assertTrue(server.health()['optimization_active'])
+        inner.feat_decoder.estimator=object()
+        self.assertFalse(server.optimized_model(candidate))
+        with patch.dict(os.environ,VOXCPM_COMPILE='auto'):
+            with self.assertRaisesRegex(ValueError,'VOXCPM_COMPILE'):server.configured_optimization()
+
+
 class ControlLeaseTests(unittest.TestCase):
     def test_only_exact_transient_owner_writes_metadata_and_default_is_off(self):
         with tempfile.TemporaryDirectory() as tmp:

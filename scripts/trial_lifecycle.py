@@ -6,6 +6,15 @@ import threading
 import time
 
 
+def tts_preparation(candidate='eager'):
+    """Operator-only candidate; GPU preparation never consumes user audio time."""
+    if candidate not in ('eager','compiled'):
+        raise ValueError('TTS candidate must be eager or compiled')
+    return {'compile_value':'1' if candidate=='compiled' else '0',
+            'gpu_ready_seconds':160 if candidate=='compiled' else 80,
+            'total_startup_seconds':195 if candidate=='compiled' else 95}
+
+
 class AudioCallLifetime:
     def __init__(self, remaining, *, clock=time.monotonic, waiting_seconds=300,
                  idle_seconds=300, redial_seconds=5, drain_seconds=3):
@@ -21,9 +30,13 @@ class AudioCallLifetime:
         with self.lock:
             self.ready_at=self.last_progress=self.clock()
 
+    def can_join(self):
+        with self.lock:
+            return self.ready_at is not None and self.reason is None and self.remaining>0
+
     def register(self, room, identity):
         with self.lock:
-            if self.reason or len(self.calls)>=32:
+            if not self.can_join() or len(self.calls)>=32:
                 raise ValueError('Trial closed or too many pending calls')
             if not room.startswith('angeleno-jo-') or not re.fullmatch(r'user-[a-f0-9]{16}',identity):
                 raise ValueError('Unexpected trial call identity')
@@ -57,7 +70,7 @@ class AudioCallLifetime:
     def snapshot(self):
         with self.lock:
             now=self.clock();idle=max(0,int(self.idle_seconds-(now-self.last_progress))) if self.last_progress is not None else None
-            return {'enabled':True,'state':self.reason or ('finishing' if self.remaining==0 else 'active' if self.ever_joined else 'waiting'),
+            return {'enabled':True,'state':self.reason or ('preparing' if self.ready_at is None else 'finishing' if self.remaining==0 else 'active' if self.ever_joined else 'waiting'),
                     'remaining_audio_seconds':self.remaining,'allowance_source':'local_reserved_audio_not_account_balance',
                     'audio_warning':self.remaining<=60,'idle_seconds_remaining':idle if self.ever_joined else None,
                     'idle_warning':bool(self.ever_joined and self.left_at is None and idle is not None and idle<=60),

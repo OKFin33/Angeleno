@@ -49,7 +49,7 @@ class LifetimeTests(unittest.TestCase):
         for bad in (True,None,-1,62):
             _,value=self.lifetime(61);value.ready()
             self.assertEqual(value.observe(bad,False),'audio_meter_changed')
-        _,value=self.lifetime();value.register('angeleno-jo-123','user-'+'a'*16)
+        _,value=self.lifetime();value.ready();value.register('angeleno-jo-123','user-'+'a'*16)
         owned=value.owned_calls();owned.clear();self.assertEqual(len(value.owned_calls()),1)
         for room,identity in [('other','user-'+'a'*16),('angeleno-jo-123','agent')]:
             with self.assertRaises(ValueError):value.register(room,identity)
@@ -98,7 +98,7 @@ class ObserverTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);meter=root/'private/state/asr.sqlite3';ASRAllowance(meter,10).reserve(2)
             before=meter.read_bytes();stop=threading.Event();lifetime=AudioCallLifetime(8)
-            lifetime.register('angeleno-jo-one','user-'+'a'*16);lifetime.ready()
+            lifetime.ready();lifetime.register('angeleno-jo-one','user-'+'a'*16)
             async def peers(request):
                 self.assertEqual(request.room,'angeleno-jo-one');stop.set()
                 return SimpleNamespace(participants=[SimpleNamespace(identity='user-'+'a'*16)])
@@ -111,3 +111,32 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(list(client.room.list_rooms.call_args.args[0].names),['angeleno-jo-one'])
             factory.assert_called_once_with('http://127.0.0.1:7880','synthetic','synthetic')
             client.aclose.assert_awaited_once();self.assertEqual(before,meter.read_bytes())
+
+
+class CandidatePreparationTests(unittest.TestCase):
+    def test_compiled_preparation_is_bounded_and_separate_from_join_and_audio(self):
+        from scripts.trial_lifecycle import tts_preparation
+        plan=tts_preparation('compiled');self.assertGreater(plan['gpu_ready_seconds'],117)
+        self.assertGreaterEqual(plan['total_startup_seconds'],plan['gpu_ready_seconds']+35)
+        self.assertLessEqual(plan['total_startup_seconds'],240)
+        self.assertEqual(tts_preparation()['compile_value'],'0')
+        for bad in ('auto','1',None,True):
+            with self.assertRaises(ValueError):tts_preparation(bad)
+        clock=Clock();life=AudioCallLifetime(493,clock=clock)
+        clock.now=150;self.assertFalse(life.can_join());self.assertEqual(life.snapshot()['state'],'preparing')
+        life.ready();self.assertTrue(life.can_join());self.assertEqual(life.snapshot()['remaining_audio_seconds'],493)
+        self.assertEqual(life.snapshot()['waiting_seconds_remaining'],300)
+
+    def test_token_not_created_before_ready_or_after_failed_preparation(self):
+        from worker.web_server import handler_for
+        from unittest.mock import AsyncMock,patch
+        life=AudioCallLifetime(493);handler=object.__new__(handler_for({},lifecycle=life))
+        handler.path='/token';handler.headers={'Origin':'http://127.0.0.1:8767'}
+        result=[];handler.send_json=lambda status,body:result.append(status)
+        token=AsyncMock(return_value={'room':'angeleno-jo-synthetic','identity':'user-'+'a'*16,'token':'synthetic'})
+        with patch('worker.web_server.create_room_and_token',token):
+            handler.do_POST();self.assertEqual(result[-1],503);token.assert_not_called()
+            life.ready();handler.rfile=io.BytesIO(b'');handler.do_POST()
+            self.assertEqual(result[-1],200);token.assert_awaited_once()
+            life.reason='supervisor_stopped';handler.do_POST()
+            self.assertEqual(result[-1],503);self.assertEqual(token.call_count,1)

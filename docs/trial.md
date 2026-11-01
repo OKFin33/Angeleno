@@ -65,6 +65,14 @@ trial_session_id=$(.venv/bin/python -c 'import uuid; print("product-" + uuid.uui
   --lifecycle --output "private/validation/$trial_session_id/supervisor.json"
 ```
 
+显式编译候选：在原资源启动器选择 `--tts-candidate compiled`，确认其完成有界GPU预热后，
+向本入口传同一参数。默认 `eager`；本入口不代为启动GPU，也不因编译改变15/30秒交互保护、
+音频缓冲或ASR原账本。操作者启动器分别留160秒GPU准备和195秒总准备；普通模式保留80/95秒。
+预热前不发出用户token或创建ASR；worker会核已选Jo资产和实际优化就绪状态，不能以请求了编译冒充成功。
+失败只清理本次资源；保留原私有状态，以新会话ID选择 `--tts-candidate eager` 即可恢复，无自动重复尝试。
+各模式ready后才进入用户连接／音频预留生命周期。编译模式已见源端性能收益，音质和真实浏览器听感仍需体验，
+不得将编译前后PCM视为逐字节相同。
+
 浏览器入口取既有路由计划的HTTPS9443；同机worker走内部ws7880，浏览器走WSS9444及已批TailnetUDP7882。
 只增量运行已批私有Serve路由，保留原443/8443与Funnel，不开公网、不启ICE/TCP通配。
 product模式拒绝任何`ANGELENO_TRIAL_*`测试hook，不使用E6合成工具代替真实查询，也不强迫演员调用工具。

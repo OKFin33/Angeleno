@@ -231,6 +231,8 @@ def preflight(args, *, root=ROOT):
     plan = json.loads(args.route_plan.read_text())
     env = trial_environment(settings, plan['proposed_nonsecret_project_settings'], args.mode)
     env['ANGELENO_ENV_FILE'] = str(args.env_file.resolve())
+    from scripts.trial_lifecycle import tts_preparation
+    env['VOXCPM_COMPILE']=tts_preparation(getattr(args,'tts_candidate','eager'))['compile_value']
     config, host, udp = media_scope(env, plan)
     check_state(env, root=root)
     if not args.livekit_bin.is_file() or hashlib.sha256(args.livekit_bin.read_bytes()).hexdigest() != json.loads(args.binary_receipt.read_text())['binary_sha256']:
@@ -297,6 +299,7 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
               'lifecycle': 'audio_and_user' if managed else 'fixed_diagnostic_deadline',
               'supervisor_pid': os.getpid(), 'owned_children': [], 'serve_before': baseline,
               'web_enabled': env['ANGELENO_WEB_ENABLED'] == '1',
+              'tts_candidate':'compiled' if env.get('VOXCPM_COMPILE','0')=='1' else 'eager',
               'web_policy': env.get('ANGELENO_WEB_REQUEST_LIMIT') if args.mode == 'product' else None,
               'persistent_configuration_changed': False, 'owns_GPU_SSH': False,
               'purpose': 'bounded private product trial with actor-selected public lookup' if args.mode == 'product' else 'bounded voice-only technical trial',
@@ -423,6 +426,8 @@ def main(argv=None):
     parser.add_argument('--run', action='store_true')
     parser.add_argument('--check-host', action='store_true', help='Also inspect existing local Serve state and port ownership; starts nothing')
     parser.add_argument('--mode', choices=('technical', 'product'), default='technical')
+    parser.add_argument('--tts-candidate',choices=('eager','compiled'),default='eager',
+                        help='Explicit expected TTS mode; GPU must finish its own bounded warmup first')
     parser.add_argument('--stop-at')
     parser.add_argument('--lifecycle', action='store_true', help='Product: end on local audio allowance, user end or inactivity; no active-call wall timer')
     parser.add_argument('--owner-stdin', action='store_true', help='Owned parent pipe EOF requests cleanup')
