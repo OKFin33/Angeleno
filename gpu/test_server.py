@@ -1,5 +1,6 @@
 """ASGI cancellation regression checks; fake model, no weights or GPU calls."""
 import asyncio
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -10,6 +11,37 @@ from unittest.mock import patch
 
 import numpy as np
 from gpu import server
+
+
+class AudioMetricsTests(unittest.TestCase):
+    def test_default_off_never_constructs_metrics(self):
+        with patch.dict(os.environ, {'ANGELENO_AUDIO_METRICS': '0'}), \
+                patch.object(server, 'AudioMetrics', side_effect=AssertionError('No metrics')):
+            self.assertIsNone(server.audio_metrics('not-a-safe-id'))
+
+    def test_sample_counts_rtf_exclude_queue_wait_and_never_log_content(self):
+        rows = []
+        times = iter([0.0, 0.1, 0.2, 0.7, 10.7])
+        metric = server.AudioMetrics('a' * 32, clock=lambda: next(times),
+                                     write=lambda text, **_: rows.append(json.loads(text)))
+        metric.event('gpu_chunk', size=9600)
+        metric.event('gpu_queued', queue_chunks=4, wait_seconds=.1)
+        metric.event('gpu_chunk', size=9600)
+        self.assertAlmostEqual(rows[-1]['generated_audio_seconds'], .2)
+        self.assertAlmostEqual(rows[-1]['generation_wall_seconds'], .6)
+        self.assertAlmostEqual(rows[-1]['generation_rtf'], 3)
+        self.assertAlmostEqual(rows[-1]['gap_seconds'], .6)
+        self.assertEqual(rows[1]['queue_chunks'], 4)
+        self.assertFalse({'text', 'pcm', 'reference', 'path'} & rows[-1].keys())
+        metric.event('gpu_eof')
+        self.assertAlmostEqual(rows[-1]['generation_rtf'], 3, msg='Drain time must not inflate inference RTF')
+
+    def test_untrusted_correlation_is_not_echoed_and_writer_failure_is_nonfatal(self):
+        with patch.dict(os.environ, {'ANGELENO_AUDIO_METRICS': '1'}):
+            metric = server.audio_metrics('/private/reference.wav')
+        self.assertRegex(metric.request_id, r'^[a-f0-9]{32}$')
+        metric.write = lambda *a, **kw: (_ for _ in ()).throw(OSError('synthetic'))
+        metric.event('gpu_eof')
 
 
 class FakeModel:

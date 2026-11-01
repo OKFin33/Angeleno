@@ -8,12 +8,16 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import os
+import json
+import re
+import time
+import uuid
 from pathlib import Path
 import queue
 import threading
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -23,6 +27,56 @@ os.environ.setdefault('HF_HUB_OFFLINE', '1')
 model = None
 generation_lock = threading.Lock()
 WARMUP_TIMEOUT_SECONDS = 60
+
+
+class AudioMetrics:
+    """Opt-in numeric metadata only; never text, PCM, reference or addresses.
+
+    RTF is generation wall/audio duration. Queue wait is reported separately
+    so a full output queue is not mistaken for slow model generation.
+    """
+    def __init__(self, request_id, *, clock=time.monotonic, write=print):
+        self.request_id, self.clock, self.write = request_id, clock, write
+        self.started = self.last = clock()
+        self.samples = self.sequence = 0
+        self.queue_wait = 0.0
+        self.generation_wall = 0.0
+        self.lock = threading.Lock()
+
+    def event(self, event, *, size=0, queue_chunks=0, wait_seconds=0.0):
+        with self.lock:
+            self._event(event, size=size, queue_chunks=queue_chunks, wait_seconds=wait_seconds)
+
+    def _event(self, event, *, size, queue_chunks, wait_seconds):
+        now = self.clock()
+        if event == 'gpu_chunk':
+            self.samples += size // 2
+            self.sequence += 1
+        self.queue_wait += wait_seconds
+        audio = self.samples / 48000
+        if event == 'gpu_chunk':
+            self.generation_wall = max(0.0, now - self.started - self.queue_wait)
+        generation = self.generation_wall  # EOF/drain time is not model inference.
+        row = {'audio_metric': event, 'request_id': self.request_id,
+               'sequence': self.sequence, 'elapsed_seconds': now - self.started,
+               'chunk_bytes': size, 'gap_seconds': now - self.last,
+               'queue_chunks': queue_chunks, 'queue_wait_seconds': wait_seconds,
+               'queue_wait_total_seconds': self.queue_wait,
+               'generated_audio_seconds': audio, 'generation_wall_seconds': generation,
+               'generation_rtf': generation / audio if audio else None}
+        if event == 'gpu_chunk':
+            self.last = now
+        try:
+            self.write(json.dumps(row, allow_nan=False), flush=True)
+        except Exception:
+            pass  # Observation cannot break synthesis.
+
+
+def audio_metrics(request_id):
+    if os.getenv('ANGELENO_AUDIO_METRICS') != '1':
+        return None
+    tag = request_id if isinstance(request_id, str) and re.fullmatch(r'[a-f0-9]{32}', request_id) else uuid.uuid4().hex
+    return AudioMetrics(tag)
 
 
 def generate_stream(candidate, text, reference):
@@ -137,7 +191,7 @@ def health():
 
 
 @app.post('/v1/audio/speech/stream')
-async def speech(request: Speech):
+async def speech(request: Speech, x_angeleno_audio_request: str | None = Header(default=None)):
     if request.voice != 'jo':
         raise HTTPException(400, 'Only the configured Jo reference is available')
     if model is None:
@@ -148,11 +202,16 @@ async def speech(request: Speech):
         raise HTTPException(503, 'Reference audio has not been configured') from exc
     chunks = queue.Queue(maxsize=4)
     stop = threading.Event()
+    metrics = audio_metrics(x_angeleno_audio_request)
 
     def put(item):
+        before = time.monotonic() if metrics else None
         while not stop.is_set():
             try:
                 chunks.put(item, timeout=0.1)
+                if metrics:
+                    metrics.event('gpu_queued', queue_chunks=chunks.qsize(),
+                                  wait_seconds=time.monotonic() - before)
                 return
             except queue.Full:
                 pass
@@ -164,7 +223,10 @@ async def speech(request: Speech):
             for wav in stream:
                 if stop.is_set():
                     break
-                put((np.clip(wav, -1, 1) * 32767).astype('<i2').tobytes())
+                pcm = (np.clip(wav, -1, 1) * 32767).astype('<i2').tobytes()
+                if metrics:
+                    metrics.event('gpu_chunk', size=len(pcm), queue_chunks=chunks.qsize())
+                put(pcm)
             put(None)
         except Exception as exc:
             put(exc)
@@ -184,9 +246,13 @@ async def speech(request: Speech):
                     await asyncio.sleep(0.01)
                     continue
                 if item is None:
+                    if metrics:
+                        metrics.event('gpu_eof', queue_chunks=chunks.qsize())
                     break
                 if isinstance(item, Exception):
                     raise item
+                if metrics:
+                    metrics.event('gpu_dequeued', size=len(item), queue_chunks=chunks.qsize())
                 yield item
         finally:
             # Never replay a partially emitted sentence on disconnect.

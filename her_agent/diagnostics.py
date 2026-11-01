@@ -11,10 +11,12 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = frozenset({"request_id", "result_id", "url", "request_hash", "remaining_seconds",
-                    "reason", "interrupted", "phase", "attempt", "operation", "elapsed_seconds", "http_status"})
+                    "reason", "interrupted", "phase", "attempt", "operation", "elapsed_seconds", "http_status",
+                    "chunk_bytes", "gap_seconds", "audio_seconds", "receive_rtf",
+                    "lead_queue_seconds", "push_seconds", "sdk_queue_seconds", "stream_id"})
 EVENTS = frozenset({"tts_http_start", "tts_http_eof", "tts_http_end", "tts_stream_end",
                     "playout_finished", "generation_finished", "web_fetch_start", "web_fetch_end",
-                    "web_fetch_http_start", "web_fetch_http_end"})
+                    "web_fetch_http_start", "web_fetch_http_end", "audio_http_chunk", "audio_push"})
 
 
 def emit(event, **metadata):

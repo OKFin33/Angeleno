@@ -132,27 +132,51 @@ class _VoxCPMSynthesizeStream(SynthesizeStream):
             int(os.getenv('VOXCPM_PREBUFFER_MS', '100')))) / 1000)
         pending_pcm = bytearray()
         lead_ready = lead_bytes == 0
+        measuring = os.getenv('ANGELENO_AUDIO_METRICS') == '1'
+        pushed_samples = 0
+        last_push = None
+        metric_tag = None
+
+        def push(data):
+            nonlocal pushed_samples, last_push
+            if not measuring:
+                output_emitter.push(data)
+                return
+            before = time.monotonic()
+            output_emitter.push(data)
+            after = time.monotonic()
+            pushed_samples += len(data) // 2
+            # AudioEmitter has no public playout-queue duration API.
+            # Do not relabel synchronous push time as actual queue depth.
+            emit('audio_push', request_id=metric_tag, stream_id=request_id.replace('-', ''),
+                 chunk_bytes=len(data), audio_seconds=pushed_samples / self._vox.sample_rate,
+                 gap_seconds=before - last_push if last_push is not None else 0.0,
+                 push_seconds=after - before, lead_queue_seconds=0.0,
+                 sdk_queue_seconds=None)
+            last_push = after
 
         def push_pcm(pcm):
             nonlocal lead_ready
             if lead_ready:
-                output_emitter.push(pcm)
+                push(pcm)
                 return True
             pending_pcm.extend(pcm)
             if len(pending_pcm) >= lead_bytes:
-                output_emitter.push(bytes(pending_pcm))
+                push(bytes(pending_pcm))
                 pending_pcm.clear()
                 lead_ready = True
                 return True
             return False
 
         async def send_sentence(text: str) -> None:
-            nonlocal initialized
+            nonlocal initialized, metric_tag
             text = text.strip()
             if not text:
                 return
             styled = f"({self._vox._opts.style}){text}" if self._vox._opts.style else text
             payload = {"input": styled, "voice": self._vox._opts.voice}
+            if measuring:
+                metric_tag = uuid.uuid4().hex  # one opaque correlation per sentence
 
             emitted = False
             last_exc: Exception | None = None
@@ -163,9 +187,14 @@ class _VoxCPMSynthesizeStream(SynthesizeStream):
                 try:
                     # 每次请求重新获取 session（force_close 保证新 TCP 连接）
                     sess = await self._vox._ensure_session()
+                    headers = {'X-Angeleno-Audio-Request': metric_tag} if measuring else {}
+                    received = 0
+                    last_receive = None
+                    receive_started = time.monotonic() if measuring else None
                     async with sess.post(
                         f"{self._vox._opts.url}/v1/audio/speech/stream",
                         json=payload,
+                        **({'headers': headers} if measuring else {}),
                     ) as resp:
                         if resp.status >= 400:
                             body = await resp.text()
@@ -190,6 +219,18 @@ class _VoxCPMSynthesizeStream(SynthesizeStream):
                             if not chunk:
                                 continue
                             pcm = resampler.push(chunk)
+                            if measuring:
+                                now = time.monotonic()
+                                received += len(chunk)
+                                duration = (received // 2) / server_sr
+                                emit('audio_http_chunk', request_id=metric_tag, stream_id=request_id.replace('-', ''),
+                                     attempt=attempt + 1, chunk_bytes=len(chunk),
+                                     elapsed_seconds=now - receive_started,
+                                     gap_seconds=now - last_receive if last_receive is not None else now - receive_started,
+                                     audio_seconds=duration,
+                                     receive_rtf=(now - receive_started) / duration if duration else None,
+                                     lead_queue_seconds=len(pending_pcm) / (self._vox.sample_rate * 2))
+                                last_receive = now
                             if pcm:
                                 emitted = push_pcm(pcm) or emitted
                         resampler.finish()
@@ -229,7 +270,7 @@ class _VoxCPMSynthesizeStream(SynthesizeStream):
 
         # A reply shorter than the lead must still be spoken in full.
         if pending_pcm:
-            output_emitter.push(bytes(pending_pcm))
+            push(bytes(pending_pcm))
             pending_pcm.clear()
 
         if not initialized:

@@ -238,8 +238,49 @@ async function muteReset(){
   console.log('PASS mute-reset: muted -> hangup -> redial restores visual/ARIA consistency');
 }
 
+async function audioMetrics(){
+  const h=harness(); h.ctx.performance={now:()=>100};
+  let calls=0;
+  const track={getRTCStatsReport:async()=>{calls++;return new Map([['private-id',{
+    type:'inbound-rtp',kind:'audio',packetsLost:3,jitter:.02,
+    jitterBufferDelay:2,jitterBufferEmittedCount:100,concealedSamples:12,
+    id:'must-not-record',address:'must-not-record',text:'must-not-record'}]]);}};
+  h.ctx.startAudioMetrics(track);
+  assert.equal(calls,0,'default off makes no RTC stats call');
+  assert.equal(h.ctx.window.angelenoAudioMetrics,undefined);
+  assert.equal([...h.timers.values()].filter(t=>t.delay===1000&&!t.cancelled).length,0);
+  h.ctx.window.location.search='?audio_metrics=1';
+  h.ctx.startAudioMetrics(track);await new Promise(setImmediate);
+  const rows=h.ctx.window.angelenoAudioMetrics;
+  assert.equal(rows[0].packetsLost,3);assert.equal(rows[0].jitter,.02);
+  assert.equal(rows[0].jitter_buffer_mean_seconds,.02);
+  assert(!JSON.stringify(rows).includes('must-not-record'));
+  const timer=[...h.timers.values()].find(t=>t.delay===1000&&!t.cancelled);
+  for(let i=0;i<125;i++)await timer.fn();
+  assert.equal(rows.length,120,'bounded local numeric history');
+  h.ctx.performance.now=()=>120100;
+  await timer.fn();
+  assert.equal(timer.cancelled,true,'observation stops at120s even if call remains open');
+  h.ctx.performance.now=()=>100;
+  let resolve;
+  h.ctx.startAudioMetrics({getRTCStatsReport:()=>new Promise(r=>resolve=r)});
+  const empty=h.ctx.window.angelenoAudioMetrics;
+  h.ctx.clearCall();resolve(new Map([['x',{type:'inbound-rtp',kind:'audio',packetsLost:999}]]));
+  await new Promise(setImmediate);
+  assert.equal(empty.length,0,'late result after hangup cannot enter a later call');
+  assert([...h.timers.values()].filter(t=>t.delay===1000).every(t=>t.cancelled));
+  h.ctx.startAudioMetrics({getRTCStatsReport:async()=>{throw new Error('private-error');}});
+  await new Promise(setImmediate);
+  const unavailable=h.ctx.window.angelenoAudioMetrics[0];
+  assert.equal(unavailable.stats_available,false);
+  assert.equal(unavailable.packetsLost,undefined,'missing counters are not fake zeros');
+  assert(!JSON.stringify(unavailable).includes('private-error'));
+  h.ctx.stopAudioMetrics();
+  console.log('PASS audio-metrics: opt-in/local numeric counters, bounded history, late-result isolation');
+}
+
 (async()=>{
-  const groups={'original':originalRegressions,'transient-reset':transientReset,'timer-isolation':timerIsolation,'mute-reset':muteReset};
+  const groups={'original':originalRegressions,'transient-reset':transientReset,'timer-isolation':timerIsolation,'mute-reset':muteReset,'audio-metrics':audioMetrics};
   const selected=process.argv[3];
   if(selected){assert(groups[selected],`Unknown group ${selected}`);await groups[selected]();}
   else for(const run of Object.values(groups))await run();

@@ -4,6 +4,7 @@ import audioop
 import os
 import struct
 import unittest
+from unittest.mock import patch
 
 from aiohttp import web
 from livekit import rtc
@@ -151,6 +152,45 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(received[:len(raw)*2], raw * 2)
         # The SDK may pad the final 10ms frame with zeros.
         self.assertTrue(all(b == 0 for b in received[len(raw)*2:]))
+
+    async def test_audio_metrics_opt_in_preserves_pcm_and_counts_short_sentence_flush(self):
+        raw = struct.pack('<2400h', *([500, -500] * 1200))
+        for flag in ('0', '1'):
+            headers, notes = [], []
+            async def handler(request):
+                headers.append(request.headers.get('X-Angeleno-Audio-Request'))
+                self.assertEqual(set(await request.json()), {'input', 'voice'})
+                response = web.StreamResponse()
+                await response.prepare(request)
+                for i in range(0, len(raw), 301):
+                    await response.write(raw[i:i+301])
+                await response.write_eof()
+                return response
+            url = await self.serve('/v1/audio/speech/stream', handler)
+            with patch.dict(os.environ, {'ANGELENO_AUDIO_METRICS': flag}), \
+                    patch('worker.voxcpm_tts.emit', side_effect=lambda event, **kw: notes.append((event, kw))):
+                tts = VoxCPMHttpTTS(url=url, sample_rate=48000)
+                stream = tts.stream(conn_options=APIConnectOptions(max_retry=0))
+                stream.push_text('合成一句。再一句。'); stream.end_input()
+                received = b''.join([bytes(item.frame.data) async for item in stream])
+                await stream.aclose(); await tts.aclose()
+            self.assertEqual(received[:len(raw)*2], raw*2)
+            metrics = [(event, value) for event, value in notes if event.startswith('audio_')]
+            if flag == '0':
+                self.assertEqual(headers, [None, None]); self.assertEqual(metrics, [])
+            else:
+                self.assertEqual(len(set(headers)), 2)
+                for value in headers: self.assertRegex(value, r'^[a-f0-9]{32}$')
+                chunks = [v for event, v in metrics if event == 'audio_http_chunk']
+                self.assertEqual(sum(v['chunk_bytes'] for v in chunks), len(raw)*2)
+                self.assertEqual({v['request_id'] for v in chunks}, set(headers))
+                for value in chunks:
+                    self.assertAlmostEqual(value['audio_seconds'] * 48000,
+                                           round(value['audio_seconds'] * 48000))
+                pushed = [v for event, v in metrics if event == 'audio_push']
+                self.assertAlmostEqual(pushed[-1]['audio_seconds'], .1)
+                self.assertTrue(all(v['sdk_queue_seconds'] is None for v in pushed))
+                self.assertFalse(any({'text', 'input', 'voice', 'pcm'} & v.keys() for _, v in metrics))
 
     async def test_paraformer_retries_503_but_not_authentication_failure(self):
         for status, expected_calls in [(503, 3), (401, 1)]:
