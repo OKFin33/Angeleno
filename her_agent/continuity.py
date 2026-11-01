@@ -43,6 +43,7 @@ batch.events 是待整理交流，record_evidence 是旧记录直接引用的完
 evidence_domains 区分原话来源，lookup_sources 是程序提供的已交付查询记录，不是演员或网页的自我认证。
 查证、取得摘要或读取正文只沿 lookup_sources 中关联 assistant_seq/request_id/source_id 的记录、状态、日期和 claim_kind；
 Search摘要不升成Fetch正文，evidence不升成事实确认，历史或回放不升成本次实时读取。缺记录/旧记录缺等级只表示该范围未留证，不断言从未尝试。
+source_context_status为synthetic_fixture时，即使URL是官方域名、status为supported且有checked_at，也只是合成契约结果；unknown不按URL/状态/日期猜成真实读取。live_http_page只证明读取，仍不认证事实真值。
 作者grounding的来源等级与as_of属于作者历史资料；角色说“我查过”只证明说过这句话。没有对应程序证据时，不将它写成真实查询事实；必要时按原来源记为角色说法。
 作者明确的虚构人生和既定过去仍按作者来源成立，包括自己的既定经历；新检索不能赋予亲历，也不能因此编造真实用户经历或共同约定。
 用户事实只沿 user_utterances 指向的完整用户原话。演员解释、含混指代及可选建议不变成用户确认；没有用户原话支持的性别、住处、习惯等不补出，称“用户”。

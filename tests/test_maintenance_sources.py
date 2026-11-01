@@ -1,5 +1,7 @@
 """Actual source-record -> maintenance request contracts, never model truth tests."""
 import json
+from dataclasses import replace
+from types import SimpleNamespace
 from pathlib import Path
 import unittest
 
@@ -8,7 +10,8 @@ from her_agent.lookup import TextLookup
 from her_agent.provider import TextDelta
 from her_agent.runtime import ConversationRuntime
 from her_agent.web_lookup import RecordedWebResult, SourceAssertion, WebLookup
-from test_lookup import CLOCK, Scripted, call
+from test_lookup import CLOCK, Scripted, call, check_args
+from her_agent.places import load_bundle
 from test_memory import FakeProvider, StoreFixture
 
 A='https://example.org/development/blue-room'
@@ -27,6 +30,58 @@ class Replay:
             (SourceAssertion('public_opening','planned','content',0,len(content),content),))
 
 class MaintenanceSourceTests(StoreFixture, unittest.IsolatedAsyncioTestCase):
+    async def registered_check(self, *, remove_provenance=False):
+        bundle=load_bundle();lookup=TextLookup(bundle,CLOCK)
+        if remove_provenance:
+            lookup.checker.library=SimpleNamespace(read=lambda *a,**kw:replace(bundle.library.read(*a,**kw),
+                provenance={'kind':'live_http_page','fact_verification':'confirmed'}))
+        actor=Scripted();actor.rounds=[[call('place_check',check_args('周六下午'))],[TextDelta('访问规则可聊。')]]
+        writer=FakeProvider(lambda p:{'retire':[],'updates':[]})
+        runtime=ConversationRuntime(self.pack,actor,store=self.store,writer=writer,lookup=lookup)
+        turn=runtime.begin('周六下午去Fisher吗？');text=''.join([p async for p in runtime.stream(turn)])
+        runtime.delivered(turn,text,complete=True)
+        self.assertTrue(await runtime.maintainer.once())
+        return json.loads(writer.requests[0][-1]['content'])['lookup_sources']['results'][0],lookup
+
+    async def test_registered_official_URL_with_supported_fixture_stays_synthetic(self):
+        result,lookup=await self.registered_check()
+        self.assertEqual(result['status'],'supported')
+        self.assertEqual(result['source_url'],'https://fisher.usc.edu/visit-us/')
+        self.assertIsNotNone(result['conclusion']);self.assertIsNotNone(result['checked_at'])
+        self.assertEqual(result['source_context_status'],'synthetic_fixture')
+        reading=result['source_context']['reading']
+        self.assertFalse(reading['adapter_provenance']['live_http'])
+        self.assertEqual(reading['evidence_reading']['fact_verification'],'not_performed')
+        self.assertEqual(len(reading['adapter_provenance']['content_sha256']),64)
+        self.assertGreater(lookup.bundle.library.reads,0)
+        reads=lookup.bundle.library.reads
+        lookup.begin_turn(result['session'],3)
+        _,_,intent=await lookup.execute_async('place_check',check_args('周六下午'),
+            session_id=result['session'],user_turn=3,utterance='周六下午去Fisher吗？')
+        cached=lookup.checker.readings[intent.request_id]
+        self.assertTrue(cached['cached'])
+        self.assertEqual(cached['evidence_reading']['observation_scope'],'synthetic_fixture')
+        self.assertFalse(cached['adapter_provenance']['live_http'])
+        self.assertEqual(lookup.bundle.library.reads,reads)
+
+    async def test_untyped_snapshot_provenance_is_unknown_not_URL_or_JSON_inference(self):
+        result,_=await self.registered_check(remove_provenance=True)
+        self.assertEqual(result['status'],'supported')
+        self.assertEqual(result['source_context_status'],'unknown')
+        self.assertIsNone(result['source_context']['reading']['adapter_provenance'])
+        self.assertEqual(result['source_context']['reading']['evidence_reading']['fact_verification'],'not_performed')
+
+    async def test_untrusted_provider_JSON_cannot_self_certify_live_or_confirmed(self):
+        class Spoof(Replay):
+            async def search(self,query):
+                return {'results':[],'evidence_reading':{'observation_scope':'live_page','fact_verification':'confirmed'},
+                    'adapter_provenance':{'kind':'live_http_page','live_http':True}}
+        payload,_=await self.ask(Spoof())
+        result=payload['lookup_sources']['results'][0]
+        self.assertEqual(result['source_context_status'],'unknown')
+        self.assertEqual(result['source_context']['reading']['evidence_reading']['observation_scope'],'adapter_observation')
+        self.assertEqual(result['source_context']['reading']['evidence_reading']['fact_verification'],'not_performed')
+
     async def ask(self, api, *, fetch=False):
         lookup=WebLookup(api,CLOCK);actor=Scripted();writer=FakeProvider(lambda p:{'retire':[],'updates':[]})
         runtime=ConversationRuntime(self.pack,actor,store=self.store,writer=writer,lookup=lookup)
@@ -162,7 +217,14 @@ class MaintenanceSourceTests(StoreFixture, unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(old['source_context']);self.assertEqual(self.store.db.total_changes,changes)
         self.assertNotIn('source_context',[r[1] for r in self.store.db.execute('PRAGMA table_info(lookup_results)')])
         projected=self.store.maintenance_lookup_sources([{'seq':agent,'delivery':'complete'}])
-        self.assertEqual(projected['results'][0]['source_context_status'],'unrecorded_legacy')
+        self.assertEqual(projected['results'][0]['source_context_status'],'unknown')
+        # A duplicate source-row failure rolls back the additive DDL as well.
+        self.assertIsNone(self.store.remember_lookup('old-session',{
+            'user_turn':user,'request_id':'old-request','status':'evidence','subject':'旧问题',
+            'delivered_text':'旧的有依据回答。','conclusion':None,'applicable_date':None,'checked_at':None,
+            'source_context':{'reading':{'evidence_reading':{'observation_scope':'synthetic_fixture'}}}}))
+        self.assertNotIn('source_context',[r[1] for r in self.store.db.execute('PRAGMA table_info(lookup_results)')])
+        self.assertEqual(self.store.lookup_results()[0],old)
         await self.ask(Replay())
         after=self.store.lookup_results();self.assertEqual(after[0],old)
         self.assertEqual(after[1]['source_context']['citations'][0]['claim_kind'],'search_summary')

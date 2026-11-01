@@ -6,6 +6,7 @@ URLs and returns its existing result events. Importing it performs no I/O.
 
 import argparse
 import asyncio
+import hashlib
 from datetime import date, datetime, timezone
 from html.parser import HTMLParser
 import json
@@ -17,7 +18,7 @@ import aiohttp
 
 from .places import FixedClock, load_bundle
 from .places.check import Checker
-from .places.fixture import PageSnapshot
+from .places.fixture import PageSnapshot, SnapshotProvenance
 from .places.model import (
     MAX_EXTERNAL_READ_SECONDS, MAX_EXTRACT_CHARS, MAX_PAGES_PER_CHECK,
     Citation, NavigationRefused, SourceDisabled,
@@ -118,7 +119,8 @@ class LiveReader:
                     text = raw.decode("utf-8")
                 except UnicodeDecodeError:
                     raise SourceDisabled("unsupported_encoding") from None
-                return PageSnapshot(source.id, target, text, False, (), len(raw))
+                return PageSnapshot(source.id, target, text, False, (), len(raw),
+                                    SnapshotProvenance("live_http_page", hashlib.sha256(raw).hexdigest()))
         raise SourceDisabled("redirect_limit")
 
 
@@ -311,6 +313,7 @@ class LiveChecker(Checker):
             return self._event(intent, status="out_of_scope", detail="live_question_type", subject=subject)
         try:
             snapshot = await self.reader.read(source)
+            self.record_snapshot(intent, snapshot)
             fields = live_decision(snapshot, source=source, asked=intent.applicable_date,
                                    topic=intent.question_type)
         except (NavigationRefused, SourceDisabled) as exc:

@@ -5,7 +5,10 @@ the registry. Cancellation is best-effort: a request that is already cancelled
 is not read, and a result that appears anyway is still unusable by the channel.
 """
 
+from copy import deepcopy
+from dataclasses import asdict
 from .extract import decide, extract_html
+from .fixture import SnapshotProvenance
 from .model import (
     CHANNEL, LA_ZONE, MAX_BODY_BYTES, MAX_EXTERNAL_READ_SECONDS, NavigationRefused,
     PlacesError, ResultEvent, SourceDisabled,
@@ -35,6 +38,20 @@ class Checker:
         self.clock = clock
         self.channel = channel
         self._cache = {}
+        self._cache_readings = {}
+        self.readings = {}
+
+    def record_snapshot(self, intent, snapshot):
+        provenance = getattr(snapshot, "provenance", None)
+        if not isinstance(provenance, SnapshotProvenance):
+            provenance = None
+        self.readings[intent.request_id] = {
+            "evidence_reading": {"observation_scope": "unknown" if provenance is None else provenance.kind,
+                                 "fact_verification": "not_performed"},
+            "adapter_provenance": None if provenance is None else {
+                **asdict(provenance), "live_http": provenance.kind == "live_http_page"},
+            "cached": False,
+        }
 
     def check(self, intent, *, recheck=False, max_body_bytes=MAX_BODY_BYTES):
         if self.channel is not None and self.channel.is_cancelled(intent.request_id):
@@ -57,6 +74,7 @@ class Checker:
         if use_cache and not recheck and key in self._cache:
             stored = dict(self._cache[key])
             stored["detail"] = "reused"
+            self.readings[intent.request_id] = {**deepcopy(self._cache_readings[key]), "cached": True}
             return self._event(intent, subject=subject, **stored)
         try:
             snapshot = self.library.read(source, max_body_bytes=max_body_bytes)
@@ -64,6 +82,7 @@ class Checker:
             return self._event(intent, status="unavailable", detail=exc.reason, subject=subject)
         except NavigationRefused as exc:
             return self._event(intent, status="unavailable", detail=exc.reason, subject=subject)
+        self.record_snapshot(intent, snapshot)
         extracted, incomplete = extract_html(snapshot.text, truncated=snapshot.truncated)
         decision = decide(
             extracted, incomplete, topic=intent.question_type, asked=intent.applicable_date,
@@ -85,6 +104,7 @@ class Checker:
         }
         if use_cache and decision.status in _CACHEABLE and not decision.incomplete:
             self._cache[key] = fields
+            self._cache_readings[key] = deepcopy(self.readings[intent.request_id])
         return self._event(intent, subject=subject, **fields)
 
     def _checked_at(self):

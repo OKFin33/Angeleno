@@ -88,6 +88,8 @@ class LiveSourceTests(unittest.IsolatedAsyncioTestCase):
         result = await LiveReader()._read(client, self.source)
         self.assertEqual(client.urls, [self.source.allowed_urls[0]])
         self.assertEqual(result.text, page)
+        self.assertEqual(result.provenance.kind, "live_http_page")
+        self.assertEqual(len(result.provenance.content_sha256), 64)
         self.assertTrue(response.closed)
         response = Response(b"x" * (MAX_LIVE_BODY_BYTES + 1))
         with self.assertRaisesRegex(SourceDisabled, "body_too_large"):

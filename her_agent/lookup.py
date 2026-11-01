@@ -286,6 +286,8 @@ class TextLookup:
         self._cancel_requested = False
         self.accepted[(session_id, user_turn)] = None
         self.result_readings = {}
+        if isinstance(self.checker, Checker):
+            self.checker.readings.clear()
 
     async def checkpoint(self, session_id, *, arm):
         """Cancellation runs after a read and before the result is shown to the model."""
@@ -523,6 +525,9 @@ class TextLookup:
         citation = next((item for item in card.citations if item.excerpt.strip()), None)
         event = self.last_event
         same_event = event is not None and event.request_id == card.request_id
+        reading = self.result_readings.get(card.request_id)
+        if reading is None and isinstance(self.checker, Checker):
+            reading = self.checker.readings.get(card.request_id)
         return store.remember_lookup(session_id, {
             "user_turn": user_turn,
             "request_id": card.request_id,
@@ -538,7 +543,7 @@ class TextLookup:
             "source_context": {
                 "scope": "accepted_delivered_result_only",
                 "citations": [asdict(item) for item in card.citations],
-                "reading": self.result_readings.get(card.request_id),
+                "reading": reading,
                 "conflicts": list(card.conflicts),
                 "incomplete": event.incomplete if same_event else None,
                 "detail": event.detail if same_event else None,

@@ -563,22 +563,29 @@ class MemoryStore:
         context = payload.get("source_context")
         if context is not None and not isinstance(context, dict):
             raise ValueError("Lookup source context must be an object")
-        self._ensure_lookup_table()
+        # SAVEPOINT includes additive DDL and the source row in one write;
+        # a failed insert must not leave a half-applied legacy upgrade.
+        self.db.execute("SAVEPOINT delivered_lookup_source")
         try:
-            with self.db:
-                self.db.execute(
-                    "INSERT INTO lookup_results(session,user_turn,request_id,assistant_seq,status,subject,"
-                    "conclusion,applicable_date,checked_at,source_id,source_url,excerpt,delivered_text,source_context) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (
-                        session, payload["user_turn"], payload["request_id"], row["seq"], payload["status"],
-                        payload["subject"], payload["conclusion"], payload["applicable_date"], payload["checked_at"],
-                        payload.get("source_id"), payload.get("source_url"), payload.get("excerpt"),
-                        payload["delivered_text"], None if context is None else encoded(context),
-                    ),
-                )
-        except sqlite3.IntegrityError:
-            return None
+            self._ensure_lookup_table()
+            self.db.execute(
+                "INSERT INTO lookup_results(session,user_turn,request_id,assistant_seq,status,subject,"
+                "conclusion,applicable_date,checked_at,source_id,source_url,excerpt,delivered_text,source_context) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    session, payload["user_turn"], payload["request_id"], row["seq"], payload["status"],
+                    payload["subject"], payload["conclusion"], payload["applicable_date"], payload["checked_at"],
+                    payload.get("source_id"), payload.get("source_url"), payload.get("excerpt"),
+                    payload["delivered_text"], None if context is None else encoded(context),
+                ),
+            )
+            self.db.execute("RELEASE delivered_lookup_source")
+        except BaseException as exc:
+            self.db.execute("ROLLBACK TO delivered_lookup_source")
+            self.db.execute("RELEASE delivered_lookup_source")
+            if isinstance(exc, sqlite3.IntegrityError):
+                return None
+            raise
         return row["seq"]
 
     def lookup_results(self, *, assistant_seqs=None):
@@ -610,7 +617,14 @@ class MemoryStore:
         rows = []
         for result in self.lookup_results(assistant_seqs=visible):
             row = {key: value for key, value in result.items() if key != "delivered_text"}
-            row["source_context_status"] = "recorded" if row["source_context"] is not None else "unrecorded_legacy"
+            context = row["source_context"] or {}
+            reading = context.get("reading") or {}
+            evidence_reading = reading.get("evidence_reading") or {}
+            scope = evidence_reading.get("observation_scope")
+            known_scopes = {"synthetic_fixture", "live_http_page", "recorded_query_empty", "recorded_query_results",
+                            "recorded_page", "replay_query_unobserved", "replay_body_unobserved",
+                            "live_query_empty", "live_query_results", "live_page"}
+            row["source_context_status"] = scope if isinstance(scope, str) and scope in known_scopes else "unknown"
             rows.append(row)
         return {"coverage": "delivered_results_for_exposed_evidence_only", "results": rows,
                 "missing_record": "no_recorded_delivered_result_not_proof_of_no_attempt"}
