@@ -28,6 +28,11 @@ API只接**精确类型** `PublicQuery`，在实际发送前再次验证所有�
 
 实际端点和数据载荷获准后，操作者在进程中显式设置 `ANGELENO_WEB_ENABLED=1`、`ANGELENO_WEB_EGRESS=public-fields-v1` 及 `ANGELENO_WEB_REQUEST_LIMIT`（显式正整数、原账本累计总数），继续用原配置和统一账本。续批须有当前有效许可，累计上限包含旧请求，不清零历史；原首批6次是历史授权，不是永久代码上限。每轮3工具／4模型及累计Web等待10秒保护不变。CLI沿已有 `ANGELENO_LOOKUP_LIVE=1` 与 `python -m her_agent.lookup --live --utterance ...`，语音沿原入口。Web优先于ANGELENO_PLACE_TOOLS，不并行建两套查询服务；开关和计数上限本身不是授权。
 
+当当前授权是按账户余额合理使用、没有累计次数封顶时，显式选择 `ANGELENO_WEB_REQUEST_LIMIT=account`。
+该模式不再用历史批次计数阻止新调用；旧行、未知费用、余额止损及每次新余额核查全部保留。
+整数模式仍用于确有次数限制的授权，默认空值仍拒绝。不能把 `account` 当作充值、扩大ASR/GPU额度或越过供应商403的许可。
+完整私有语音试用沿[试运行入口](trial.md#有界完整产品试用入口)，真实Search/Fetch与卡片使用同一个ConversationRuntime。
+
 [官方指南](https://api-docs.deepseek.com/zh-cn/guides/search/)、[Search schema](https://api-docs.deepseek.com/zh-cn/api/search/)、[Fetch schema](https://api-docs.deepseek.com/zh-cn/api/fetch/)于2026-10-31核对：固定官方 `/v1/tools/search` 与 `/v1/tools/fetch`，有结果请求各CNY0.005，空结果／失败不收费。演员和工具共用Ledger及每请求余额检查，模型仍按token计费。取消、响应未知或HTTP200无法解析保留全额预留，不猜免费；计数跨adapter／进程累计，不用新账本重置。
 
 以下为历史首批许可与当时检查点，不代表当前剩余额度：Owner当时批准仅公开测试查询／URL，合计最多6次／¥0.03。实际记录：

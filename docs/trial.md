@@ -5,6 +5,47 @@
 本候选分支`12-comparison-operator`叠加PR28 `d561c0b`；17–28均已包含，主线尚未合并。
 PR28 head保持不变，其CI失败保留；本后继修首次检出缺tmp的测试setup，并补操作员接口。
 
+## 有界完整产品试用入口
+
+`scripts/run_trial.py`接回既有私有媒体supervisor：`--mode product`在同一会话启用Jo、真实ASR/TTS、
+DeepSeek Search/Fetch及定向来源卡片。默认`technical`仍关闭Web；未传`--run`只读核配置，不启服务或调用API。
+这是恢复入口，不是完整产品联合验收或Owner实听通过。后文2026-10-31状态保留为历史，
+当前候选、实际余额和设备授权仍以操作者原交接为准，不把旧批次封顶追认为新许可。
+
+在**保有原private状态**的干净运行checkout切到已审候选，同一`uv.lock`同步依赖。
+不要从隔离代码工作树复制凭据／数据库，也不要把未审实验提交带入候选。先于任何GPU启动执行：
+
+```sh
+.venv/bin/python scripts/run_trial.py --mode product --env-file private/runtime.env
+# 再只读核现有Serve与端口；任何配置／库存错误先处理，不占GPU窗口
+.venv/bin/python scripts/run_trial.py --mode product --env-file private/runtime.env --check-host
+```
+
+入口消费已有本地路由计划、Serve基线及官方LiveKit安装回执，CLI可显式指定其路径；它们不含在Git中。
+预检只读验证现有身份与seed、原费用账本账户／价格、ASR原累计保护、二进制指纹和媒体访问范围。
+不创建身份、账本或ASR额度。`--check-host`不验证远端余额、GPU健康、TLS签发或用户实听。
+
+原资源runner核GPU空闲后建立有界TTS/SSH窗口、ready后才运行下列入口；该入口不拥有GPU／SSH或18080。
+使用同一原身份、原账本和现有凭据；持久配置的paid/Web默认继续为0，仅子进程显式启用。
+product模式采用当前已获准的合理账户使用策略`ANGELENO_WEB_REQUEST_LIMIT=account`，
+历史请求与未知预留均保留，不制造新的金额／次数批次；每请求余额核查、账户拒绝、供应商403与单轮保护仍生效。
+
+```sh
+trial_session_id=$(.venv/bin/python -c 'import uuid; print("product-" + uuid.uuid4().hex[:12])')
+trial_stop_utc=$(.venv/bin/python -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(minutes=8)).isoformat())')
+.venv/bin/python scripts/run_trial.py --mode product --env-file private/runtime.env --run \
+  --stop-at "$trial_stop_utc" --output "private/validation/$trial_session_id/supervisor.json"
+```
+
+浏览器入口取既有路由计划的HTTPS9443；同机worker走内部ws7880，浏览器走WSS9444及已批TailnetUDP7882。
+只增量运行已批私有Serve路由，保留原443/8443与Funnel，不开公网、不启ICE/TCP通配。
+product模式拒绝任何`ANGELENO_TRIAL_*`测试hook，不使用E6合成工具代替真实查询，也不强迫演员调用工具。
+需要实际查询覆盖时，记录是否自主选择Search/Fetch、真实工具回执与卡片接收；没有选择就标未覆盖，不自动刷输入。
+
+显式UTC截止不得超过十分钟；Ctrl-C/SIGTERM和组件失败都清理本次拥有的子进程组、临时密钥配置及Serve增量，
+清理回执须证明子进程退出和Serve恢复到原基线。TTS/SSH由原资源runner的finally单独收尾，
+不杀端口占用者、不删除原private资源。ASR与GPU历史额度不扩大；关停后不能声称页面仍可试用。
+
 ## 只读状态与已有证据
 
 2026-10-31核查：17–28各PR的base等于前一head（17基于main53e2598），全部Draft／未合并、GitHub报告mergeable。

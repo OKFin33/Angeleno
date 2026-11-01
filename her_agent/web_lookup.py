@@ -251,8 +251,8 @@ class DeepSeekWeb:
     def __init__(self, actor, *, request_limit):
         if actor.budget is None or actor.budget.ledger.prices.currency != "CNY":
             raise ValueError("Web tools require the existing CNY actor ledger")
-        if type(request_limit) is not int or request_limit < 1:
-            raise ValueError("Explicit positive cumulative web request limit required")
+        if request_limit != "account" and (type(request_limit) is not int or request_limit < 1):
+            raise ValueError("Explicit positive cumulative web request limit or account policy required")
         self.actor, self.limit = actor, request_limit
 
     async def search(self, query):
@@ -550,7 +550,8 @@ def configured_web_lookup(env, actor, *, pack=None):
     if not isinstance(pack, AuthorPack):
         raise ValueError("Explicit conversation pack required")
     try:
-        limit = int(env["ANGELENO_WEB_REQUEST_LIMIT"])
-    except (KeyError, ValueError):
-        raise ValueError("Explicit web request batch limit required") from None
+        value = env["ANGELENO_WEB_REQUEST_LIMIT"]
+        limit = "account" if value == "account" else int(value)
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("Explicit web request limit or account policy required") from None
     return WebLookup(DeepSeekWeb(actor, request_limit=limit), FixedClock(datetime.now(timezone.utc)), refresh_clock=True)

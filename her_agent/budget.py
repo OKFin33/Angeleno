@@ -69,15 +69,33 @@ class Prices:
 
 
 class Ledger:
-    def __init__(self, path, prices, *, minimum_balance, carryover, account):
-        self.path, self.prices = Path(path), prices
-        self.minimum = micros(decimal_setting(minimum_balance, "ANGELENO_MIN_BALANCE"))
-        self.carryover = micros(decimal_setting(carryover, "ANGELENO_BUDGET_CARRYOVER"))
-        settings = {"model": prices.model, "currency": prices.currency,
+    @staticmethod
+    def configuration(prices, *, minimum_balance, carryover, account):
+        return {"model": prices.model, "currency": prices.currency,
                     "input": str(prices.input), "cache_hit": str(prices.cache_hit),
                     "output": str(prices.output), "source": prices.source,
-                    "minimum": self.minimum, "carryover": self.carryover,
+                    "minimum": micros(decimal_setting(minimum_balance, "ANGELENO_MIN_BALANCE")),
+                    "carryover": micros(decimal_setting(carryover, "ANGELENO_BUDGET_CARRYOVER")),
                     "account": hashlib.sha256(account.encode()).hexdigest()}
+
+    @classmethod
+    def validate_existing(cls, path, prices, **settings):
+        """Offline preflight: never create/reconcile a ledger or check balance."""
+        path = Path(path)
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("Existing original budget ledger required")
+        with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as db:
+            if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
+                raise ValueError("Not an Angeleno budget ledger; left untouched")
+            row = db.execute("SELECT payload FROM settings WHERE id=1").fetchone()
+            if row is None or json.loads(row[0]) != cls.configuration(prices, **settings):
+                raise ValueError("Existing budget settings differ; explicit reconciliation is required")
+
+    def __init__(self, path, prices, *, minimum_balance, carryover, account):
+        self.path, self.prices = Path(path), prices
+        settings = self.configuration(prices, minimum_balance=minimum_balance,
+                                      carryover=carryover, account=account)
+        self.minimum, self.carryover = settings["minimum"], settings["carryover"]
         if self.path.is_symlink():
             raise ValueError("Budget ledger must not be a symlink")
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -123,11 +141,14 @@ class Ledger:
     def reserve_web(self, purpose, balance, settled_before, request_limit):
         if purpose not in {"web_search", "web_fetch"} or self.prices.currency != "CNY":
             raise ValueError("Web requests require explicit CNY pricing")
-        if type(request_limit) is not int or request_limit < 1:
-            raise ValueError("Explicit positive cumulative web request limit required")
+        if request_limit != "account" and (type(request_limit) is not int or request_limit < 1):
+            raise ValueError("Explicit positive cumulative web request limit or account policy required")
         # Official 2026-10-31 tariff: CNY .005 per nonempty response. Unknown
         # outcomes retain the full reserve; the existing account ledger is used.
-        return self._reserve(5000, purpose, balance, settled_before, request_limit)
+        # A current account-use authorization may supersede a historical batch.
+        # It does not reset any rows, unknown reserves, floor or fresh balance.
+        return self._reserve(5000, purpose, balance, settled_before,
+                             None if request_limit == "account" else request_limit)
 
     def _reserve(self, reserved, purpose, balance, settled_before, web_limit=None):
         with self.connect() as db:
