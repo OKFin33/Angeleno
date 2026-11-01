@@ -60,6 +60,19 @@ class LifetimeTests(unittest.TestCase):
         stop=threading.Event();thread=owner_pipe(stop,io.BytesIO(b''));thread.join(1)
         self.assertTrue(stop.is_set())
 
+    def test_real_parent_pipe_eof_and_interpreter_exit_do_not_hold_buffered_lock(self):
+        import os
+        import subprocess
+        import sys
+        import time
+        read,write=os.pipe();stream=os.fdopen(read,'rb');stop=threading.Event()
+        thread=owner_pipe(stop,stream);os.close(write);thread.join(1)
+        self.assertTrue(stop.is_set());self.assertFalse(thread.is_alive());stream.close()
+        code="import os,threading,time;from scripts.trial_lifecycle import owner_pipe;r,w=os.pipe();s=os.fdopen(r,'rb');owner_pipe(threading.Event(),s);time.sleep(.05)"
+        child=subprocess.run([sys.executable,'-c',code],capture_output=True,timeout=4)
+        self.assertEqual(child.returncode,0,child.stderr.decode(errors='replace'))
+        self.assertNotIn(b'_enter_buffered_busy',child.stderr)
+
     def test_owned_lease_startup_renewal_and_wrong_or_future_stamps(self):
         self.assertFalse(lease_expired(179,0,None,None,'one'))
         self.assertTrue(lease_expired(180,0,None,None,'one'))

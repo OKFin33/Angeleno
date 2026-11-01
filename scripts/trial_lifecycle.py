@@ -1,5 +1,6 @@
 """Small trial lifetime controller. Local audio reservations are not wallet credit."""
 import asyncio
+import os
 import re
 import sqlite3
 import threading
@@ -81,7 +82,10 @@ class AudioCallLifetime:
 def owner_pipe(stop, stream):
     """Only an explicitly supplied parent pipe; EOF closes owned resources."""
     def read():
-        try:stream.read(1)
+        try:
+            try:fd=stream.fileno()
+            except (AttributeError,OSError):stream.read(1)
+            else:os.read(fd,1)  # No buffered-IO lock held by a daemon during shutdown.
         finally:stop.set()
     thread=threading.Thread(target=read,daemon=True);thread.start();return thread
 
