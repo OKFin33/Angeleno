@@ -3,8 +3,9 @@
 import asyncio
 from dataclasses import asdict
 import json
+import math
 
-from .memory import new_session
+from .memory import StaleBatch, new_session
 from .author import MAX_REQUEST_CHARS
 
 
@@ -95,13 +96,35 @@ def normalize_replacements(proposal, batch):
 
 
 class Maintainer:
-    def __init__(self, store, pack, provider):
+    def __init__(self, store, pack, provider, *, attribution_check=False):
+        if type(attribution_check) is not bool:
+            raise ValueError("Attribution candidate flag must be explicit")
         self.store, self.pack, self.provider = store, pack, provider
+        self.attribution_check = attribution_check  # experimental; production default unchanged
+        seconds = getattr(provider, "timeout_s", 30.0)
+        if attribution_check and (type(seconds) not in {int, float} or not math.isfinite(seconds) or seconds <= 0):
+            raise ValueError("Finite existing writer timeout required")
+        self._attribution_seconds = min(seconds, 30.0) if attribution_check else None
         self.task = None
         self.error = None
         self.last_attempt = None
 
     async def once(self):
+        if self.attribution_check:
+            try:
+                # One conservative total budget for both calls, not a fresh
+                # provider timeout for the extra stage. Existing caller close5s
+                # or comparison10s cancellation still takes precedence.
+                async with asyncio.timeout(self._attribution_seconds):
+                    return await self._once()
+            except TimeoutError:
+                self.error = "TimeoutError"
+                if self.last_attempt is not None:
+                    self.last_attempt.update(status="rejected", error=self.error)
+                return False
+        return await self._once()
+
+    async def _once(self):
         self.last_attempt = None
         try:
             batch = self.store.batch()
@@ -113,6 +136,8 @@ class Maintainer:
             if sum(len(m["content"]) for m in messages) > MAX_REQUEST_CHARS:
                 raise ValueError("Maintenance sources exceed the input budget; inspect memory explicitly")
             pieces = [piece async for piece in self.provider.chat(messages, temperature=0.2)]
+            if self.attribution_check and asyncio.current_task().cancelling():
+                raise asyncio.CancelledError
             text = "".join(pieces)
             if len(text) > 40_000:
                 raise ValueError("Maintenance output is too large")
@@ -121,10 +146,33 @@ class Maintainer:
             self.last_attempt = {"revision": batch.revision, "watermark": batch.watermark,
                                  "through": batch.through, "original_proposal": proposal,
                                  "normalized_card_replacements": replacements, "status": "prepared"}
+            if self.attribution_check:
+                from .attribution import prepare_check, validate_check
+                if self.store.revision != batch.revision or self.store.watermark != batch.watermark:
+                    raise StaleBatch("Memory changed before attribution check; no extra request")
+                check = prepare_check(normalized, batch, evidence)
+                if check is not None:
+                    check_messages, payload = check
+                    self.last_attempt["phase"] = "attribution"
+                    chunks = [piece async for piece in self.provider.chat(check_messages, temperature=0.2)]
+                    checked_text = "".join(chunks)
+                    if len(checked_text) > 40_000:
+                        raise ValueError("Attribution verdict is too large")
+                    result = json.loads(checked_text)
+                    self.last_attempt["attribution_result"] = result
+                    validate_check(result, payload)
+            if self.attribution_check and asyncio.current_task().cancelling():
+                raise asyncio.CancelledError  # a cancellation-insensitive checker cannot commit late
             self.store.apply(batch, normalized)
             self.last_attempt["status"] = "committed"
             self.error = None
             return True
+        except asyncio.CancelledError:
+            if self.attribution_check:
+                self.error = "CancelledError"
+                if self.last_attempt is not None:
+                    self.last_attempt["status"] = "cancelled"
+            raise
         except Exception as exc:
             # Retain unprocessed evidence. No automatic retry or fallback memory.
             self.error = type(exc).__name__
@@ -134,6 +182,8 @@ class Maintainer:
             return False
 
     def schedule(self):
+        if self.attribution_check and self.error is not None:
+            return  # no background retry of a rejected/cancelled candidate
         if self.task is None or self.task.done():
             self.task = asyncio.create_task(self.once())
 
