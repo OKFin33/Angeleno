@@ -104,6 +104,10 @@ uv pip install --python gpu/.venv/bin/python -r gpu/requirements.txt
 
 操作者单独提供已下载的 `openbmb/VoxCPM2` 本地模型目录，并记录模型revision和校验；核对模型来源与许可。通过 `VOXCPM_MODEL` 显式指定目录，通过 `VOXCPM_REFERENCE` 指定有权用于测试的本地参考声音。模型和声音都不随Git分发；服务不会自动选择旧文件或下载缺失模型。
 
+正式Jo运行还必须显式设置 `VOXCPM_REFERENCE_PURPOSE=jo`、逻辑资产ID `VOXCPM_REFERENCE_ID` 及所选文件的 `VOXCPM_REFERENCE_SHA256`。GPU在导入／加载模型前验证该文件可读且摘要匹配；worker本地配置检查要求相同声明，并在加入用户房间、构造ASR前核TTS health的用途、资产ID和已验证摘要一致。缺配置、不可读、摘要不符或旧health缺少证明均停止启动，不选择旧默认文件。摘要只证明操作者选定的文件，并不识别说话人；`voice=jo` 或文件名本身都不是声线证明。更换文件需重新验证并重启，不在运行中替换。
+
+仅内部TTS／PCM技术诊断可显式使用 `VOXCPM_REFERENCE_PURPOSE=diagnostic` 与指定参考路径；health和PCM响应头会标明diagnostic，该模式不能通过Jo worker启动校验。原技术启动器若仍从旧配置继承参考路径，必须先改成明确用途和所选资产声明后才能使用新GPU代码。此处不提供、复制或自动生成任何真实音色文件；尚未获准访问所选资产时保留缺项。
+
 ```sh
 # 填好本机资源路径后，显式加载私有配置启动GPU服务
 uv run --no-project --python gpu/.venv/bin/python --env-file private/runtime.env python -m gpu.server

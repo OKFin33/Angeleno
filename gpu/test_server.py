@@ -1,6 +1,7 @@
 """ASGI cancellation regression checks; fake model, no weights or GPU calls."""
 import asyncio
 import json
+import hashlib
 import os
 from pathlib import Path
 import tempfile
@@ -72,6 +73,13 @@ class FakeModel:
 
 
 class ServerTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.reference_mode = patch.dict(os.environ, {'VOXCPM_REFERENCE_PURPOSE':'diagnostic'})
+        self.reference_mode.start()
+
+    async def asyncTearDown(self):
+        self.reference_mode.stop()
+
     async def test_exhausted_metrics_do_not_stop_or_change_synthetic_audio(self):
         with tempfile.TemporaryDirectory() as tmp:
             reference = Path(tmp)/'synthetic.wav'; reference.touch()
@@ -253,10 +261,41 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             reference = Path(tmp) / 'synthetic.wav'
             reference.touch()
-            with patch.dict(os.environ, {'VOXCPM_REFERENCE': str(reference)}, clear=True):
+            with patch.dict(os.environ, {'VOXCPM_REFERENCE': str(reference),
+                                         'VOXCPM_REFERENCE_PURPOSE':'diagnostic'}, clear=True):
                 with self.assertRaisesRegex(ValueError, 'VOXCPM_MODEL'):
                     async with server.lifespan(server.app):
                         self.fail('No implicit model download')
+
+
+class ReferenceContractTests(unittest.TestCase):
+    def test_jo_is_operator_selection_and_digest_not_filename_or_voice_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp)/'legacy-name.bin';file.write_bytes(b'fixed synthetic reference')
+            digest=hashlib.sha256(file.read_bytes()).hexdigest()
+            env={'VOXCPM_REFERENCE_PURPOSE':'jo','VOXCPM_REFERENCE_ID':'explicit-selection',
+                 'VOXCPM_REFERENCE_SHA256':digest}
+            with patch.dict(os.environ,env,clear=True):
+                value=server.validate_reference_asset(file)
+                self.assertEqual(value,{'purpose':'jo','asset_id':'explicit-selection','sha256':digest,'verified':True})
+                file.write_bytes(b'different synthetic reference')
+                with self.assertRaisesRegex(ValueError,'digest'):
+                    server.validate_reference_asset(file)
+            # A file named Jo is not a selected Jo asset without the declaration.
+            named=Path(tmp)/'jo-reference-no-bgm.wav';named.touch()
+            with patch.dict(os.environ,{},clear=True):
+                with self.assertRaisesRegex(ValueError,'PURPOSE'):server.validate_reference_asset(named)
+
+    def test_missing_hash_diagnostic_and_unreadable_are_explicit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            file=Path(tmp)/'synthetic.wav';file.touch()
+            with patch.dict(os.environ,{'VOXCPM_REFERENCE_PURPOSE':'jo'},clear=True):
+                with self.assertRaisesRegex(ValueError,'REFERENCE_ID'):server.validate_reference_asset(file)
+            with patch.dict(os.environ,{'VOXCPM_REFERENCE_PURPOSE':'diagnostic'},clear=True):
+                value=server.validate_reference_asset(file)
+                self.assertEqual(value['purpose'],'diagnostic');self.assertFalse(value['verified'])
+                with patch.object(Path,'open',side_effect=PermissionError):
+                    with self.assertRaisesRegex(ValueError,'not readable'):server.validate_reference_asset(file)
 
 
 if __name__ == '__main__':

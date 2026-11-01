@@ -34,6 +34,12 @@ def check_configuration(env, *, root=ROOT, starting=False):
             errors.append(f'{name} must be 0 or 1')
     if starting and env.get('ANGELENO_PAID_ENABLED', '0') != '1':
         errors.append('ANGELENO_PAID_ENABLED=1 is required to start voice')
+    if starting:
+        from worker.reference import expected_jo_reference
+        try:
+            expected_jo_reference(env)
+        except ValueError as exc:
+            errors.append(str(exc))
     if env.get('ANGELENO_AUTHOR_VARIANT', 'guided') not in {'raw', 'guided'}:
         errors.append('ANGELENO_AUTHOR_VARIANT must be raw or guided')
     user = env.get('ANGELENO_MEMORY_USER', '')

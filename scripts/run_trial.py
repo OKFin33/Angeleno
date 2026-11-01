@@ -31,6 +31,7 @@ if str(ROOT) not in sys.path:
 
 from her_agent.config import load_env, resolve_path
 from scripts.run_voice import check_configuration, stop_children
+from worker.reference import expected_jo_reference, ReferenceConfigurationError
 
 
 HTTP_READ_TIMEOUT = 2.0
@@ -111,6 +112,7 @@ def trial_environment(settings, projection, mode, *, inherited=None):
 
 def check_state(env, *, root=ROOT):
     """Read existing identity/allowance/account metadata without creating state."""
+    expected_jo_reference(env)
     from her_agent.baseline import configured_pack
     from her_agent.budget import Ledger
     from her_agent.memory import APPLICATION_ID, seed_digest
@@ -389,6 +391,9 @@ def main(argv=None):
             return 0
         report = supervise(args, prepared)
         return 0 if report['status'] == 'stopped' and report['owned_children_stopped'] and report['serve_restored_exactly'] else 1
+    except ReferenceConfigurationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     except (ValueError, KeyError, OSError, RuntimeError, sqlite3.Error):
         print('Trial configuration or execution failed; no secret exception body emitted', file=sys.stderr)
         return 1

@@ -32,7 +32,9 @@ def configuration(root):
             'ANGELENO_PRICE_OUTPUT': '8', 'ANGELENO_PRICE_SOURCE': 'synthetic-pricing-fixture',
             'ANGELENO_MIN_BALANCE': '1', 'ANGELENO_BUDGET_CARRYOVER': '0',
             'LIVEKIT_API_KEY': 'test', 'LIVEKIT_API_SECRET': 'synthetic-secret',
-            'LIVEKIT_URL': 'ws://127.0.0.1:7880', 'VOXCPM_URL': 'http://127.0.0.1:18080'}
+            'LIVEKIT_URL': 'ws://127.0.0.1:7880', 'VOXCPM_URL': 'http://127.0.0.1:18080',
+            'VOXCPM_REFERENCE_PURPOSE': 'jo', 'VOXCPM_REFERENCE_ID': 'synthetic-jo',
+            'VOXCPM_REFERENCE_SHA256': 'a' * 64}
 
 
 class RunnerTests(unittest.TestCase):

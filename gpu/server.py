@@ -12,6 +12,7 @@ import json
 import re
 import time
 import uuid
+import hashlib
 from pathlib import Path
 import queue
 import threading
@@ -25,6 +26,7 @@ ROOT = Path(__file__).resolve().parent
 os.environ.setdefault('HF_HOME', str(ROOT.parent / 'private/cache'))
 os.environ.setdefault('HF_HUB_OFFLINE', '1')
 model = None
+reference_state = None
 generation_lock = threading.Lock()
 WARMUP_TIMEOUT_SECONDS = 60
 # Shared by all requests in this GPU process; never reset per sentence.
@@ -155,12 +157,14 @@ async def warmup(candidate, reference):
 
 @asynccontextmanager
 async def lifespan(app):
-    global model
+    global model, reference_state
     model = None
+    reference_state = None
     reference = configured_reference()
     model_path = Path(os.environ.get('VOXCPM_MODEL', ''))
     if not os.environ.get('VOXCPM_MODEL') or not model_path.is_dir():
         raise ValueError('VOXCPM_MODEL must explicitly name an already downloaded local model directory')
+    reference_metadata = validate_reference_asset(reference)
     from voxcpm import VoxCPM
     candidate = VoxCPM.from_pretrained(
         str(model_path),
@@ -171,10 +175,12 @@ async def lifespan(app):
         raise RuntimeError('This endpoint requires VoxCPM2 48 kHz output')
     await warmup(candidate, reference)
     model = candidate
+    reference_state = reference_metadata
     try:
         yield
     finally:
         model = None
+        reference_state = None
 
 
 def configured_reference():
@@ -182,6 +188,39 @@ def configured_reference():
     if not value or not Path(value).is_file():
         raise ValueError('VOXCPM_REFERENCE must explicitly name a private reference audio file')
     return Path(value)
+
+
+def validate_reference_asset(reference):
+    """Bind an operator-selected asset; never infer a person from its filename.
+
+    Digest validation proves the configured file, not who is speaking in it.
+    Diagnostic purpose is explicit and cannot satisfy the Jo worker contract.
+    """
+    purpose = os.getenv('VOXCPM_REFERENCE_PURPOSE', '')
+    if purpose not in {'jo', 'diagnostic'}:
+        raise ValueError('Explicit VOXCPM_REFERENCE_PURPOSE=jo or diagnostic is required')
+    asset_id = os.getenv('VOXCPM_REFERENCE_ID', '')
+    expected = os.getenv('VOXCPM_REFERENCE_SHA256', '')
+    if purpose == 'jo' and (not asset_id or not expected):
+        raise ValueError('Jo requires explicit VOXCPM_REFERENCE_ID and VOXCPM_REFERENCE_SHA256 from the selected asset')
+    if asset_id and not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}', asset_id):
+        raise ValueError('VOXCPM_REFERENCE_ID must be a logical asset ID, not a path')
+    if expected and not re.fullmatch(r'[a-fA-F0-9]{64}', expected):
+        raise ValueError('VOXCPM_REFERENCE_SHA256 must be an explicit64hex digest')
+    try:
+        with reference.open('rb') as source:
+            digest = None
+            if expected:
+                checksum = hashlib.sha256()
+                for block in iter(lambda: source.read(1024 * 1024), b''):
+                    checksum.update(block)
+                digest = checksum.hexdigest()
+    except OSError:
+        raise ValueError('Selected reference asset is not readable; no fallback voice used') from None
+    if expected and digest != expected.lower():
+        raise ValueError('Selected reference does not match the declared asset digest; no fallback voice used')
+    return {'purpose': purpose, 'asset_id': asset_id or 'diagnostic',
+            'sha256': digest, 'verified': bool(expected)}
 
 
 app = FastAPI(lifespan=lifespan)
@@ -196,7 +235,11 @@ class Speech(BaseModel):
 def health():
     return {'ready': model is not None, 'model': 'VoxCPM2',
             'backend': 'official-pytorch', 'sample_rate': 48000,
-            'busy': generation_lock.locked()}
+            'busy': generation_lock.locked(),
+            'reference_purpose': reference_state['purpose'] if reference_state else None,
+            'reference_asset_id': reference_state['asset_id'] if reference_state else None,
+            'reference_sha256': reference_state['sha256'] if reference_state else None,
+            'reference_verified': bool(reference_state and reference_state['verified'])}
 
 
 @app.post('/v1/audio/speech/stream')
@@ -285,7 +328,8 @@ async def speech(request: Speech, x_angeleno_audio_request: str | None = Header(
                 stop.set()
 
     return GPUResponse(stream_audio(), media_type='audio/pcm',
-                       headers={'X-Sample-Rate': '48000'})
+                       headers={'X-Sample-Rate': '48000',
+                                'X-Reference-Purpose': reference_state['purpose'] if reference_state else 'unknown'})
 
 
 if __name__ == '__main__':

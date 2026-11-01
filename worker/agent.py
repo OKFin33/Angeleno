@@ -52,6 +52,8 @@ def main():
     if errors:
         raise ValueError('; '.join(errors))
     validate_voice_setup(env)
+    from worker.reference import check_jo_endpoint
+    check_jo_endpoint(env)  # Before agent/ASR construction or joining a user room.
     os.environ.update(env)
     server = AgentServer(job_executor_type=JobExecutorType.THREAD,
                          initialize_process_timeout=60,
