@@ -27,6 +27,10 @@ os.environ.setdefault('HF_HUB_OFFLINE', '1')
 model = None
 generation_lock = threading.Lock()
 WARMUP_TIMEOUT_SECONDS = 60
+# Shared by all requests in this GPU process; never reset per sentence.
+AUDIO_METRIC_LIMIT = 2048
+_audio_metric_rows = 0
+_audio_metric_lock = threading.Lock()
 
 
 class AudioMetrics:
@@ -44,6 +48,11 @@ class AudioMetrics:
         self.lock = threading.Lock()
 
     def event(self, event, *, size=0, queue_chunks=0, wait_seconds=0.0):
+        global _audio_metric_rows
+        with _audio_metric_lock:
+            if _audio_metric_rows >= AUDIO_METRIC_LIMIT:
+                return
+            _audio_metric_rows += 1
         with self.lock:
             self._event(event, size=size, queue_chunks=queue_chunks, wait_seconds=wait_seconds)
 

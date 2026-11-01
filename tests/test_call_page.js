@@ -276,6 +276,29 @@ async function audioMetrics(){
   assert.equal(unavailable.packetsLost,undefined,'missing counters are not fake zeros');
   assert(!JSON.stringify(unavailable).includes('private-error'));
   h.ctx.stopAudioMetrics();
+  // A suspended tab may not run its interval while getStats is pending.
+  // Check both a120s timer tick and a130s late result without any timer tick.
+  for (const [tickWhilePending,rejectLate] of [[true,false],[false,false],[false,true]]) {
+    const late=harness();let now=0,resolveStats,rejectStats;
+    late.ctx.performance={now:()=>now};late.ctx.window.location.search='?audio_metrics=1';
+    late.ctx.startAudioMetrics({getRTCStatsReport:()=>new Promise((resolve,reject)=>{resolveStats=resolve;rejectStats=reject;})});
+    const output=late.ctx.window.angelenoAudioMetrics;
+    const poll=[...late.timers.values()].find(t=>t.delay===1000&&!t.cancelled);
+    if(tickWhilePending){now=120000;await poll.fn();assert.equal(poll.cancelled,true);}
+    now=130000;
+    if(rejectLate)rejectStats(new Error('private-late-error'));
+    else resolveStats(new Map([['x',{type:'inbound-rtp',kind:'audio',packetsLost:4}]]));
+    await new Promise(setImmediate);
+    assert.equal(output.length,0,'a130s result/rejection must not write a0ms sample');
+    assert.equal(poll.cancelled,true,'late completion itself expires sampling without a timer tick');
+  }
+  const timely=harness();let now=0,finishStats;
+  timely.ctx.performance={now:()=>now};timely.ctx.window.location.search='?audio_metrics=1';
+  timely.ctx.startAudioMetrics({getRTCStatsReport:()=>new Promise(resolve=>finishStats=resolve)});
+  now=119999;finishStats(new Map([['x',{type:'inbound-rtp',kind:'audio',packetsLost:1}]]));
+  await new Promise(setImmediate);
+  assert.equal(timely.ctx.window.angelenoAudioMetrics[0].elapsed_ms,119999,'timestamp is observation completion time');
+  timely.ctx.stopAudioMetrics();
   console.log('PASS audio-metrics: opt-in/local numeric counters, bounded history, late-result isolation');
 }
 

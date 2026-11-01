@@ -182,13 +182,15 @@ function bootAngeleno() {
         window.angelenoAudioMetrics = [];
         let pending = false;
         const sample = async () => {
-            if (pending || epoch !== audioMetricsEpoch) return;
+            if (epoch !== audioMetricsEpoch) return;
             if (performance.now() - began >= 120000) { stopAudioMetrics(); return; }
+            if (pending) return;
             pending = true;
-            const row = {elapsed_ms: performance.now() - began, stats_available: false};
+            const row = {stats_available: false};
             try {
                 const stats = typeof track.getRTCStatsReport === 'function' ? await track.getRTCStatsReport() : null;
                 if (epoch !== audioMetricsEpoch) return;
+                if (performance.now() - began >= 120000) { stopAudioMetrics(); return; }
                 if (stats) stats.forEach(stat => {
                     if (stat.type !== 'inbound-rtp' || (stat.kind || stat.mediaType) !== 'audio') return;
                     row.stats_available = true;
@@ -202,6 +204,8 @@ function bootAngeleno() {
             } catch (_) { /* Missing counters remain unavailable, never fake zeros. */ }
             finally { pending = false; }
             if (epoch !== audioMetricsEpoch) return;
+            if (performance.now() - began >= 120000) { stopAudioMetrics(); return; }
+            row.elapsed_ms = performance.now() - began;
             row.audio_ready_state = remoteAudio.readyState;
             row.audio_paused = remoteAudio.paused;
             row.audio_context_state = audioContext ? audioContext.state : 'not_created';

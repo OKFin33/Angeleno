@@ -111,7 +111,7 @@ uv run --no-project --python gpu/.venv/bin/python --env-file private/runtime.env
 
 默认监听loopback18080，`/health`只在模型加载成功后就绪。配置 `VOXCPM_URL` 指向该服务。启动器不自动恢复已暂停设备，假模型协议测试也不证明CUDA和真实音色可用。
 
-音频性能观测默认关闭。仅在有界诊断中给GPU与worker进程显式设置 `ANGELENO_AUDIO_METRICS=1`；worker另需既有 `ANGELENO_DIAGNOSTICS_FILE` 指向本仓ignored `private/` 内0600文件。GPU输出仅数值JSON到当前私有进程日志；HTTP相关ID是每句新生成的随机值，不含对白或参考声音标识。记录生成／收块时序、PCM累计秒数、RTF（墙钟秒／音频秒）与本地队列；GPU推理RTF扣除输出队列等待，EOF排空不增加推理时长。worker同步push耗时不等于实际播放队列，SDK未公开的队列时长记为未知。
+音频性能观测默认关闭。仅在有界诊断中给GPU与worker进程显式设置 `ANGELENO_AUDIO_METRICS=1`；worker另需既有 `ANGELENO_DIAGNOSTICS_FILE` 指向本仓ignored `private/` 内0600文件。GPU数值计量、worker新增块计量各自每进程最多2048条，跨句／请求共享，不随请求重置；到限只停止计量，服务和原生命周期事件继续。GPU输出仅数值JSON到当前私有进程日志；HTTP相关ID是每句新生成的随机值，不含对白或参考声音标识。记录生成／收块时序、PCM累计秒数、RTF（墙钟秒／音频秒）与本地队列；GPU推理RTF扣除输出队列等待，EOF排空不增加推理时长。worker同步push耗时不等于实际播放队列，SDK未公开的队列时长记为未知。预缓冲可跨句累积，不能把对应推帧精确归因到单句。
 
 页面仅显式访问 `?audio_metrics=1` 时按秒读取音轨公开RTC统计，保存在本页 `window.angelenoAudioMetrics`，最多120条、120秒后停止，不上传。记录丢包、jitter、concealed samples和累计jitter-buffer平均等待；后者不是当前队列深度。不保存对白、音频、地址或用户／房间标识；缺失计数保持未知，挂断停止采样并拒收迟到结果。下一次诊断最多120秒，并仍受原累计GPU、ASR和请求时限约束；本观测开关不会启动服务或扩大许可。
 

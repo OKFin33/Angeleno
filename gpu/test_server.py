@@ -43,6 +43,27 @@ class AudioMetricsTests(unittest.TestCase):
         metric.write = lambda *a, **kw: (_ for _ in ()).throw(OSError('synthetic'))
         metric.event('gpu_eof')
 
+    def test_process_row_cap_is_shared_and_does_not_restart_for_new_requests(self):
+        rows = []
+        with patch.object(server, 'AUDIO_METRIC_LIMIT', 2), patch.object(server, '_audio_metric_rows', 0):
+            clock = MockClock()
+            a = server.AudioMetrics('a'*32, clock=clock, write=lambda row, **_: rows.append(json.loads(row)))
+            b = server.AudioMetrics('b'*32, clock=clock, write=lambda row, **_: rows.append(json.loads(row)))
+            clock.now = 1; a.event('gpu_chunk', size=960)
+            clock.now = 130; b.event('gpu_chunk', size=960)
+            self.assertEqual(len(rows), 2)
+            # Fixed row cap, not a per-request timer. Expiration cannot reset it.
+            a.clock = lambda: (_ for _ in ()).throw(AssertionError('Capped sampler must be idle'))
+            a.event('gpu_eof'); b.event('gpu_eof')
+            c = server.AudioMetrics('c'*32, clock=clock, write=lambda row, **_: rows.append(json.loads(row)))
+            c.event('gpu_chunk', size=960)
+            self.assertEqual(len(rows), 2)
+
+
+class MockClock:
+    now = 0.0
+    def __call__(self): return self.now
+
 
 class FakeModel:
     def generate_streaming(self, **kwargs):
@@ -51,6 +72,22 @@ class FakeModel:
 
 
 class ServerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_exhausted_metrics_do_not_stop_or_change_synthetic_audio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            reference = Path(tmp)/'synthetic.wav'; reference.touch()
+            with patch.dict(os.environ, {'VOXCPM_REFERENCE':str(reference), 'ANGELENO_AUDIO_METRICS':'1'}), \
+                    patch.object(server, 'AUDIO_METRIC_LIMIT', 0), \
+                    patch.object(server, 'model', FakeModel()), \
+                    patch.object(server, 'generation_lock', threading.Lock()):
+                response = await server.speech(server.Speech(input='公开合成输入。'))
+                output = []
+                async def receive(): await asyncio.Event().wait()
+                async def send(message): output.append(message)
+                await asyncio.wait_for(response({'type':'http','asgi':{'spec_version':'2.4'}}, receive, send), 5)
+                self.assertEqual(output[0]['status'], 200)
+                self.assertEqual(sum(len(m.get('body', b'')) for m in output), 96000)
+                self.assertFalse(server.generation_lock.locked())
+
     async def test_readiness_waits_for_complete_warmup_and_clears_on_shutdown(self):
         started, finish = threading.Event(), threading.Event()
         calls = []

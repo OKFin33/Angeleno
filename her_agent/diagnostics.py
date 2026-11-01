@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import stat
 import time
+import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = frozenset({"request_id", "result_id", "url", "request_hash", "remaining_seconds",
@@ -17,9 +18,16 @@ FIELDS = frozenset({"request_id", "result_id", "url", "request_hash", "remaining
 EVENTS = frozenset({"tts_http_start", "tts_http_eof", "tts_http_end", "tts_stream_end",
                     "playout_finished", "generation_finished", "web_fetch_start", "web_fetch_end",
                     "web_fetch_http_start", "web_fetch_http_end", "audio_http_chunk", "audio_push"})
+AUDIO_EVENTS = frozenset({'audio_http_chunk', 'audio_push'})
+AUDIO_METRIC_LIMIT = 2048  # Per worker process, across streams/requests/files.
+_audio_metric_rows = 0
+_audio_metric_lock = threading.Lock()
 
 
 def emit(event, **metadata):
+    global _audio_metric_rows
+    if event in AUDIO_EVENTS and os.getenv('ANGELENO_AUDIO_METRICS') != '1':
+        return False
     path = os.environ.get("ANGELENO_DIAGNOSTICS_FILE")
     if not path:
         return False
@@ -38,6 +46,11 @@ def emit(event, **metadata):
         relative = target.relative_to(private)
         if any(p.is_symlink() for p in (target, *list(target.parents)[:len(relative.parts) - 1])):
             return False
+        if event in AUDIO_EVENTS:
+            with _audio_metric_lock:
+                if _audio_metric_rows >= AUDIO_METRIC_LIMIT:
+                    return False
+                _audio_metric_rows += 1
         # Do not create directories, follow a link or append to a permissive file.
         fd = os.open(target, os.O_APPEND | os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
         try:
