@@ -1,9 +1,37 @@
 # 首版候选的单一试运行交接
 
-本页只把现有候选和运行说明收在一个恢复入口；范围与接受仍在Issue1/11/12和Spec。
-**固定累计head以Issue11最近检查点和本机ignored交接清单为准**，不以PR数量计首版完成。
-本候选分支`12-comparison-operator`叠加PR28 `d561c0b`；17–28均已包含，主线尚未合并。
-PR28 head保持不变，其CI失败保留；本后继修首次检出缺tmp的测试setup，并补操作员接口。
+本页是 Jo 产品试用的恢复入口；范围与接受仍在 Issue1/11/12 和 Spec，不以 PR 数量计完成。
+
+## 当前恢复点（2026-11-01）
+
+已发布开发分支为 `nexus-integrated-trial-20261031`，本次文档核对的代码 head 为
+[`b6e7b80ad722de7b09986bc960fb35073131ceba`](https://github.com/OKFin33/Angeleno/commit/b6e7b80ad722de7b09986bc960fb35073131ceba)；
+后续恢复须核该分支最新已交接 head，不回退到下文历史 PR28／旧 main。
+Nexus 唯一项目目录是 `/Users/nexus/project/GitHub/OKFin33/Angeleno`；
+旧任务目录只作归档，不从其中启动，也不另建运行 checkout。
+
+1. 优先利用云端核发布分支与本页；需本机恢复时，仍由原运行执行者在上述唯一目录核
+   `git status --short`、`git rev-parse HEAD` 与既有私有运行交接。
+   保留原 `private/`、`private/state`、人物／用户身份、seed、费用及 ASR 账本；
+   不复制凭据或数据库，不 reset／clean，不创建替代身份或重置累计用量。
+2. 沿用用户已选、已在 Nexus／KFC 就位的无 BGM Jo 参考文件，以原私有配置中的路径、
+   资产 ID 和摘要为准；不选旧默认声音或 diagnostic 文件。保留
+   [e2c7322 的 Jo 资产绑定](https://github.com/OKFin33/Angeleno/commit/e2c7322eb97f3b3d0d8fa766527e6732b8016cbc)：
+   `VOXCPM_REFERENCE_PURPOSE=jo`、`VOXCPM_REFERENCE_ID`、`VOXCPM_REFERENCE_SHA256`
+   必须与 GPU health 的已验证声明一致；不把文件名或 health 当作实听通过。
+   参考文件名、路径值、摘要值和凭据只留在原私有交接，不抄入 Git。
+3. 保留 [af1dbcb 的逐请求价格快照](https://github.com/OKFin33/Angeleno/commit/af1dbcb30b60740023f9b041991aca319af97ac8)
+   和原账户账本；旧行、未知预留及既有请求的价格不重写、不重新定价。
+4. 交接时服务均已停止；启动前核实际进程、原 GPU／ASR 累计记录和当前明确 grant。
+   未批准的资源申请不是运行许可；
+   本页不冻结易变余额，不因重开进程或换目录获得新额度。余额不足以覆盖启动／预热及本次窗口时停在只读预检。
+5. 先执行下一节不带 `--run` 的 product 预检，再由原资源 runner 在获准窗口内启动。
+   可选 `ANGELENO_TTS_PREFETCH_FRAMES=2`（默认 `0`，只允许 0／2）；
+   可选 `ANGELENO_MEMORY_ATTRIBUTION_CHECK=1`（默认 `0`，会增加维护费用）。
+   两项均不默认打开、不扩大许可，也不代表声音连续性或记忆语义已验收。
+   配置与限制见 [running](running.md#gpu与声音资源)。
+
+下文有界 product 入口仍适用；标为历史的候选、路径、额度和暂停描述不是当前状态或新的启动授权。
 
 ## 有界完整产品试用入口
 
@@ -49,7 +77,12 @@ HTTP使用独立daemon请求线程和2秒socket读取超时；服务循环未进
 HTTP shutdown／socket close各最多等待1秒，超时记为清理未完成，仍继续退出自有子进程及删除临时密钥配置，
 不把HTTP关闭失败误报为全部清理成功。
 
-## 只读状态与已有证据
+## 历史记录（2026-10-31，勿作为当前恢复指令）
+
+以下保留当时的证据、比较准备及运行说明；其中旧 checkout／detached 切换、旧额度与暂停状态
+由本页「当前恢复点」及原私有运行交接取代。通用配置与运行规则见 [running](running.md)。
+
+### 只读状态与已有证据
 
 2026-10-31核查：17–28各PR的base等于前一head（17基于main53e2598），全部Draft／未合并、GitHub报告mergeable。
 17–27各固定head的ci成功；28的ci run41222335134失败于Verify。已在干净源码快照复现11项新测试
