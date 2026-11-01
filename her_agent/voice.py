@@ -71,6 +71,7 @@ class VoiceBridge:
 
     def __init__(self, runtime, *, ordinary_seconds=15.0, lookup_seconds=30.0):
         self.runtime = runtime
+        runtime.voice_output = True
         self.pending = {}
         self.playback = {}
         self.active_id = None

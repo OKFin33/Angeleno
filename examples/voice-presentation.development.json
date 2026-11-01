@@ -1,0 +1,83 @@
+{
+  "kind": "seen_development_voice_presentation",
+  "origin": "one actual public synthetic w08 trial; not heldout or Owner-scored",
+  "original_complete_generated_reply_retained": false,
+  "observed_prefix_complete_reply": false,
+  "observed_prefix": "查了，但官方页面没打开，抓取失败，所以我不能说“核对过了”。能给你的是搜到的三条，其中一条是官方域名：\n\n**卡片一 · 官方站（fisher.usc.edu/visit/）**\n摘要写：周二到周六 10:00–17:00，周日周一闭馆；跟随 USC 校历，大学假日和暑期关闭。\n——但这是搜索摘要，不是我从页面上读到的。\n\n**卡片二 · Roadtrippers（第三方）**\n周二到周五 12:00–17:00，周六 12:00–16:00。\n\n**卡片三 · LAAS（第三方名录）**\n",
+  "observed_prefix_chars": 248,
+  "observed_status": "interrupted at60s while audio active",
+  "source_artifact_sha256": "da4d8fa3d62fe44df2f97fdc43d53d1df0f2b9583144ba896b6c1cea0e0c11d0",
+  "recorded_at": "2026-11-01T11:06:12+00:00",
+  "recorded_sources": [
+    {
+      "source_id": "public-source-1",
+      "url": "https://fisher.usc.edu/visit/",
+      "excerpt": "## USC Fisher Museum of Art\n...\n## Museum Hours\n\n- Tuesday – Saturday: 10:00 AM – 5:00 PM\n- Closed Sundays & Mondays\n...\nUSC Fisher Museum of Art follows the USC Calendar and is closed on university holidays and during summer months.",
+      "claim_kind": "search_summary",
+      "name": "Visit Us"
+    },
+    {
+      "source_id": "public-source-2",
+      "url": "https://maps.roadtrippers.com/us/los-angeles-ca/entertainment/usc-fisher-museum-of-art",
+      "excerpt": "# USC Fisher Museum of Art\n...\n823 Exposition Blvd, Los Angeles, CA 90089, USA\n\nClosed Now\n\nTue - Fri | 12:00 pm - 5:00 pm \n---|---\nSat | 12:00 pm - 4:00 pm\n...\n*Closed Mondays and Sundays.",
+      "claim_kind": "search_summary",
+      "name": "USC Fisher Museum of Art"
+    },
+    {
+      "source_id": "public-source-3",
+      "url": "https://laassubject.org/directory/profile/usc-fisher-museum-art",
+      "excerpt": "# USC Fisher Museum of Art\n...\nHours\n\nOpen during academic year, closed for summer; Tuesday-Friday, 12-5PM; Saturdays, 12-4PM",
+      "claim_kind": "search_summary",
+      "name": "USC Fisher Museum of Art"
+    }
+  ],
+  "cases": [
+    {
+      "id": "w08-card-failure",
+      "user": "现在请查 USC Fisher Museum 的官方开放时间，搜索后打开官方页面核对，给我带来源的小卡片。",
+      "card_channel": true,
+      "fetch": "failed",
+      "checks": [
+        "unavailable remains unavailable",
+        "search_summary not page_read",
+        "essential answer and conflicts retained",
+        "source detail assigned separate card",
+        "old verbose prefix not silently clipped"
+      ]
+    },
+    {
+      "id": "explicit-detail",
+      "user": "我想详细听，请逐条比较这三个来源的开放时间，重要例外也讲清楚。",
+      "card_channel": true,
+      "fetch": "failed",
+      "checks": [
+        "original detailed request preserved",
+        "explicit current user detail exception in voice contract",
+        "no TTS truncation or keyword deletion"
+      ]
+    },
+    {
+      "id": "voice-without-card",
+      "user": "我现在只听语音，开放时间和依据你跟我说一下。",
+      "card_channel": false,
+      "fetch": "read",
+      "checks": [
+        "voice_only never claims visible card",
+        "necessary evidence and caveats retained",
+        "fetched_page not automatically verified"
+      ]
+    },
+    {
+      "id": "unread-honest-fallback",
+      "user": "没读到页面的话，先说你能确定和还不能确定的部分。",
+      "card_channel": true,
+      "fetch": "failed",
+      "checks": [
+        "no page-reading claim",
+        "uncertainty and conflicting times remain in evidence",
+        "no new model/tool request"
+      ]
+    }
+  ],
+  "limits": "Offline prompt/data-flow cases; no model behavior or audibility score. Detailed spoken examples are scripted test inputs, never model outputs."
+}

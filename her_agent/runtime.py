@@ -58,6 +58,7 @@ class ConversationRuntime:
         self.pack, self.provider, self.store, self.writer = pack, provider, store, writer
         self.variant, self.memory_tools = variant, memory_tools
         self.lookup = lookup
+        self.voice_output = False  # Set only by the voice adapter, never user text.
         self._lookup_turns = 0
         self.conversation = Conversation(pack, store, variant=variant) if store else None
         self.maintainer = Maintainer(store, pack, writer) if store else None
@@ -112,6 +113,7 @@ class ConversationRuntime:
                 self.lookup, self.provider, turn.messages, session_id=session_id,
                 user_turn=user_turn, utterance=utterance, turn=turn,
                 store=self.store if self.memory_tools else None, user_seq=turn.user_seq,
+                voice_output=self.voice_output,
             )
         elif self.memory_tools:
             from .memory_tools import reply
