@@ -8,12 +8,12 @@ import socket
 import tempfile
 import unittest
 
-from her_agent.author import load_pack
-from her_agent.comparison import (CorpusWeb, GuardedProvider, RequestGuard, RunStopped, digest,
+from angeleno.author import load_pack
+from angeleno.comparison import (CorpusWeb, GuardedProvider, RequestGuard, RunStopped, digest,
     ScriptedActor, ScriptedWriter, load_config, run_development)
-from her_agent.comparison_live import OperatorBranches
-from her_agent.provider import TextDelta
-from her_agent.web_lookup import PUBLIC_AREAS, PUBLIC_TOPICS, PUBLIC_PLACES, PublicQuery
+from angeleno.comparison_live import OperatorBranches
+from angeleno.provider import TextDelta
+from angeleno.web_lookup import PUBLIC_AREAS, PUBLIC_TOPICS, PUBLIC_PLACES, PublicQuery
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT/'examples/comparison/development.json'

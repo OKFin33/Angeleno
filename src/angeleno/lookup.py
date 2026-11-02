@@ -894,7 +894,7 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
 async def _live(args):
     """One paid actor turn. Callers must already have passed the disabled-by-default gate."""
     from .author import load_pack
-    from .config import ROOT, load_env, resolve_path
+    from .config import ROOT, load_env, resolve_path, resource_or_path
     from .live_sources import live_lookup
     from .provider import configured_providers
     from .runtime import ConversationRuntime

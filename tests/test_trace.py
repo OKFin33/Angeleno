@@ -7,10 +7,10 @@ import unittest
 from unittest.mock import patch
 
 import httpx
-from her_agent import trace
-from her_agent.runtime import ConversationRuntime, open_store
-from her_agent.provider import TextDelta
-from her_agent.web_lookup import WebLookup, DeepSeekWeb
+from angeleno import trace
+from angeleno.runtime import ConversationRuntime, open_store
+from angeleno.provider import TextDelta
+from angeleno.web_lookup import WebLookup, DeepSeekWeb
 from test_lookup import PACK, CLOCK, Scripted, call
 from test_web_lookup import FakeWeb
 from test_provider import offline_provider, response, event, DONE, USAGE
@@ -78,7 +78,7 @@ class TraceFlowTests(unittest.IsolatedAsyncioTestCase):
         try:
             turn=runtime.begin('TEMP_INPUT' if temporary else 'Public synthetic chat.')
             if fail_write:
-                with patch('her_agent.trace.os.open',side_effect=PermissionError):
+                with patch('angeleno.trace.os.open',side_effect=PermissionError):
                     text=''.join([p async for p in runtime.stream(turn)])
             else:text=''.join([p async for p in runtime.stream(turn)])
             runtime.delivered(turn,text,complete=True)
@@ -171,7 +171,7 @@ class TraceFlowTests(unittest.IsolatedAsyncioTestCase):
             root=Path(tmp);env=env_at(root);providers=mocked_providers(budget_env(root),lambda req:balance_response() if req.method=='GET' else httpx.Response(200,json={'results':[]}))
             sink=trace.Trace(env,root=root,purpose='development')
             try:
-                from her_agent.web_lookup import PublicQuery
+                from angeleno.web_lookup import PublicQuery
                 with trace.activate(trace.Binding(sink,'s','t1')):
                     await DeepSeekWeb(providers[0],request_limit='account').search(PublicQuery('usc_exposition','architecture'))
                 rows=rows_at(env,root);http=[r['data'] for r in rows if r['event'].startswith('web_http_')]
@@ -182,7 +182,7 @@ class TraceFlowTests(unittest.IsolatedAsyncioTestCase):
 
 class TraceBoundaryTests(unittest.IsolatedAsyncioTestCase):
     async def test_reservation_refused_or_HTTP_timeout_has_terminal_record_no_retry(self):
-        from her_agent.budget import BudgetExceeded
+        from angeleno.budget import BudgetExceeded
         for kind in ('budget','timeout'):
             with tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp);env=env_at(root)
@@ -221,8 +221,8 @@ class TraceBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_card_send_and_timing_bind_to_correct_turn_without_audio_capture(self):
         from unittest.mock import Mock,AsyncMock
-        from her_agent.voice_cards import VoiceCards
-        from her_agent import diagnostics
+        from angeleno.voice_cards import VoiceCards
+        from angeleno import diagnostics
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);env=env_at(root)
             service=WebLookup(FakeWeb(),CLOCK);actor=Scripted()

@@ -9,14 +9,14 @@ import os
 
 from livekit.agents import Agent, AgentServer, JobExecutorType, cli
 
-from her_agent.config import load_env
-from her_agent.language import configured_language
-from her_agent.voice import start_voice_session, validate_voice_setup
-from worker.audio_budget import configured_allowance
-from worker.energy_vad import EnergyVAD
-from worker.paraformer_stt import ParaformerSTT
-from worker.voxcpm_tts import VoxCPMHttpTTS
-from her_agent.voice_timing import tagged_tts, configured_prefetch_frames
+from angeleno.config import load_env
+from angeleno.language import configured_language
+from angeleno.voice import start_voice_session, validate_voice_setup
+from angeleno.worker.audio_budget import configured_allowance
+from angeleno.worker.energy_vad import EnergyVAD
+from angeleno.worker.paraformer_stt import ParaformerSTT
+from angeleno.worker.voxcpm_tts import VoxCPMHttpTTS
+from angeleno.voice_timing import tagged_tts, configured_prefetch_frames
 
 
 class VoiceAgent(Agent):
@@ -50,12 +50,12 @@ def main():
     env = load_env()
     # The runner performs the same check before spawning any process. Keep this
     # check for direct `python -m worker.main start` as well.
-    from scripts.run_voice import check_configuration
+    from angeleno.launcher import check_configuration
     errors = check_configuration(env, starting=True)
     if errors:
         raise ValueError('; '.join(errors))
     validate_voice_setup(env)
-    from worker.reference import check_jo_endpoint
+    from angeleno.worker.reference import check_jo_endpoint
     check_jo_endpoint(env)  # Before agent/ASR construction or joining a user room.
     os.environ.update(env)
     server = AgentServer(job_executor_type=JobExecutorType.THREAD,

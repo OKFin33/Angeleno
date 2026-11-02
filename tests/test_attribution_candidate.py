@@ -8,9 +8,9 @@ import json
 from unittest.mock import patch
 import unittest
 
-from her_agent.attribution import CHECK, prepare_check
-from her_agent.continuity import Conversation, Maintainer
-from her_agent.runtime import ConversationRuntime
+from angeleno.attribution import CHECK, prepare_check
+from angeleno.continuity import Conversation, Maintainer
+from angeleno.runtime import ConversationRuntime
 from test_memory import FakeProvider, StoreFixture, record
 
 
@@ -160,7 +160,7 @@ class AttributionCandidateTests(StoreFixture,unittest.IsolatedAsyncioTestCase):
         ev=self.exchange('原始事实必须完整。','必要语境。')
         proposal={'retire':[],'updates':[record('card.user','用户说原始事实必须完整。',[ev[0]],kind='user')]}
         m,p=self.candidate(proposal);before=self.snapshot()
-        with patch('her_agent.attribution.MAX_CHECK_CHARS',10):self.assertFalse(await m.once())
+        with patch('angeleno.attribution.MAX_CHECK_CHARS',10):self.assertFalse(await m.once())
         self.assertEqual(len(p.requests),1);self.assertEqual(self.snapshot(),before)
 
     async def test_rejection_can_be_resumed_explicitly_without_permanent_summary_ban(self):

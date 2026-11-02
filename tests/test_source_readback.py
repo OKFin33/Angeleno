@@ -6,9 +6,9 @@ import json
 import unittest
 from unittest.mock import patch
 
-from her_agent.author import MAX_REQUEST_CHARS
-from her_agent.continuity import Conversation, Maintainer
-from her_agent.memory import CONTEXT_LIMIT, encoded
+from angeleno.author import MAX_REQUEST_CHARS
+from angeleno.continuity import Conversation, Maintainer
+from angeleno.memory import CONTEXT_LIMIT, encoded
 from test_memory import StoreFixture, FakeProvider, record
 
 
@@ -176,7 +176,7 @@ class ReadbackTests(StoreFixture, unittest.TestCase):
         current = self.store.append("new-session", "user", "科幻看剧")
         context, history = self.store.context("new-session", "科幻看剧")
         desired = copy.deepcopy(context)
-        from her_agent.author import omit_readback_turn
+        from angeleno.author import omit_readback_turn
         omit_readback_turn(desired)
         expected = self.pack.messages(history, memory_context=desired)
         core = self.pack.instructions(memory_enabled=True)

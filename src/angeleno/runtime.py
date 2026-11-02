@@ -10,6 +10,7 @@ from . import trace as tracing
 from .continuity import Conversation, Maintainer
 from .memory import MemoryStore, seed_digest
 from .language import configured_language, requested_language
+from .paths import ROOT
 
 
 def _user_utterance(turn):
@@ -25,8 +26,6 @@ def open_store(root, pack, user, *, create=False, data_dir=None, purpose=None):
     root = Path(root)
     from .config import resolve_path
     directory = resolve_path(data_dir or "private/state", root=root)
-    if not directory.is_relative_to((root / "private").resolve()):
-        raise ValueError("Memory data directory must remain inside this repository private directory")
     path = directory / pack.id / user / "memory.sqlite3"
     if not path.resolve().is_relative_to(directory):
         raise ValueError("Memory path must remain inside the configured data directory")
@@ -87,7 +86,7 @@ class ConversationRuntime:
         self.active = None
         self.closed = False
         self._current_call_topic = False
-        self.trace = tracing.Trace(trace_env, root=trace_root or Path(__file__).resolve().parents[1],
+        self.trace = tracing.Trace(trace_env, root=trace_root or ROOT,
                                    purpose=getattr(store, 'purpose', None))
         self.trace_session = self.conversation.session if self.conversation else uuid.uuid4().hex
         self.trace_binding = tracing.Binding(self.trace, self.trace_session)

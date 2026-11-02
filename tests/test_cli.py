@@ -16,9 +16,9 @@ from unittest.mock import patch
 
 import httpx
 
-from her_agent import __main__ as cli
-from her_agent.config import load_env
-from her_agent.runtime import open_store
+from angeleno import __main__ as cli
+from angeleno.config import load_env
+from angeleno.runtime import open_store
 from test_budget import balance_response, budget_env, mocked_providers
 from test_memory import pack_at
 from test_provider import DONE, USAGE, event, response
@@ -53,11 +53,11 @@ class ConfigurationTests(unittest.TestCase):
         env_file = self.root / "empty.env"
         env_file.write_text("")
         pack = pack_at(self.root)
-        repository = Path(cli.__file__).resolve().parents[1]
+        repository = Path(cli.__file__).resolve().parent.parent
         program = ("import runpy,socket,sys; "
                    "socket.socket.connect=lambda *a,**k: (_ for _ in ()).throw(AssertionError('network forbidden')); "
-                   "sys.argv=['her_agent','preview','--env-file',sys.argv[1],'--pack',sys.argv[2]]; "
-                   "runpy.run_module('her_agent',run_name='__main__')")
+                   "sys.argv=['angeleno','preview','--env-file',sys.argv[1],'--pack',sys.argv[2]]; "
+                   "runpy.run_module('angeleno',run_name='__main__')")
         result = subprocess.run([sys.executable, "-S", "-B", "-c", program, str(env_file), str(self.root / "pack.json")],
                                 cwd=repository, env={"PATH": os.environ.get("PATH", "")},
                                 capture_output=True, text=True, check=True)
@@ -81,22 +81,27 @@ class ConfigurationTests(unittest.TestCase):
         restored.close()
         before = moved.read_bytes()
         (self.root / "character.md").write_text("Changed seed must not overwrite memory")
-        from her_agent.author import load_pack
+        from angeleno.author import load_pack
         with self.assertRaisesRegex(ValueError, "seed differs"):
             open_store(self.root, load_pack(self.root / "pack.json"), "independent", data_dir="private/new-state", create=True)
         self.assertEqual(moved.read_bytes(), before)
 
-    def test_memory_and_budget_cannot_write_outside_private_directory(self):
-        from her_agent.provider import configured_providers
+    def test_external_state_directory_preserves_identity_and_ledger_guards(self):
         pack = pack_at(self.root)
-        outside = self.root / 'public-state'
-        with self.assertRaisesRegex(ValueError, 'private directory'):
-            open_store(self.root, pack, 'independent', data_dir=outside, create=True)
+        from angeleno.provider import configured_providers
+        outside = self.root / 'external-state'
+        store = open_store(self.root, pack, 'independent', data_dir=outside, create=True)
+        store.append('external', 'user', 'synthetic retained evidence')
+        store.close()
+        store = open_store(self.root, pack, 'independent', data_dir=outside)
+        self.assertEqual(store.pending()[0]['text'], 'synthetic retained evidence')
+        store.close()
         env = budget_env(self.root, ANGELENO_DATA_DIR=str(outside))
-        with self.assertRaisesRegex(ValueError, 'private directory'):
-            configured_providers(env, root=self.root)
-        self.assertFalse(outside.exists())
-        self.assertFalse((self.root / 'private').exists())
+        actor, writer = configured_providers(env, root=self.root)
+        asyncio.run(actor.aclose()); asyncio.run(writer.aclose())
+        self.assertTrue((outside/'budget.sqlite3').exists())
+        with self.assertRaisesRegex(ValueError, 'inside ANGELENO_DATA_DIR'):
+            configured_providers({**env, 'ANGELENO_BUDGET_LEDGER':str(self.root/'elsewhere.sqlite3')}, root=self.root)
 
     def test_default_demo_preview_and_memory_inspection_need_no_paid_settings(self):
         demo = self.root / "examples/demo"
@@ -167,7 +172,7 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
     async def run_chat(self, inputs):
         out = io.StringIO()
         with patch.object(cli, "ROOT", self.root), \
-                patch("her_agent.provider.configured_providers", side_effect=self.factory), \
+                patch("angeleno.provider.configured_providers", side_effect=self.factory), \
                 patch("builtins.input", side_effect=inputs), redirect_stdout(out):
             await cli.chat(self.args, self.pack, self.env)
         return out.getvalue()
@@ -249,7 +254,7 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_configuration_stops_before_input_or_any_http(self):
         with patch("builtins.input", side_effect=AssertionError("must not prompt")), \
-                patch("her_agent.provider.httpx.AsyncClient") as client:
+                patch("angeleno.provider.httpx.AsyncClient") as client:
             with self.assertRaisesRegex(ValueError, "disabled"):
                 await cli.chat(self.args, self.pack, {})
             client.assert_not_called()
@@ -268,7 +273,7 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
             store.close()
 
     async def test_voice_runtime_default_provider_path_also_accounts_actor_and_writer(self):
-        from her_agent import voice
+        from angeleno import voice
         env = {**self.env, "ANGELENO_AUTHOR_PACK": str(self.root / "pack.json"),
                "ANGELENO_MEMORY_USER": "independent", "ANGELENO_MEMORY_PURPOSE": "real_user", "ANGELENO_MEMORY_CREATE": "1",
                "ANGELENO_MEMORY_TOOLS": "1"}
@@ -284,12 +289,12 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
                          ["actor", "actor", "maintenance"])
 
     async def test_voice_runtime_missing_prices_sends_no_request(self):
-        from her_agent.voice import create_voice_runtime
+        from angeleno.voice import create_voice_runtime
         env = {"ANGELENO_PAID_ENABLED": "1", "DEEPSEEK_API_KEY": "synthetic-key",
                "ANGELENO_DATA_DIR": str(self.root / "private" / "state"),
                "ANGELENO_AUTHOR_PACK": str(self.root / "pack.json"),
                "ANGELENO_MEMORY_USER": "independent", "ANGELENO_MEMORY_PURPOSE": "real_user", "ANGELENO_MEMORY_CREATE": "1"}
-        with patch("her_agent.provider.httpx.AsyncClient") as client:
+        with patch("angeleno.provider.httpx.AsyncClient") as client:
             with self.assertRaisesRegex(ValueError, "prices"):
                 create_voice_runtime(env, root=self.root)
             client.assert_not_called()

@@ -18,14 +18,14 @@ from livekit.agents import Agent, AgentSession
 from livekit.agents.voice import io
 from livekit.agents.voice.transcription import TranscriptSynchronizer
 
-from her_agent.lookup import TextLookup
-from her_agent.places import FixedClock, load_bundle
-from her_agent.provider import TextDelta
-from her_agent.runtime import ConversationRuntime, open_store
-from her_agent.voice import VoiceBridge, HerVoiceLLM, UNCERTAIN_DELIVERY
-from her_agent.voice_cards import VoiceCards, VoiceStatus, STATUS_TOPIC
-from her_agent.voice_timing import AUDIO_TAG, ORDINARY_SECONDS, LOOKUP_SECONDS, PhaseAudioOutput, tagged_tts, install_phase_audio
-from worker.voxcpm_tts import VoxCPMHttpTTS
+from angeleno.lookup import TextLookup
+from angeleno.places import FixedClock, load_bundle
+from angeleno.provider import TextDelta
+from angeleno.runtime import ConversationRuntime, open_store
+from angeleno.voice import VoiceBridge, HerVoiceLLM, UNCERTAIN_DELIVERY
+from angeleno.voice_cards import VoiceCards, VoiceStatus, STATUS_TOPIC
+from angeleno.voice_timing import AUDIO_TAG, ORDINARY_SECONDS, LOOKUP_SECONDS, PhaseAudioOutput, tagged_tts, install_phase_audio
+from angeleno.worker.voxcpm_tts import VoxCPMHttpTTS
 from test_lookup import Scripted, IdleWriter, call, check_args
 from test_memory import pack_at
 from test_voice_lifecycle import SyntheticAudio

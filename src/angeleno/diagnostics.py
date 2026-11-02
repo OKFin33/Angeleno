@@ -1,7 +1,7 @@
 """Opt-in local metadata receipts; content trace is a separate explicit switch.
 
 No file is created by default. The operator must select a non-symlink path
-inside this checkout's ignored private/ directory. Failures cannot affect a turn.
+inside the configured data directory or local private/. Failures cannot affect a turn.
 """
 import json
 import hashlib
@@ -11,7 +11,7 @@ import stat
 import time
 import threading
 
-ROOT = Path(__file__).resolve().parents[1]
+from angeleno.paths import ROOT
 FIELDS = frozenset({"request_id", "result_id", "url", "request_hash", "remaining_seconds",
                     "reason", "interrupted", "phase", "attempt", "operation", "elapsed_seconds", "http_status",
                     "chunk_bytes", "gap_seconds", "audio_seconds", "receive_rtf",
@@ -41,15 +41,8 @@ def emit(event, **metadata):
         if any(type(v) not in (str, float, int, bool, type(None)) or
                isinstance(v, str) and len(v) > 2048 for v in metadata.values()):
             return False
-        target = Path(path)
-        if not target.is_absolute():
-            target = ROOT / target
-        private = ROOT / "private"
-        if private.is_symlink() or not target.resolve().is_relative_to(private.resolve()):
-            return False
-        relative = target.relative_to(private)
-        if any(p.is_symlink() for p in (target, *list(target.parents)[:len(relative.parts) - 1])):
-            return False
+        from .paths import private_file
+        target = private_file(path, os.environ, root=ROOT)
         if event in AUDIO_EVENTS:
             with _audio_metric_lock:
                 if _audio_metric_rows >= AUDIO_METRIC_LIMIT:

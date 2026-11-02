@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from scripts import run_voice
+from angeleno import launcher as run_voice
 from test_memory import pack_at
-from worker import web_server
+from angeleno.worker import web_server
 
 
 def configuration(root):
@@ -120,13 +120,13 @@ class RunnerTests(unittest.TestCase):
              patch.object(run_voice, 'ROOT', Path(tmp)), \
              patch.object(run_voice, 'check_configuration', return_value=[]), \
              patch.object(run_voice, 'require_ports_free'), \
-             patch('her_agent.voice.validate_voice_setup'), \
+             patch('angeleno.voice.validate_voice_setup'), \
              patch('subprocess.Popen', side_effect=[child, OSError('synthetic spawn failure')]), \
              patch('os.killpg') as kill:
             with self.assertRaisesRegex(OSError, 'synthetic spawn failure'):
                 run_voice.run({})
             kill.assert_called_once_with(child.pid, run_voice.signal.SIGTERM)
-            self.assertEqual(list((Path(tmp) / 'private').iterdir()), [])
+            self.assertEqual(list((Path(tmp) / 'private/state').iterdir()), [])
 
     def test_local_livekit_config_is_private_and_start_path_reaches_child(self):
         child = Mock(pid=87654)
@@ -143,7 +143,7 @@ class RunnerTests(unittest.TestCase):
              patch.object(run_voice, 'ROOT', Path(tmp)), \
              patch.object(run_voice, 'check_configuration', return_value=[]), \
              patch.object(run_voice, 'require_ports_free'), \
-             patch('her_agent.voice.validate_voice_setup'), \
+             patch('angeleno.voice.validate_voice_setup'), \
              patch('shutil.which', return_value='/synthetic/livekit-server'), \
              patch('subprocess.Popen', side_effect=spawn), \
              patch('os.killpg') as kill:
@@ -156,7 +156,7 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(captured['config']['rtc']['node_ip'], '100.64.0.1')
             self.assertEqual(captured['config']['port'], 17883)
             kill.assert_called_once_with(child.pid, run_voice.signal.SIGTERM)
-            self.assertEqual(list((Path(tmp) / 'private').iterdir()), [])
+            self.assertEqual(list((Path(tmp) / 'private/state').iterdir()), [])
 
     def test_web_health_does_not_probe_and_token_requires_allowed_origin(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -170,7 +170,7 @@ class RunnerTests(unittest.TestCase):
             thread.start()
             url = f'http://127.0.0.1:{server.server_port}'
             try:
-                with patch('scripts.run_voice.check_configuration', return_value=[]), \
+                with patch('angeleno.launcher.check_configuration', return_value=[]), \
                      patch.object(web_server, 'create_room_and_token', new_callable=AsyncMock) as create:
                     with urlopen(url + '/healthz', timeout=2) as response:
                         self.assertEqual(json.load(response), {'ready': True, 'scope': 'local-configuration', 'persona_label': 'Synthetic demo (Lin)', 'language':'en'})

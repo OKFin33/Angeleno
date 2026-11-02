@@ -3,8 +3,8 @@
 import unittest
 from pathlib import Path
 
-from her_agent.places import PlacesError, load_bundle
-from her_agent.places.catalog import parse_entry_text
+from angeleno.places import PlacesError, load_bundle
+from angeleno.places.catalog import parse_entry_text
 
 
 ROOT = Path(__file__).resolve().parents[1] / "data" / "places"

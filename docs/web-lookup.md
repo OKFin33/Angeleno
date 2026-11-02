@@ -39,7 +39,7 @@ ANGELENO_WEB_REQUEST_LIMIT=account
 `account` 按账户余额和每轮限额运行；也可设置正整数作为原账本中的累计请求上限。
 两种模式都保留历史用量、未知费用与每请求余额检查，空值拒绝启动。
 Web 优先于 `ANGELENO_PLACE_TOOLS`；语音沿 [running](running.md) 的启动入口，
-文字工具入口使用 `ANGELENO_LOOKUP_LIVE=1` 与 `python -m her_agent.lookup --live --utterance ...`。
+文字工具入口使用 `ANGELENO_LOOKUP_LIVE=1` 与 `python -m angeleno.lookup --live --utterance ...`。
 Search／Fetch、回复与卡片共用同一个 ConversationRuntime。
 
 [官方指南](https://api-docs.deepseek.com/zh-cn/guides/search/)、[Search schema](https://api-docs.deepseek.com/zh-cn/api/search/)、[Fetch schema](https://api-docs.deepseek.com/zh-cn/api/fetch/)于2026-10-31核对：固定官方 `/v1/tools/search` 与 `/v1/tools/fetch`，有结果请求各CNY0.005，空结果／失败不收费。演员和工具共用Ledger及每请求余额检查，模型仍按token计费。取消、响应未知或HTTP200无法解析保留全额预留，不猜免费；计数跨adapter／进程累计，不用新账本重置。

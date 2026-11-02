@@ -2,7 +2,7 @@
 import io
 import threading
 import unittest
-from scripts.trial_lifecycle import AudioCallLifetime, owner_pipe, lease_expired, forward_lease_script
+from angeleno.trial_lifecycle import AudioCallLifetime, owner_pipe, lease_expired, forward_lease_script
 
 
 class Clock:
@@ -68,7 +68,7 @@ class LifetimeTests(unittest.TestCase):
         read,write=os.pipe();stream=os.fdopen(read,'rb');stop=threading.Event()
         thread=owner_pipe(stop,stream);os.close(write);thread.join(1)
         self.assertTrue(stop.is_set());self.assertFalse(thread.is_alive());stream.close()
-        code="import os,threading,time;from scripts.trial_lifecycle import owner_pipe;r,w=os.pipe();s=os.fdopen(r,'rb');owner_pipe(threading.Event(),s);time.sleep(.05)"
+        code="import os,threading,time;from angeleno.trial_lifecycle import owner_pipe;r,w=os.pipe();s=os.fdopen(r,'rb');owner_pipe(threading.Event(),s);time.sleep(.05)"
         child=subprocess.run([sys.executable,'-c',code],capture_output=True,timeout=4)
         self.assertEqual(child.returncode,0,child.stderr.decode(errors='replace'))
         self.assertNotIn(b'_enter_buffered_busy',child.stderr)
@@ -89,7 +89,7 @@ class LifetimeTests(unittest.TestCase):
 
 class StatusRouteTests(unittest.TestCase):
     def test_local_counter_route_is_read_only_and_optional(self):
-        from worker.web_server import handler_for
+        from angeleno.worker.web_server import handler_for
         _,lifetime=LifetimeTests().lifetime(493);lifetime.ready()
         for value in (None,lifetime):
             handler=object.__new__(handler_for({},lifecycle=value));handler.path='/trial-status'
@@ -106,8 +106,8 @@ class ObserverTests(unittest.TestCase):
         from pathlib import Path
         from types import SimpleNamespace
         from unittest.mock import AsyncMock,patch
-        from scripts.trial_lifecycle import start_monitor
-        from worker.audio_budget import ASRAllowance
+        from angeleno.trial_lifecycle import start_monitor
+        from angeleno.worker.audio_budget import ASRAllowance
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);meter=root/'private/state/asr.sqlite3';ASRAllowance(meter,10).reserve(2)
             before=meter.read_bytes();stop=threading.Event();lifetime=AudioCallLifetime(8)
@@ -128,7 +128,7 @@ class ObserverTests(unittest.TestCase):
 
 class CandidatePreparationTests(unittest.TestCase):
     def test_compiled_preparation_is_bounded_and_separate_from_join_and_audio(self):
-        from scripts.trial_lifecycle import tts_preparation
+        from angeleno.trial_lifecycle import tts_preparation
         plan=tts_preparation('compiled');self.assertGreater(plan['gpu_ready_seconds'],117)
         self.assertGreaterEqual(plan['total_startup_seconds'],plan['gpu_ready_seconds']+35)
         self.assertLessEqual(plan['total_startup_seconds'],240)
@@ -141,13 +141,13 @@ class CandidatePreparationTests(unittest.TestCase):
         self.assertEqual(life.snapshot()['waiting_seconds_remaining'],300)
 
     def test_token_not_created_before_ready_or_after_failed_preparation(self):
-        from worker.web_server import handler_for
+        from angeleno.worker.web_server import handler_for
         from unittest.mock import AsyncMock,patch
         life=AudioCallLifetime(493);handler=object.__new__(handler_for({},lifecycle=life))
         handler.path='/token';handler.headers={'Origin':'http://127.0.0.1:8767'}
         result=[];handler.send_json=lambda status,body:result.append(status)
         token=AsyncMock(return_value={'room':'angeleno-jo-synthetic','identity':'user-'+'a'*16,'token':'synthetic'})
-        with patch('worker.web_server.create_room_and_token',token):
+        with patch('angeleno.worker.web_server.create_room_and_token',token):
             handler.do_POST();self.assertEqual(result[-1],503);token.assert_not_called()
             life.ready();handler.rfile=io.BytesIO(b'');handler.do_POST()
             self.assertEqual(result[-1],200);token.assert_awaited_once()

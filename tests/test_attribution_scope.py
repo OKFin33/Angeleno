@@ -3,8 +3,8 @@ from copy import deepcopy
 import json
 import unittest
 
-from her_agent.attribution import AttributionRejected, validate_check
-from her_agent.continuity import Maintainer
+from angeleno.attribution import AttributionRejected, validate_check
+from angeleno.continuity import Maintainer
 from test_memory import StoreFixture, record
 from test_attribution_candidate import TwoStage
 
@@ -92,7 +92,7 @@ class RefusalScopeCommitTests(StoreFixture,unittest.IsolatedAsyncioTestCase):
 
 class AttributionRuntimeOptionTests(StoreFixture, unittest.IsolatedAsyncioTestCase):
     async def test_voice_runtime_opt_in_and_default_use_existing_submit_gate(self):
-        from her_agent.voice import create_voice_runtime
+        from angeleno.voice import create_voice_runtime
         for mode in (None, '1'):
             actor = TwoStage({'updates': [], 'retire': []})
             writer = TwoStage({'updates': [], 'retire': []})
@@ -110,7 +110,7 @@ class AttributionRuntimeOptionTests(StoreFixture, unittest.IsolatedAsyncioTestCa
             finally:await runtime.close(flush=False)
 
     async def test_invalid_option_refuses_before_provider_or_store_creation(self):
-        from her_agent.voice import create_voice_runtime
+        from angeleno.voice import create_voice_runtime
         env = {'ANGELENO_AUTHOR_PACK': str(self.root / 'pack.json'), 'ANGELENO_MEMORY_USER': 'invalid',
                'ANGELENO_MEMORY_PURPOSE': 'real_user', 'ANGELENO_MEMORY_CREATE': '1', 'ANGELENO_MEMORY_ATTRIBUTION_CHECK': 'yes'}
         with self.assertRaisesRegex(ValueError, 'must be 0 or 1'):

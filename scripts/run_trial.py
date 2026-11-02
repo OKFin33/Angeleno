@@ -27,12 +27,10 @@ import time
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
-from her_agent.config import load_env, resolve_path
-from scripts.run_voice import check_configuration, stop_children
-from worker.reference import expected_jo_reference, ReferenceConfigurationError
+from angeleno.config import load_env, resolve_path
+from angeleno.launcher import check_configuration, stop_children
+from angeleno.worker.reference import expected_jo_reference, ReferenceConfigurationError
 
 
 HTTP_READ_TIMEOUT = 2.0
@@ -118,11 +116,11 @@ def trial_environment(settings, projection, mode, *, inherited=None):
 def check_state(env, *, root=ROOT):
     """Read existing identity/allowance/account metadata without creating state."""
     expected_jo_reference(env)
-    from her_agent.baseline import configured_pack
-    from her_agent.budget import Ledger
-    from her_agent.memory import APPLICATION_ID, seed_digest
-    from her_agent.provider import _provider_configuration
-    from worker.audio_budget import asr_settings
+    from angeleno.baseline import configured_pack
+    from angeleno.budget import Ledger
+    from angeleno.memory import APPLICATION_ID, seed_digest
+    from angeleno.provider import _provider_configuration
+    from angeleno.worker.audio_budget import asr_settings
     errors = check_configuration(env, root=root, starting=True)
     if errors:
         raise ValueError('Voice configuration invalid: ' + '; '.join(errors))
@@ -154,7 +152,7 @@ def check_state(env, *, root=ROOT):
         if not row or row[0] != maximum or not 0 <= row[1] < maximum:
             raise ValueError('Existing ASR allowance differs or is exhausted')
     if env['ANGELENO_WEB_ENABLED'] == '1':
-        from her_agent.web_lookup import configured_web_lookup
+        from angeleno.web_lookup import configured_web_lookup
         # Constructor-only validation; no client/provider, balance or HTTP.
         from types import SimpleNamespace
         actor = SimpleNamespace(budget=SimpleNamespace(ledger=SimpleNamespace(prices=prices)))
@@ -231,7 +229,7 @@ def preflight(args, *, root=ROOT):
     plan = json.loads(args.route_plan.read_text())
     env = trial_environment(settings, plan['proposed_nonsecret_project_settings'], args.mode)
     env['ANGELENO_ENV_FILE'] = str(args.env_file.resolve())
-    from scripts.trial_lifecycle import tts_preparation
+    from angeleno.trial_lifecycle import tts_preparation
     env['VOXCPM_COMPILE']=tts_preparation(getattr(args,'tts_candidate','eager'))['compile_value']
     config, host, udp = media_scope(env, plan)
     check_state(env, root=root)
@@ -273,8 +271,8 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
     setup_deadline = time.monotonic()+90
     lifetime = None
     if managed:
-        from worker.audio_budget import asr_settings
-        from scripts.trial_lifecycle import AudioCallLifetime
+        from angeleno.worker.audio_budget import asr_settings
+        from angeleno.trial_lifecycle import AudioCallLifetime
         meter,_ = asr_settings(env,root=root)
         with sqlite3.connect(meter.resolve().as_uri()+'?mode=ro',uri=True) as db:
             total,reserved = db.execute('SELECT max_seconds,reserved_seconds FROM asr_allowance WHERE id=1').fetchone()
@@ -335,7 +333,7 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
         if getattr(args, "owner_stdin", False):
             if not stat.S_ISFIFO(os.fstat(sys.stdin.fileno()).st_mode):
                 raise ValueError('Owned parent stdin must be a pipe')
-            from scripts.trial_lifecycle import owner_pipe
+            from angeleno.trial_lifecycle import owner_pipe
             owner_pipe(stop, sys.stdin.buffer)
         for sig in (signal.SIGTERM, signal.SIGINT):
             old_signals[sig] = signal.signal(sig, lambda *_: stop.set())
@@ -346,7 +344,7 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
         wait_for(child, lambda: listeners(child.pid, 'TCP') == ['127.0.0.1:7880'], 15)
         if listeners(child.pid, 'UDP') != udp:
             raise RuntimeError('Actual RTC listener scope mismatch')
-        from worker.web_server import handler_for
+        from angeleno.worker.web_server import handler_for
         server = TrialHTTPServer(('127.0.0.1', 8767), handler_for(env, lifecycle=lifetime))
         http_entered, http_errors = start_http(server, stop)
         worker = launch('worker', [sys.executable, str(root / 'scripts/run_trial.py'), '_worker'])
@@ -361,7 +359,7 @@ def supervise(args, prepared, *, root=ROOT, stop_event=None):
 
             wait_for(route, routed, 20)
         if lifetime is not None:
-            from scripts.trial_lifecycle import start_monitor
+            from angeleno.trial_lifecycle import start_monitor
             lifetime.ready()
             observer_thread = start_monitor(lifetime, env, stop, root=root)
             report['user_ready_at'] = datetime.now(timezone.utc).isoformat()
@@ -458,7 +456,7 @@ def main(argv=None):
 
 
 def worker_entry():
-    import worker.agent as worker
+    import angeleno.worker.agent as worker
     worker.AgentServer = partial(worker.AgentServer, host='127.0.0.1')
     sys.argv = [sys.argv[0], 'start']
     worker.main()

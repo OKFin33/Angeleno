@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from livekit.agents import AgentSession
 
-from her_agent.live_sources import live_lookup
-from her_agent.lookup import TextLookup
-from her_agent.places import FixedClock, load_bundle
-from her_agent.provider import TextDelta
-from her_agent.runtime import ConversationRuntime, open_store
-from her_agent.voice import VoiceBridge, HerVoiceLLM, create_voice_runtime, start_voice_session
-from her_agent.voice_cards import VoiceCards, TOPIC
-from worker.web_server import create_room_and_token
+from angeleno.live_sources import live_lookup
+from angeleno.lookup import TextLookup
+from angeleno.places import FixedClock, load_bundle
+from angeleno.provider import TextDelta
+from angeleno.runtime import ConversationRuntime, open_store
+from angeleno.voice import VoiceBridge, HerVoiceLLM, create_voice_runtime, start_voice_session
+from angeleno.voice_cards import VoiceCards, TOPIC
+from angeleno.worker.web_server import create_room_and_token
 from test_lookup import Scripted, IdleWriter, call, check_args
 from test_memory import pack_at
 from test_voice_lifecycle import SyntheticAgent, SyntheticAudio
@@ -136,7 +136,7 @@ class VoiceCardTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_live_clock_refreshes_across_la_midnight(self):
         service = live_lookup()
-        with patch("her_agent.live_sources.datetime") as clock:
+        with patch("angeleno.live_sources.datetime") as clock:
             clock.now.return_value = datetime(2026, 11, 1, 6, 59, tzinfo=timezone.utc)
             service.begin_turn("s", 1)
             self.assertEqual(service.clock.now().date().isoformat(), "2026-10-31")
@@ -158,7 +158,7 @@ class VoiceCardTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_dispatch_recipient_refuses_card_broadcast_and_closes_store(self):
         ctx = Mock()
         ctx.job.metadata = '{}'
-        with patch("her_agent.voice.create_voice_runtime", return_value=self.runtime):
+        with patch("angeleno.voice.create_voice_runtime", return_value=self.runtime):
             with self.assertRaises(KeyError):
                 await start_voice_session(ctx, Mock(), {})
         self.assertTrue(self.runtime.closed)

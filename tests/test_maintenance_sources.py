@@ -5,13 +5,13 @@ from types import SimpleNamespace
 from pathlib import Path
 import unittest
 
-from her_agent.continuity import Maintainer
-from her_agent.lookup import TextLookup, LookupObservationMissing
-from her_agent.provider import TextDelta
-from her_agent.runtime import ConversationRuntime
-from her_agent.web_lookup import RecordedWebResult, SourceAssertion, WebLookup
+from angeleno.continuity import Maintainer
+from angeleno.lookup import TextLookup, LookupObservationMissing
+from angeleno.provider import TextDelta
+from angeleno.runtime import ConversationRuntime
+from angeleno.web_lookup import RecordedWebResult, SourceAssertion, WebLookup
 from test_lookup import CLOCK, Scripted, call, check_args
-from her_agent.places import load_bundle
+from angeleno.places import load_bundle
 from test_memory import FakeProvider, StoreFixture
 
 A='https://example.org/development/blue-room'

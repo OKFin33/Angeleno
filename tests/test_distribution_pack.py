@@ -3,11 +3,11 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
-from her_agent.author import load_pack
-from her_agent.baseline import configured_pack
-from her_agent.config import load_env
-from her_agent.voice import voice_configuration
-from worker.reference import expected_jo_reference
+from angeleno.author import load_pack
+from angeleno.baseline import configured_pack
+from angeleno.config import load_env
+from angeleno.voice import voice_configuration
+from angeleno.worker.reference import expected_jo_reference
 
 ROOT=Path(__file__).resolve().parents[1]
 

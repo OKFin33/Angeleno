@@ -6,8 +6,8 @@ Source: https://github.com/YeJe-cpu/talk-to-fengge
 Revision: 61f55d42097ea72031e26a6b076568fa574376cf
 License: LICENSES/Apache-2.0.txt
 
-Adapted files: her_agent/provider.py; worker/agent.py, worker/energy_vad.py,
-worker/voxcpm_tts.py, worker/web_server.py; web/index.html. Angeleno modifications
+Adapted files: src/angeleno/provider.py; src/angeleno/worker/agent.py, src/angeleno/worker/energy_vad.py,
+src/angeleno/worker/voxcpm_tts.py, src/angeleno/worker/web_server.py; web/index.html. Angeleno modifications
 separate character/context from transport, add explicit provider and usage
 configuration, preserve cancellation/playout evidence, replace example persona
 and memory dependencies, and serve pinned browser assets locally.

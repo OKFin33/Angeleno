@@ -9,7 +9,7 @@ import uuid
 
 import aiohttp
 from livekit import rtc
-from her_agent.language import configured_language
+from angeleno.language import configured_language
 from livekit.agents import APIConnectionError, APIStatusError, APITimeoutError, DEFAULT_API_CONNECT_OPTIONS, stt
 
 
@@ -20,7 +20,7 @@ class ParaformerSTT(stt.STT):
         self.url = url or os.environ.get('DASHSCOPE_WS_URL', 'wss://dashscope.aliyuncs.com/api-ws/v1/inference')
         if not self.key:
             raise ValueError('DASHSCOPE_API_KEY is required')
-        from worker.audio_budget import require_remote_permission, is_loopback
+        from angeleno.worker.audio_budget import require_remote_permission, is_loopback
         require_remote_permission(self.url, paid_enabled=paid_enabled)
         if not is_loopback(self.url) and allowance is None:
             raise ValueError('Remote ASR requires an explicit duration allowance')

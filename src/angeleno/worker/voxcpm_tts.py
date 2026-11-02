@@ -17,8 +17,8 @@ import uuid
 from dataclasses import dataclass
 
 import aiohttp
-from worker.pcm import PCMResampler
-from her_agent.diagnostics import emit
+from angeleno.worker.pcm import PCMResampler
+from angeleno.diagnostics import emit
 from livekit.agents import APIConnectOptions, APIStatusError, DEFAULT_API_CONNECT_OPTIONS
 from livekit.agents.tts import SynthesizeStream, TTS, TTSCapabilities
 
@@ -93,7 +93,7 @@ class VoxCPMHttpTTS(TTS):
             sample_rate=sample_rate,
             num_channels=1,
         )
-        from worker.audio_budget import require_remote_permission
+        from angeleno.worker.audio_budget import require_remote_permission
         require_remote_permission(url, paid_enabled=paid_enabled)
         self._opts = VoxCPMOptions(url=url, voice=voice, style=style, sample_rate=sample_rate)
         self._http_session: aiohttp.ClientSession | None = None

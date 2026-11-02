@@ -45,3 +45,8 @@ tmp/
 *.mov
 *.webm
 *.mkv
+
+# Packaging outputs
+/dist/
+/build/
+*.egg-info/

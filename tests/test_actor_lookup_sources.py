@@ -9,14 +9,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from her_agent.author import Document, load_pack
-from her_agent.lookup import TextLookup
-from her_agent.memory import BacklogFull, MemoryStore, seed_digest
-from her_agent.places import load_bundle
-from her_agent.places.fixture import SnapshotProvenance
-from her_agent.provider import TextDelta
-from her_agent.runtime import ConversationRuntime
-from her_agent.web_lookup import WebLookup
+from angeleno.author import Document, load_pack
+from angeleno.lookup import TextLookup
+from angeleno.memory import BacklogFull, MemoryStore, seed_digest
+from angeleno.places import load_bundle
+from angeleno.places.fixture import SnapshotProvenance
+from angeleno.provider import TextDelta
+from angeleno.runtime import ConversationRuntime
+from angeleno.web_lookup import WebLookup
 from test_lookup import CLOCK, IdleWriter, Scripted, call, check_args
 from test_maintenance_sources import Replay, A, B
 
@@ -137,7 +137,7 @@ class ActorLookupSourcesTests(unittest.IsolatedAsyncioTestCase):
         base = {k: v for k, v in context.items() if k not in ('source_readback', 'lookup_sources')}
         history = [{'role': 'user', 'content': '公开问题。'}]
         size = sum(len(m['content']) for m in self.pack.messages(history, memory_context=base))
-        with patch('her_agent.author.MAX_REQUEST_CHARS', size + 100):
+        with patch('angeleno.author.MAX_REQUEST_CHARS', size + 100):
             messages = self.pack.messages(history, memory_context=deepcopy(context))
         self.assertNotIn('SOURCE_CANARY', json.dumps(messages))
         self.assertNotIn('LONG_RAW_', json.dumps(messages))
@@ -172,7 +172,7 @@ class ActorLookupSourcesTests(unittest.IsolatedAsyncioTestCase):
                     exact_budget = sum(len(m['content']) for m in expected)
                     # A tight final-request budget includes source data only if
                     # the raw binding actually survived the window.
-                    with patch('her_agent.author.MAX_REQUEST_CHARS', exact_budget):
+                    with patch('angeleno.author.MAX_REQUEST_CHARS', exact_budget):
                         temporary = runtime.begin(user)
                     self.assertTrue(temporary.temporary)
                     self.assertEqual(temporary.messages, expected)

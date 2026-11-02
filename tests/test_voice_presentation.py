@@ -5,13 +5,13 @@ from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
-from her_agent.lookup import VOICE_PRESENTATION
-from her_agent.memory_tools import request_chars
-from her_agent.provider import TextDelta
-from her_agent.runtime import ConversationRuntime
-from her_agent.voice import VoiceBridge
-from her_agent.voice_cards import VoiceCards
-from her_agent.web_lookup import RecordedWebResult, WebFailure, WebLookup
+from angeleno.lookup import VOICE_PRESENTATION
+from angeleno.memory_tools import request_chars
+from angeleno.provider import TextDelta
+from angeleno.runtime import ConversationRuntime
+from angeleno.voice import VoiceBridge
+from angeleno.voice_cards import VoiceCards
+from angeleno.web_lookup import RecordedWebResult, WebFailure, WebLookup
 from test_lookup import CLOCK, PACK, Scripted, call
 
 FIXTURE=json.loads((Path(__file__).resolve().parents[1]/'examples/voice-presentation.development.json').read_text())
@@ -128,7 +128,7 @@ class VoicePresentationTests(unittest.IsolatedAsyncioTestCase):
         try:
             turn=runtime.begin(FIXTURE['cases'][0]['user'])
             old_limit=request_chars(actor,lookup.prepare_messages(turn.messages),lookup.tool_definitions())
-            with patch('her_agent.lookup.MAX_REQUEST_CHARS',old_limit):
+            with patch('angeleno.lookup.MAX_REQUEST_CHARS',old_limit):
                 with self.assertRaisesRegex(ValueError,'input budget'):
                     _=[x async for x in runtime.stream(turn)]
             self.assertEqual(actor.sent,[])

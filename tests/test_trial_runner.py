@@ -14,14 +14,14 @@ from unittest.mock import Mock, patch
 
 import httpx
 
-from her_agent.baseline import configured_pack
-from her_agent.budget import Ledger, Prices
-from her_agent.runtime import open_store
+from angeleno.baseline import configured_pack
+from angeleno.budget import Ledger, Prices
+from angeleno.runtime import open_store
 from scripts import run_trial as trial
 from test_voice_runner import configuration
-from worker.audio_budget import ASRAllowance
-from her_agent.budget import BudgetExceeded
-from her_agent.web_lookup import DeepSeekWeb, WebFailure
+from angeleno.worker.audio_budget import ASRAllowance
+from angeleno.budget import BudgetExceeded
+from angeleno.web_lookup import DeepSeekWeb, WebFailure
 from test_budget import budget_env, balance_response, mocked_providers
 from test_web_lookup import QUERY, URL
 
@@ -43,7 +43,7 @@ def media():
 
 class TrialConfigurationTests(unittest.TestCase):
     def test_child_entry_uses_real_start_command_and_loopback_health_binding(self):
-        from worker import agent
+        from angeleno.worker import agent
         server = Mock()
         with patch.object(agent, 'AgentServer', server), patch.object(agent, 'main') as start, \
              patch.object(trial.sys, 'argv', ['synthetic-entry', '_worker']):
@@ -166,7 +166,7 @@ class TrialOwnershipTests(unittest.TestCase):
             else:lifetime.reason='user_ended'
             return SimpleNamespace(is_alive=lambda:not observer_failure,join=lambda **_:None)
         spawns = [children[0], OSError('synthetic spawn failure')] if failure else children
-        with patch('scripts.trial_lifecycle.start_monitor', side_effect=monitor), \
+        with patch('angeleno.trial_lifecycle.start_monitor', side_effect=monitor), \
              patch.object(trial, 'serve_state', return_value=baseline), \
              patch.object(trial, 'has_route', return_value=True), \
              patch.object(trial, 'listeners', side_effect=listening), \
@@ -178,7 +178,7 @@ class TrialOwnershipTests(unittest.TestCase):
                           return_value=(entered, [])) as start, \
              patch.object(trial, 'datetime', clock), \
              patch.object(trial, 'HTTP_CLOSE_TIMEOUT', .03), \
-             patch.object(trial.signal, 'signal', side_effect=signal_handler), patch('worker.web_server.handler_for', return_value=object()):
+             patch.object(trial.signal, 'signal', side_effect=signal_handler), patch('angeleno.worker.web_server.handler_for', return_value=object()):
             try:
                 began = time.monotonic()
                 result = trial.supervise(args, prepared, root=root, stop_event=stop)

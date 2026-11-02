@@ -11,10 +11,10 @@ from unittest.mock import AsyncMock
 
 import httpx
 
-from her_agent.comparison import CorpusWeb, RunStopped
-from her_agent.provider import TextDelta, ToolCalls
-from her_agent.runtime import ConversationRuntime
-from her_agent.web_lookup import (DeepSeekWeb, NOTE, PUBLIC_AREAS, PUBLIC_PLACES,
+from angeleno.comparison import CorpusWeb, RunStopped
+from angeleno.provider import TextDelta, ToolCalls
+from angeleno.runtime import ConversationRuntime
+from angeleno.web_lookup import (DeepSeekWeb, NOTE, PUBLIC_AREAS, PUBLIC_PLACES,
     PUBLIC_TOPICS, PublicQuery, TOOLS, WebLookup, parse_web_call)
 from test_budget import balance_response, budget_env, mocked_providers
 from test_lookup import CLOCK, PACK, Scripted, call

@@ -4,13 +4,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from her_agent.author import ASSISTANT_SETTING, assistant_control_pack, load_pack
-from her_agent.capabilities import capability_contract, set_capabilities
-from her_agent.language import requested_language
-from her_agent.lookup import prepare_messages as places_messages
-from her_agent.memory_tools import prepare_messages as memory_messages
-from her_agent.runtime import ConversationRuntime, open_store
-from her_agent.web_lookup import WebLookup
+from angeleno.author import ASSISTANT_SETTING, assistant_control_pack, load_pack
+from angeleno.capabilities import capability_contract, set_capabilities
+from angeleno.language import requested_language
+from angeleno.lookup import prepare_messages as places_messages
+from angeleno.memory_tools import prepare_messages as memory_messages
+from angeleno.runtime import ConversationRuntime, open_store
+from angeleno.web_lookup import WebLookup
 from test_lookup import IdleWriter
 
 ROOT = Path(__file__).resolve().parents[1]

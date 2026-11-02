@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from her_agent.author import AuthorPack, Document, assistant_control_pack, load_pack, reading_sections
-from her_agent.memory import seed_digest
+from angeleno.author import AuthorPack, Document, assistant_control_pack, load_pack, reading_sections
+from angeleno.memory import seed_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 

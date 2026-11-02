@@ -9,12 +9,12 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from her_agent.author import load_pack
-from her_agent.lookup import TextLookup, main, reply
-from her_agent.memory import MemoryStore, seed_digest
-from her_agent.places import FixedClock, load_bundle
-from her_agent.provider import TextDelta, ToolCalls
-from her_agent.runtime import ConversationRuntime
+from angeleno.author import load_pack
+from angeleno.lookup import TextLookup, main, reply
+from angeleno.memory import MemoryStore, seed_digest
+from angeleno.places import FixedClock, load_bundle
+from angeleno.provider import TextDelta, ToolCalls
+from angeleno.runtime import ConversationRuntime
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -262,7 +262,7 @@ class LookupLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({h["place_id"] for h in result["hits"]}, {"place.fisher", "place.nhm"})
 
     async def test_check_type_is_declared_and_wrong_type_keeps_the_reason(self):
-        from her_agent.live_sources import LiveChecker
+        from angeleno.live_sources import LiveChecker
         class NoRead:
             async def read(self, source):
                 raise AssertionError("Invalid type must not read a source")

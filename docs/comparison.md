@@ -17,7 +17,7 @@ Owner 锚例校准、正式候选／参数／来源／评分冻结和独立保�
 .venv/bin/python scripts/run_development.py --output private/evaluation/development-dry-run.json
 
 # 实际模型入口默认仍是离线；显式 --run 还需要完整配置、有效 manifest 和原费用保护。
-.venv/bin/python -m her_agent.comparison_live --output private/evaluation/comparison-offline.json
+.venv/bin/python -m angeleno.comparison_live --output private/evaluation/comparison-offline.json
 ```
 
 真实运行用 `--config`、`--manifest`、`--env-file`、`--output` 与显式 `--run`；
@@ -132,10 +132,10 @@ D1新增相邻ID `3`，目的沿原Spec §2／§8的街区闲聊、追问偏好�
 
 ```sh
 # 默认仍是完整离线公开合成演练；不加载凭据或Jo
-.venv/bin/python -m her_agent.comparison_live --output private/evaluation/<新回执>.json
+.venv/bin/python -m angeleno.comparison_live --output private/evaluation/<新回执>.json
 
 # 只在具体载荷许可／审批阻碍已解决、材料已冻结后，由操作者显式执行
-.venv/bin/python -m her_agent.comparison_live --run \
+.venv/bin/python -m angeleno.comparison_live --run \
   --config private/evaluation/<共同配置>.json \
   --manifest private/evaluation/<冻结清单>.json \
   --env-file /<原运行目录>/private/runtime.env \

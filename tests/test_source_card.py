@@ -6,12 +6,12 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from her_agent.author import load_pack
-from her_agent.lookup import TextLookup
-from her_agent.memory import MemoryStore, seed_digest
-from her_agent.places import FixedClock, load_bundle
-from her_agent.provider import TextDelta, ToolCalls
-from her_agent.runtime import ConversationRuntime
+from angeleno.author import load_pack
+from angeleno.lookup import TextLookup
+from angeleno.memory import MemoryStore, seed_digest
+from angeleno.places import FixedClock, load_bundle
+from angeleno.provider import TextDelta, ToolCalls
+from angeleno.runtime import ConversationRuntime
 from test_lookup import FIRST, SECOND, STANDING, IdleWriter, Scripted, call, check_args, dumped
 
 

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import httpx
 
-from her_agent.budget import APPLICATION_ID, BudgetExceeded, Ledger, PaidBudget, Prices
+from angeleno.budget import APPLICATION_ID, BudgetExceeded, Ledger, PaidBudget, Prices
 
 
 FLASH = Prices('deepseek-flash', 'CNY', Decimal('2'), Decimal('.04'), Decimal('8'),
@@ -264,7 +264,7 @@ class RequestPricesTests(unittest.TestCase):
 
 class PaidRequestPricesTests(unittest.IsolatedAsyncioTestCase):
     async def test_pro_provider_uses_one_original_ledger_and_real_usage_parser_with_fake_HTTP(self):
-        from her_agent.provider import DeepSeekChatStream
+        from angeleno.provider import DeepSeekChatStream
         from test_provider import response
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Ledger(Path(tmp) / 'synthetic.sqlite3', FLASH, **SETTINGS)

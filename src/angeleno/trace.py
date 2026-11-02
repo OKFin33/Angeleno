@@ -19,7 +19,7 @@ import subprocess
 import time
 import uuid
 
-ROOT = Path(__file__).resolve().parents[1]
+from angeleno.paths import ROOT
 SCHEMA = "angeleno-trace/1"
 MAX_FILE_BYTES = 32 * 1024 * 1024
 MAX_EVENT_BYTES = 256 * 1024
@@ -36,16 +36,10 @@ def trace_path(env, root=ROOT):
         return None
     value = env.get("ANGELENO_DIAGNOSTICS_FILE", "")
     if not value:
-        raise ValueError("Trace requires ANGELENO_DIAGNOSTICS_FILE inside private/")
-    path = Path(value)
-    if not path.is_absolute(): path = Path(root) / path
-    private = Path(root).resolve() / "private"
-    if private.is_symlink() or not path.resolve().is_relative_to(private):
-        raise ValueError("Trace must remain in private/")
-    for candidate in (path, *path.parents):
-        if candidate.is_symlink():raise ValueError("Trace may not follow symlinks inside private/")
-        if candidate.resolve()==private:break
-    return path.resolve()
+        raise ValueError("Trace requires ANGELENO_DIAGNOSTICS_FILE inside configured private storage")
+    from .paths import private_file
+    return private_file(value, env, root=root)
+
 
 
 @dataclass(frozen=True)
@@ -137,8 +131,14 @@ class Trace:
         self.dirty = None
         if self.path:
             try:
-                self.version = subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True,stderr=subprocess.DEVNULL,timeout=1).strip()
-                self.dirty = bool(subprocess.check_output(['git','status','--porcelain'],cwd=root,text=True,stderr=subprocess.DEVNULL,timeout=1).strip())
+                from .paths import SOURCE_ROOT
+                if SOURCE_ROOT is None:
+                    from importlib.metadata import version
+                    self.version = 'angeleno:' + version('angeleno')
+                    self.dirty = False
+                else:
+                    self.version = subprocess.check_output(['git','rev-parse','HEAD'],cwd=SOURCE_ROOT,text=True,stderr=subprocess.DEVNULL,timeout=1).strip()
+                    self.dirty = bool(subprocess.check_output(['git','status','--porcelain'],cwd=SOURCE_ROOT,text=True,stderr=subprocess.DEVNULL,timeout=1).strip())
             except Exception: self.version = "unknown"
 
     def clean(self, value, depth=0):
@@ -199,8 +199,8 @@ class Trace:
             if fd is not None:os.close(fd)
 
 
-def load_rows(path, purpose, *, root=ROOT):
-    path=trace_path({'ANGELENO_TRACE':'1','ANGELENO_DIAGNOSTICS_FILE':str(path)},root)
+def load_rows(path, purpose, *, root=ROOT, env=None):
+    path=trace_path({**(env or {}),'ANGELENO_TRACE':'1','ANGELENO_DIAGNOSTICS_FILE':str(path)},root)
     fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
     try:
         info=os.fstat(fd)
@@ -258,10 +258,12 @@ def report(rows, *, session=None, turn=None, expand=()):
 def main():
     parser=argparse.ArgumentParser(description='Read private per-turn traces; never reads memory databases or opens services.')
     parser.add_argument('--file',type=Path,required=True);parser.add_argument('--purpose',choices=('real_user','development'),required=True)
+    parser.add_argument('--env-file', help='Runtime settings for external data storage')
     parser.add_argument('--session');parser.add_argument('--turn');parser.add_argument('--expand',nargs='*',choices=('input','tools','memory','timing','reasoning','all'),default=[])
     args=parser.parse_args()
     try:
-        rows=load_rows(args.file,args.purpose);print(json.dumps(report(rows,session=args.session,turn=args.turn,expand=args.expand),ensure_ascii=False,indent=2))
+        from .config import load_env
+        rows=load_rows(args.file,args.purpose,env=load_env(env_file=args.env_file));print(json.dumps(report(rows,session=args.session,turn=args.turn,expand=args.expand),ensure_ascii=False,indent=2))
     except (OSError,ValueError):parser.exit(2,'Trace unavailable, unsafe path/mode or purpose mismatch; no content shown.\n')
 
 

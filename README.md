@@ -34,27 +34,31 @@ VoxCPM2 在使用者自己的 GPU 环境运行；识别和语言模型使用已�
 git clone https://github.com/OKFin33/Angeleno.git
 cd Angeleno
 uv sync --locked --group dev
+. .venv/bin/activate
 make verify
 ```
 
-`make verify` 包含 Python 测试、GPU 协议假模型测试、页面测试和离线演示，无需密钥、麦克风或 GPU。试用待合入版本时，先按[版本说明](docs/trial.md#v011)选择开发分支。
+`uv sync` 会安装应用与开发依赖，提供 `angeleno`、`angeleno-voice` 和 `angeleno-trace` 命令。
+`make verify` 包含 Python、GPU 协议假模型、页面回归及有界安装包检查，无需密钥、麦克风或 GPU。
+
+只安装应用时，可在 Python 3.12 虚拟环境中执行 `pip install .`，或安装构建出的 wheel；
+安装后可在仓库外运行命令。
 
 ## 启动语音交流
 
 完整配置步骤见 [安装与运行](docs/running.md)。
 
-1. 复制 `.env.example` 到 `private/runtime.env`，填写 DeepSeek、DashScope 和 LiveKit 配置，以及模型价格与费用保护参数。
-2. 使用默认的 `characters/jo/author-pack.json`，选择自己的用户身份。聊天、记忆和账本保存在本地 `private/`。
+1. 用 `angeleno config` 生成配置模板，填写 DeepSeek、DashScope、LiveKit，以及模型价格与费用保护参数。
+2. 使用随包 Jo 人设，选择自己的用户身份和 `ANGELENO_DATA_DIR`。源码开发默认使用 `private/state`；也可指定源码目录外的位置。
 3. 在 CUDA GPU 环境安装 [GPU 依赖](gpu/requirements.txt)，准备 VoxCPM2 权重和有权使用的参考音频。
 4. 启动 GPU 合成服务，检查配置，再启动 LiveKit、worker 与通话页。
 
 ```sh
-mkdir -p private/voices
-cp .env.example private/runtime.env
-chmod 600 private/runtime.env
+angeleno config > .env
+chmod 600 .env
 # 填写配置并准备自己的参考音频后，首次创建本机身份：
-ANGELENO_MEMORY_CREATE=1 .venv/bin/python scripts/run_voice.py check
-ANGELENO_MEMORY_CREATE=1 .venv/bin/python scripts/run_voice.py start --livekit-bin livekit-server
+ANGELENO_MEMORY_CREATE=1 angeleno-voice check --env-file .env
+ANGELENO_MEMORY_CREATE=1 angeleno-voice start --env-file .env --livekit-bin livekit-server
 # 后续启动同一身份时去掉 ANGELENO_MEMORY_CREATE=1。
 ```
 
@@ -66,7 +70,7 @@ ANGELENO_MEMORY_CREATE=1 .venv/bin/python scripts/run_voice.py start --livekit-b
 
 ### 查看逐轮 trace
 
-在 `private/runtime.env` 中显式开启本地 trace，并选择新文件：
+在运行配置中开启 trace，并在本地 `private/` 或配置的 `ANGELENO_DATA_DIR` 下选择新文件：
 
 ```dotenv
 ANGELENO_TRACE=1
@@ -76,9 +80,9 @@ ANGELENO_DIAGNOSTICS_FILE=private/my-trial/operator-metadata.jsonl
 ```sh
 mkdir -p private/my-trial
 # 正常启动并交流后：
-.venv/bin/python -m her_agent.trace --file private/my-trial/operator-metadata.jsonl --purpose real_user
+angeleno-trace --env-file .env --file private/my-trial/operator-metadata.jsonl --purpose real_user
 # 展开某轮的模型输入、工具依据和记忆状态：
-.venv/bin/python -m her_agent.trace --file private/my-trial/operator-metadata.jsonl --purpose real_user --turn t2 --expand input tools memory
+angeleno-trace --env-file .env --file private/my-trial/operator-metadata.jsonl --purpose real_user --turn t2 --expand input tools memory
 ```
 
 默认视图区分生成文本和实际交付，折叠完整 prompt 与详细来源。trace 保存在本地，临时不保存模式会省略内容，开发评测与真实用户记录分开。文件包含对话资料，应按私有数据保管。开关、保留方式和可选供应商 reasoning 字段见[运行说明](docs/running.md#private-per-turn-trace)。
@@ -87,7 +91,7 @@ mkdir -p private/my-trial
 
 仓库提供人物设定，参考声音和模型权重由使用者自备。
 
-将获得许可的音频放在 GPU 主机本项目的 `private/voices/reference.wav`，用 `VOXCPM_REFERENCE` 指定路径，并设置用途、资产 ID 和 SHA-256。GPU 服务和 worker 会核对文件声明；缺失或不匹配时启动检查会指出具体问题。
+用 `VOXCPM_REFERENCE` 指定 GPU 主机上有权使用的参考音频路径，并设置用途、资产 ID 和 SHA-256。文件可放在源码目录外；`private/voices/reference.wav` 只是源码开发示例。GPU 服务和 worker 会核对文件声明；缺失或不匹配时启动检查会指出具体问题。
 
 当前入口接受参考音频。视频素材需先在本地提取音轨。支持格式、模型安装和环境变量见 [GPU 与声音资源](docs/running.md#gpu与声音资源)。
 
@@ -97,15 +101,25 @@ mkdir -p private/my-trial
 
 Jo 是虚构人物。她的经历和观点来自作者设定；现实地点、营业时间与活动资料按来源及时效使用。
 
-用户语音发送到配置的识别服务，模型上下文发送到配置的模型服务，TTS 在本地 GPU 运行。默认不保存原始通话音频。文本、记忆和可选 trace 留在本地 `private/`，不要提交到公开仓库。
+用户语音发送到配置的识别服务，模型上下文发送到配置的模型服务，TTS 在本地 GPU 运行。默认不保存原始通话音频。文本、记忆、账本和可选 trace 留在操作者配置的本地目录，请按私有数据保管。
 
 模型与 ASR 分开计量。ASR 测试预算是部署者设置的本地保护，按发送的音频累计，包括静音；费用配置和账本说明见 [running](docs/running.md#模型费用与文字入口)。
 
 ## 验证范围
 
-本版已通过离线回归、合成真实模型文字验证和英文识别样本检查。中文语音、取消与重拨已有既有链路验证；英文 TTS／RTC 的播放、打断重连及人工听感仍待实测。部署时应检查自己的参考声音、硬件和网络组合。
+本版已通过离线回归、安装包检查、合成真实模型文字验证和英文识别样本检查。中文语音、取消与重拨已有既有链路验证；英文 TTS／RTC 的播放、打断重连及人工听感仍待实测。部署时应检查自己的参考声音、硬件和网络组合。
 
 [试运行说明](docs/trial.md)保留具体版本与证据；同料比较工作见 [Issue #12](https://github.com/OKFin33/Angeleno/issues/12)。
+
+## 目录
+
+- `src/angeleno/`：人物、会话、记忆、模型、工具和命令入口。
+- `src/angeleno/worker/`：ASR、TTS、LiveKit 与网页服务。
+- `gpu/`：独立 GPU 服务及依赖。
+- `characters/`、`data/`、`web/`：随安装包提供的公开运行资源。
+- `docs/`、`tests/`、`examples/`、`scripts/`：文档、回归、示例与开发工具。
+
+运行数据与源码分开；安装包不包含参考声音、服务凭据或运行数据库。
 
 ## 文档与贡献
 

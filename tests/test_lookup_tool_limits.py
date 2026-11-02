@@ -6,10 +6,10 @@ import unittest
 
 import httpx
 
-from her_agent.budget import BudgetExceeded
-from her_agent.provider import TextDelta, ToolCalls
-from her_agent.runtime import ConversationRuntime
-from her_agent.web_lookup import DeepSeekWeb, PublicQuery, WebFailure, WebLookup
+from angeleno.budget import BudgetExceeded
+from angeleno.provider import TextDelta, ToolCalls
+from angeleno.runtime import ConversationRuntime
+from angeleno.web_lookup import DeepSeekWeb, PublicQuery, WebFailure, WebLookup
 from test_budget import balance_response, budget_env, mocked_providers
 from test_lookup import CLOCK, PACK, Scripted, call
 from test_web_lookup import FakeWeb, RESULT, URL

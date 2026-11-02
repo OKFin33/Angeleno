@@ -6,9 +6,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from her_agent.author import load_pack
-from her_agent.continuity import Conversation, Maintainer
-from her_agent.memory import BacklogFull, MemoryStore, StaleBatch, seed_digest
+from angeleno.author import load_pack
+from angeleno.continuity import Conversation, Maintainer
+from angeleno.memory import BacklogFull, MemoryStore, StaleBatch, seed_digest
 
 
 def record(rid, text, evidence, *, kind="episode", known=True, keywords=None):
@@ -50,7 +50,7 @@ class StoreFixture:
 
     def archive_recent(self):
         """Move evidence outside the real 20-message window, without model calls."""
-        from her_agent.author import MAX_HISTORY_MESSAGES
+        from angeleno.author import MAX_HISTORY_MESSAGES
         for n in range(MAX_HISTORY_MESSAGES // 2):
             self.exchange(f"归档窗口推进{n}。", "收到。", session="archive-padding")
         while self.store.batch():

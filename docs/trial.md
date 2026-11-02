@@ -13,12 +13,9 @@
 - 区分历史资料与本轮查证；开发回放缺失作为覆盖缺口停止，真实查询失败仍按实际来源降级。
 - 可选本地逐轮 trace：展开有效模型输入，查看工具及来源、延迟、生成／交付、卡片和记忆状态。
 
-```sh
-# 当前 v0.1.1 候选位于开发集成分支：
-git fetch origin
-git switch nexus-integrated-trial-20261031
-uv sync --locked --group dev
-```
+v0.1.1 已通过 [PR #32](https://github.com/OKFin33/Angeleno/pull/32) 合入 main。
+本次结构开发分支 `refactor/installable-application` 提供 `src/angeleno/` 布局、安装包和稳定命令；
+安装与旧命令迁移见 [running](running.md)。
 
 配置和 trace 用法见 [running](running.md)。`ANGELENO_LANGUAGE` 默认 `en`，设为 `zh` 可使用中文默认；
 `ANGELENO_TRACE` 默认关闭。现有 Jo 作者文件、身份种子、记忆和费用账本保持兼容，恢复部署时沿用原私有状态。
@@ -27,23 +24,23 @@ uv sync --locked --group dev
 以及一段真实英文 ASR 样本。真实英文 TTS／RTC、打断重连和人工听感是下一阶段的验证重点。
 trace 的真实模型样例验证了文字路径；语音观测接线由离线回归覆盖。
 
-## 已发布基线
+## 中文语音验证基线
 
 [PR #31](https://github.com/OKFin33/Angeleno/pull/31) 已合入公开 main：
 `57c8ddf971117574937a188c7f815842fa037624`，
 [main CI 成功](https://github.com/OKFin33/Angeleno/actions/runs/41374964362)。
-main 包含中文 v0.1.0、随仓 Jo 作者包与自备参考音频入口；未创建正式 Release。
-本文后续维护性修整不改变以下真人试用的代码归属，不把旧开发分支作为新部署默认入口。
+该版本提供中文 v0.1.0、Jo 作者包与自备参考音频入口。
+以下真人试用记录对应各自标注的代码版本。
 
 ## 启动与停止
 
 使用自己的服务账号、模型、预算和有权使用的参考声音，按 [running](running.md) 完成配置。
-参考声音、实际聊天、记忆、密钥和账本均留在本地 ignored `private/`。
+参考声音、实际聊天、记忆、密钥和账本留在操作者配置的本地目录。
 
 ```sh
 # 已完成配置后的首次身份检查与启动；之后恢复去掉 ANGELENO_MEMORY_CREATE=1。
-ANGELENO_MEMORY_CREATE=1 .venv/bin/python scripts/run_voice.py check
-ANGELENO_MEMORY_CREATE=1 .venv/bin/python scripts/run_voice.py start --livekit-bin livekit-server
+ANGELENO_MEMORY_CREATE=1 angeleno-voice check --env-file .env
+ANGELENO_MEMORY_CREATE=1 angeleno-voice start --env-file .env --livekit-bin livekit-server
 ```
 
 检查不连接模型或 GPU；真实启动要求显式启用收费服务，并核对已 ready 的 TTS 资产。
@@ -81,7 +78,7 @@ ASR 测试预算按实际发送音频累计（包括静音），是本地保护�
 不将新环境安装或干净环境完整复现设为本轮候选形成的前置，也不宣称已通过该验证。
 搜索提示小改仍后置，不混入本版或默认纳入下一版。代码与文档已通过 PR #30／#31 合入公开 main；Release／tag 仍未创建。
 
-**v0.1.1 默认英文（本开发候选）。** 已实现统一 `ANGELENO_LANGUAGE=en|zh`、默认英文人物回复与页面、
+**v0.1.1 默认英文。** 已实现统一 `ANGELENO_LANGUAGE=en|zh`、默认英文人物回复与页面、
 英文优先的双语 ASR 提示／结果标记及英文分句，人物原稿、种子、声音参考与搜索策略不变。
 安装和中文回退见 [running](running.md#interaction-language-v011)。
 

@@ -24,7 +24,7 @@ from .provider import TextDelta, ToolCalls
 from .runtime import ConversationRuntime, open_store
 from .web_lookup import PUBLIC_AREAS, PUBLIC_TOPICS, PUBLIC_PLACES, PublicQuery, WebLookup
 
-ROOT = Path(__file__).resolve().parents[1]
+from .paths import ROOT, resource_path
 
 
 def digest(value):
@@ -46,7 +46,7 @@ def model_clock(now, zone):
         @classmethod
         def now(cls, tz=None):
             return now.astimezone(tz) if tz else now.replace(tzinfo=None)
-    with patch('her_agent.memory.datetime', FrozenDatetime), \
+    with patch('angeleno.memory.datetime', FrozenDatetime), \
          patch.dict('os.environ', {'ANGELENO_TIMEZONE': zone}):
         yield
 
@@ -63,9 +63,9 @@ def offline_clock(now, zone):
     with patch('socket.socket.connect', side_effect=refuse), \
          patch('socket.socket.connect_ex', side_effect=refuse), \
          patch('socket.getaddrinfo', side_effect=refuse), \
-         patch('her_agent.config.load_env', side_effect=refuse), \
-         patch('her_agent.provider.configured_providers', side_effect=refuse), \
-         patch('her_agent.memory.datetime', FrozenDatetime), \
+         patch('angeleno.config.load_env', side_effect=refuse), \
+         patch('angeleno.provider.configured_providers', side_effect=refuse), \
+         patch('angeleno.memory.datetime', FrozenDatetime), \
          patch.dict('os.environ', {'ANGELENO_TIMEZONE': zone}):
         yield
 
@@ -158,8 +158,8 @@ class CorpusWeb:
             raise ValueError('All 24 public combinations require explicit mappings')
         for r in self.rows.values():
             if 'content_fixture' in r:
-                source = (ROOT / r['content_fixture']).resolve()
-                if not source.is_relative_to(ROOT/'data/places/fixtures') or file_hash(source) != r['content_fixture_sha256']:
+                source = resource_path(r['content_fixture'])
+                if not source.is_relative_to(resource_path('data/places/fixtures')) or file_hash(source) != r['content_fixture_sha256']:
                     raise ValueError('Synthetic fixture drift')
 
     async def search(self, query):
@@ -185,7 +185,7 @@ class CorpusWeb:
         if self.case == 'conflicting_body':
             body = row['conflicting_body']
         elif 'content_fixture' in row:
-            body = (ROOT / row['content_fixture']).read_text()
+            body = resource_path(row['content_fixture']).read_text()
         else:
             body = row['content']
         if self.case == 'truncated_body':

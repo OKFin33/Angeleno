@@ -13,10 +13,10 @@ from livekit.agents import Agent, AgentSession, llm
 from livekit.agents.types import NOT_GIVEN
 from livekit.agents.voice import io
 from livekit.agents.voice.events import ConversationItemAddedEvent
-from her_agent.provider import TextDelta, ToolCalls
+from angeleno.provider import TextDelta, ToolCalls
 
-from her_agent.runtime import ConversationRuntime, open_store
-from her_agent.voice import VoiceBridge, HerVoiceLLM, UNCERTAIN_DELIVERY, create_voice_runtime, start_voice_session
+from angeleno.runtime import ConversationRuntime, open_store
+from angeleno.voice import VoiceBridge, HerVoiceLLM, UNCERTAIN_DELIVERY, create_voice_runtime, start_voice_session
 from test_memory import pack_at, record
 
 
@@ -239,7 +239,7 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
             async def start(self, agent, **kwargs):
                 self.output.audio = SyntheticAudio()
                 return await super().start(agent, record=False)
-        from worker.voxcpm_tts import VoxCPMHttpTTS
+        from angeleno.worker.voxcpm_tts import VoxCPMHttpTTS
         owned_tts = VoxCPMHttpTTS(url="http://127.0.0.1:18080")
         # Allocate the real production owner's session without making HTTP calls.
         http_session = await owned_tts._ensure_session()
@@ -247,15 +247,15 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
         def factory(instructions, llm_instance):
             class TaggedAgent(SyntheticAgent):
                 async def tts_node(self, text, model_settings):
-                    from her_agent.voice_timing import AUDIO_TAG
+                    from angeleno.voice_timing import AUDIO_TAG
                     async for frame in super().tts_node(text, model_settings):
                         frame.userdata[AUDIO_TAG] = (llm_instance.bridge.active_id, "ordinary")
                         yield frame
             agent = TaggedAgent(instructions=instructions, llm=llm_instance)
             agent.voice_tts = owned_tts
             return agent
-        with patch("her_agent.voice.create_voice_runtime", return_value=runtime), \
-             patch("her_agent.voice.AgentSession", Session):
+        with patch("angeleno.voice.create_voice_runtime", return_value=runtime), \
+             patch("angeleno.voice.AgentSession", Session):
             self.session = await start_voice_session(ctx, factory, {})
         await asyncio.wait_for(self.session.generate_reply(user_input="正常结束的合成输入。").wait_for_playout(), 3)
         await self.session.aclose()
@@ -281,7 +281,7 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
         class Session(AgentSession):
             async def start(self, agent, **kwargs):
                 raise RuntimeError("synthetic startup failure")
-        from worker.voxcpm_tts import VoxCPMHttpTTS
+        from angeleno.worker.voxcpm_tts import VoxCPMHttpTTS
         owned_tts = VoxCPMHttpTTS(url="http://127.0.0.1:18080")
         http_session = await owned_tts._ensure_session()
         self.addAsyncCleanup(owned_tts.aclose)
@@ -290,8 +290,8 @@ class VoiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
             agent.voice_tts = owned_tts
             return agent
         ctx = Context()
-        with patch("her_agent.voice.create_voice_runtime", return_value=runtime), \
-             patch("her_agent.voice.AgentSession", Session):
+        with patch("angeleno.voice.create_voice_runtime", return_value=runtime), \
+             patch("angeleno.voice.AgentSession", Session):
             with self.assertRaisesRegex(RuntimeError, "synthetic startup failure"):
                 await start_voice_session(ctx, factory, {})
         await ctx.finish("job ended")

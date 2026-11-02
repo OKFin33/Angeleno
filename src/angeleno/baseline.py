@@ -3,17 +3,15 @@ from pathlib import Path
 from .author import load_pack
 from .language import configured_language
 
-ROOT = Path(__file__).resolve().parents[1]
+from angeleno.paths import ROOT
 
 
 def configured_pack(env, *, root=ROOT):
     value = env.get("ANGELENO_AUTHOR_PACK", "characters/jo/author-pack.json").strip()
     if not value:
         raise ValueError("ANGELENO_AUTHOR_PACK must select an author manifest")
-    path = Path(value)
-    if not path.is_absolute():
-        path = Path(root) / path
-    return load_pack(path)
+    from .paths import resource_or_path
+    return load_pack(resource_or_path(value, root=root))
 
 
 def author_instructions(env):

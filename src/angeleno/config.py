@@ -1,4 +1,4 @@
-"""Explicit, repository-local runtime settings; no host account discovery."""
+"""Explicit runtime settings; no host account discovery."""
 
 import os
 from pathlib import Path
@@ -6,12 +6,10 @@ import re
 import shlex
 
 
-ROOT = Path(__file__).resolve().parent.parent
+from angeleno.paths import ROOT
 
 
-def resolve_path(value, *, root=ROOT):
-    path = Path(value)
-    return (path if path.is_absolute() else Path(root) / path).resolve()
+from .paths import resolve_path, resource_or_path, data_directory, private_file
 
 
 def load_env(environ=None, *, env_file=None, root=ROOT):

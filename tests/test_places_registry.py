@@ -6,15 +6,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from her_agent.places import (
+from angeleno.places import (
     MAX_EXTERNAL_READ_SECONDS, MAX_PAGES_PER_CHECK, NavigationRefused, PlacesError,
     external_read_exhausted, load_bundle, vet_url,
 )
-from her_agent.places.registry import source_from_mapping
+from angeleno.places.registry import source_from_mapping
 
 
 ROOT = Path(__file__).resolve().parents[1] / "data" / "places"
-PACKAGE = Path(__file__).resolve().parents[1] / "her_agent" / "places"
+PACKAGE = Path(__file__).resolve().parents[1] / "angeleno" / "places"
 
 
 def bundle():
