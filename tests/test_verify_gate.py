@@ -1,4 +1,4 @@
-"""Tracked private/ paths and tracked .env files fail the offline gate."""
+"""Keep local data out of tracked sources while preserving public fixtures."""
 
 import importlib.util
 import sys
@@ -28,7 +28,7 @@ class VerifyGateTests(unittest.TestCase):
             self.assertTrue(gate.forbidden(gate.parse_paths(fixture)), fixture)
         self.assertFalse(gate.forbidden(gate.parse_paths(gate.GOOD_FIXTURE)))
 
-    def test_only_private_tree_and_dotenv_are_forbidden(self):
+    def test_private_tree_and_dotenv_are_forbidden(self):
         gate = self.gate
         self.assertEqual(gate.forbidden(["private"]), ["private"])
         self.assertEqual(gate.forbidden(["private/state.sqlite"]), ["private/state.sqlite"])
@@ -36,6 +36,41 @@ class VerifyGateTests(unittest.TestCase):
         self.assertEqual(gate.forbidden([".env.example"]), [])
         self.assertEqual(gate.forbidden(["privateer/readme.md"]), [])
         self.assertEqual(gate.forbidden(["docs/baseline.md", ".environment"]), [])
+
+    def test_runtime_media_and_env_variants_fail_in_any_location(self):
+        paths = [".scratch/run/result.json", "private", "evidence/raw/log.json",
+                 ".env.production", "worker/.env.local", "worker/.env.example",
+                 "data/memory.db", "data/memory.sqlite", "assets/budget.sqlite3",
+                 "data/memory.db-wal", "data/memory.sqlite3-shm", "data/memory.sqlite-journal",
+                 "assets/reference.WAV", "notes/voice.mp3", "clips/reference.flac",
+                 "clips/recording.m4a", "clips/reference.mp4", "clips/input.webm"]
+        self.assertEqual(self.gate.forbidden(paths), paths)
+
+    def test_existing_synthetic_and_document_assets_remain_allowed(self):
+        paths = [".env.example", "tests/fixtures/transient-preference-maintenance.json",
+                 "data/places/fixtures/private-trap.html", "examples/comparison/corpus.synthetic.json",
+                 "docs/screenshot.png", "web/livekit-client.umd.js", "uv.lock"]
+        self.assertEqual(self.gate.forbidden(paths), [])
+
+    def test_synthetic_audio_needs_exact_explicit_test_exception(self):
+        clip = "tests/fixtures/synthetic-media/tone.wav"
+        other = "tests/fixtures/synthetic-media/recording.wav"
+        self.assertEqual(self.gate.forbidden([clip, other]), [clip, other])
+        self.assertEqual(self.gate.forbidden([clip, other], synthetic_media_allowlist={clip}), [other])
+        for bad in ["assets/reference.wav", "tests/fixtures/synthetic-media/../voice.wav",
+                    "tests/fixtures/synthetic-media/", "tests/fixtures/synthetic-media/key.json"]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.gate.forbidden([], synthetic_media_allowlist={bad})
+        # A media exception must not bypass another protected category.
+        self.assertEqual(self.gate.forbidden([".env.local", "private/reference.wav"],
+                                            synthetic_media_allowlist={clip}),
+                         [".env.local", "private/reference.wav"])
+
+    def test_ci_has_no_media_path_filter_and_shared_ignore_covers_scratch(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/ci.yml").read_text()
+        self.assertNotIn("paths-ignore:", workflow)
+        self.assertIn("/.scratch/", (root / ".gitignore").read_text().splitlines())
 
     def test_self_check_fails_closed_on_injected_paths(self):
         gate = self.gate

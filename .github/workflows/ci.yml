@@ -3,25 +3,7 @@ name: ci
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "**/*.wav"
-      - "**/*.mp3"
-      - "**/*.flac"
-      - "**/*.png"
-      - "**/*.jpg"
-      - "**/*.jpeg"
-      - "**/*.webp"
-      - "**/*.gif"
   pull_request:
-    paths-ignore:
-      - "**/*.wav"
-      - "**/*.mp3"
-      - "**/*.flac"
-      - "**/*.png"
-      - "**/*.jpg"
-      - "**/*.jpeg"
-      - "**/*.webp"
-      - "**/*.gif"
 
 permissions:
   contents: read
