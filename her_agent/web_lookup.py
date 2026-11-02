@@ -267,8 +267,10 @@ def _evidence_reading(mode, operation, outcome, assertions=(), sources=None):
     """Normalize observation scope and exact source spans, not natural-language truth."""
     if outcome == 'uncovered':
         scope = 'replay_query_unobserved' if operation == SEARCH else 'replay_body_unobserved'
-        spoken = ('手头这份历史资料没有覆盖该查询；没有执行本次实时搜索。' if operation == SEARCH else
-                  '手头没有这个候选的历史正文；没有重新打开网页，不能据此说网页不可读。')
+        spoken = ('This replay has no observation for this query. No live search was sent; '
+                  'this is not an empty search result or a failed live search.' if operation == SEARCH else
+                  'This replay has no saved body for this candidate. No page was opened; '
+                  'this does not show that the page is unreadable.')
     elif mode == 'recorded':
         scope = 'recorded_' + ('query_empty' if outcome == 'empty' else 'query_results') if operation == SEARCH else 'recorded_page'
         spoken = ('这条历史查询没有返回可用候选；没有执行本次实时搜索。' if outcome == 'empty' else
@@ -585,6 +587,10 @@ class WebLookup(TextLookup):
                 'recorded_at': data.recorded_at, 'source_sha256': data.source_sha256, 'live_http': False,
             }
             if data.data is None:
+                # A replay miss contains no observation, including of failure.
+                # Keep the transport/card status compatible; describe the actual
+                # coverage instead of labelling this a recorded Web observation.
+                extra['provenance'] = 'Replay coverage missing; no matching observation and no live HTTP request'
                 detail = 'replay_query_uncovered' if name == SEARCH else 'replay_body_unobserved'
                 extra['detail'] = detail
                 extra['evidence_reading'] = _evidence_reading(mode, name, 'uncovered')

@@ -92,6 +92,12 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('即使计划日期已经过去', system)
         self.assertIn('不能把未观察说成现实没搜到', system)
         self.assertEqual(bodies[1]['evidence_reading']['observation_scope'], 'replay_query_unobserved')
+        self.assertIn('no matching observation', bodies[1]['provenance'])
+        self.assertIn('no matching observation', bodies[2]['provenance'])
+        self.assertIn('not an empty search result', bodies[1]['evidence_reading']['spoken_scope'])
+        self.assertIn('No live search was sent', bodies[1]['evidence_reading']['spoken_scope'])
+        self.assertIn('No page was opened', bodies[2]['evidence_reading']['spoken_scope'])
+        self.assertIn('Recorded public Web observation', bodies[0]['provenance'])
         self.assertIsNone(turn.source_card['conclusion'])
         self.assertIsNone(turn.source_card['applicable_date'])
 
