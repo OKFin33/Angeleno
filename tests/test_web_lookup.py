@@ -13,7 +13,7 @@ import httpx
 from livekit.agents import AgentSession
 
 from her_agent.budget import BudgetExceeded
-from her_agent.lookup import TextLookup
+from her_agent.lookup import TextLookup, LookupObservationMissing
 from her_agent.places import load_bundle
 from her_agent.provider import TextDelta, ToolCalls
 from her_agent.runtime import ConversationRuntime, open_store
@@ -74,10 +74,16 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
                 return RecordedWebResult(None, None, 'a'*64)
             async def fetch(self, url):
                 return RecordedWebResult(None, None, 'b'*64)
-        actor, turn, _ = await self.batch_run(Replay(), [[self.search_batch()],
-            [call('web_fetch', {'result_id': 'rq-2-0'})], [TextDelta('输入捕获占位，不判定模型行为。')]])
-        bodies = [json.loads(m['content']) for m in actor.sent[-1] if m['role'] == 'tool']
-        self.assertEqual([b['status'] for b in bodies], ['evidence', 'unavailable', 'unavailable'])
+        service = WebLookup(Replay(), CLOCK); service.begin_turn('replay', 1)
+        bodies = []
+        for name, args in [('web_search', {'area':'usc_exposition', 'topic':'architecture'}),
+                           ('web_search', {'area':'usc_exposition', 'topic':'small_art_exhibitions'}),
+                           ('web_fetch', {'result_id':'rq-2-0'})]:
+            body, card, intent = await service.execute_async(name, args, session_id='replay',
+                user_turn=1, utterance='合成查询')
+            body, card = service.reconcile('replay', name, body, card, intent)
+            bodies.append(body)
+        self.assertEqual([b['status'] for b in bodies], ['evidence', 'not_observed', 'not_observed'])
         self.assertEqual(bodies[1]['detail'], 'replay_query_uncovered')
         self.assertEqual(bodies[2]['detail'], 'replay_body_unobserved')
         self.assertNotIn('results', bodies[1], 'No observation is not an observed empty result')
@@ -88,7 +94,7 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bodies[0]['results'][0]['published_at'], planned['date'])
         self.assertEqual(bodies[0]['results'][0]['published_at_kind'], 'source_publication')
         self.assertTrue(all(b['event_occurrence'] == 'not_established_by_tool' for b in bodies))
-        system = actor.sent[-1][0]['content']
+        system = WebLookup.prepare_messages(PACK.messages([{'role':'user','content':'合成查询'}]))[0]['content']
         self.assertIn('即使计划日期已经过去', system)
         self.assertIn('不能把未观察说成现实没搜到', system)
         self.assertEqual(bodies[1]['evidence_reading']['observation_scope'], 'replay_query_unobserved')
@@ -102,13 +108,29 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
                          ['not_executed'] * 3)
         self.assertEqual([b['evidence_reading']['observation_result'] for b in bodies],
                          ['results', 'unobserved', 'unobserved'])
-        self.assertIsNone(turn.source_card['conclusion'])
-        self.assertIsNone(turn.source_card['applicable_date'])
+        self.assertIsNone(card.conclusion)
+        self.assertIsNone(card.applicable_date)
+
+    async def test_unobserved_replay_stops_before_actor_can_invent_live_failure(self):
+        api=FakeWeb();api.search=AsyncMock(return_value=RecordedWebResult(None,None,'a'*64))
+        actor=Scripted();actor.rounds=[[call('web_search',{'area':'usc_exposition','topic':'architecture'})],
+                                     [TextDelta('THIS_UNOBSERVED_CONTINUATION_MUST_NOT_RUN')]]
+        runtime=ConversationRuntime(PACK,actor,lookup=WebLookup(api,CLOCK))
+        try:
+            turn=runtime.begin('合成查询')
+            with self.assertRaises(LookupObservationMissing) as caught:
+                _=[x async for x in runtime.stream(turn)]
+            self.assertEqual(caught.exception.outcome['status'],'not_observed')
+            self.assertEqual(caught.exception.outcome['evidence_reading']['execution_this_turn'],'not_executed')
+            self.assertEqual(len(actor.sent),1)
+            self.assertEqual(turn.generated,[])
+            self.assertFalse(turn.generation_complete)
+        finally:await runtime.close(flush=False)
 
     async def test_recorded_empty_query_is_distinct_from_uncovered_and_live_empty(self):
         for result, status, coverage in [
                 (RecordedWebResult({'results': []}, '2026-10-31T14:47:17+00:00', 'a'*64), 'insufficient', 'recorded'),
-                (RecordedWebResult(None, None, 'a'*64), 'unavailable', 'uncovered'),
+                (RecordedWebResult(None, None, 'a'*64), 'not_observed', 'uncovered'),
                 ({'results': [], 'replay': {'coverage': 'uncovered'}, 'event_occurrence': 'opened'}, 'insufficient', None)]:
             api = FakeWeb(); api.search = AsyncMock(return_value=result)
             lookup = WebLookup(api, CLOCK); lookup.begin_turn('replay', 1)

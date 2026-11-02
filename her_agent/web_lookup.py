@@ -457,8 +457,10 @@ class WebLookup(TextLookup):
 
     @staticmethod
     def prepare_messages(messages):
-        result = prepare_messages(messages)
-        result[0]["content"] = result[0]["content"].replace(_LOOKUP_NOTE, NOTE)
+        from .capabilities import set_capabilities
+        result = set_capabilities(messages, lookup="web")
+        if NOTE not in result[0]["content"]:
+            result[0]["content"] += "\n" + NOTE
         return result
 
     def tool_definitions(self):
@@ -492,6 +494,11 @@ class WebLookup(TextLookup):
                         "selected_result_id", "search_evidence_reading"):
                 if key in payload:
                     body[key] = payload[key]
+            if payload.get("replay", {}).get("coverage") == "uncovered":
+                # The card has no evidence; the tool outcome is specifically
+                # unobserved, not a failed or empty live request.
+                body["status"] = "not_observed"
+                body["detail"] = payload["detail"]
         return body, current
 
     def _event(self, intent, status, citations=(), *, incomplete=False, detail=None):
@@ -599,6 +606,7 @@ class WebLookup(TextLookup):
                 # Keep the transport/card status compatible; describe the actual
                 # coverage instead of labelling this a recorded Web observation.
                 extra['provenance'] = 'Replay coverage missing; no matching observation and no live HTTP request'
+                extra['status'] = 'not_observed'
                 detail = 'replay_query_uncovered' if name == SEARCH else 'replay_body_unobserved'
                 extra['detail'] = detail
                 extra['evidence_reading'] = _evidence_reading(mode, name, 'uncovered')

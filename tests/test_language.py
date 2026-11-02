@@ -27,10 +27,10 @@ class LanguageTests(unittest.TestCase):
         seed=seed_digest(pack);provenance=pack.provenance()
         zh=pack.instructions(today='2026-11-02',language='zh')
         en=pack.instructions(today='2026-11-02',language='en')
-        self.assertIn('Default to natural spoken English',en)
+        self.assertIn('[Interaction language: en]',en)
         self.assertIn('用户明确纠正优先',en)
         self.assertNotIn('用适合口头交流的中文说话',en)
-        self.assertIn('用适合口头交流的中文说话',zh)
+        self.assertIn('[Interaction language: zh]',zh)
         for doc in pack.documents:
             for section in reading_sections(doc.body):
                 self.assertIn(section,en);self.assertIn(section,zh)
@@ -39,7 +39,7 @@ class LanguageTests(unittest.TestCase):
         self.assertIn('你是用英语自然交谈',control)
         self.assertTrue(control.startswith('你是用英语自然交谈'))
         with patch.dict('os.environ',{'ANGELENO_LANGUAGE':'zh'}):
-            self.assertIn('Default to natural spoken English',author_instructions({'ANGELENO_LANGUAGE':'en'}))
+            self.assertIn('[Interaction language: en]',author_instructions({'ANGELENO_LANGUAGE':'en'}))
 
     def test_periods_protect_decimals_time_abbreviations_and_names_across_chunks(self):
         text='USC is in Los Angeles. Admission is $12.50 at 7:30 p.m. Bring ID! Next.'
@@ -97,6 +97,6 @@ class RuntimeLanguageTests(unittest.IsolatedAsyncioTestCase):
                 runtime=ConversationRuntime(pack,Scripted(),store=store,writer=IdleWriter(),language=language)
                 turn=runtime.begin("Please don't save this conversation.")
                 self.assertTrue(turn.temporary)
-                self.assertEqual('Default to natural spoken English' in turn.messages[0]['content'],language=='en')
+                self.assertEqual('[Interaction language: en]' in turn.messages[0]['content'],language=='en')
                 self.assertEqual(store.records(),[])
                 await runtime.close(flush=False)

@@ -7,7 +7,7 @@ import math
 
 from .memory import StaleBatch, new_session
 from .author import MAX_REQUEST_CHARS
-from .language import configured_language
+from .language import configured_language, requested_language
 
 
 MAINTAIN = """你维护虚构角色与真实用户的相处记忆，只返回 JSON，不扮演、不写下一句对白。
@@ -223,6 +223,7 @@ class Conversation:
                 for message, source in zip(history, context["history_sources"], strict=True)]
 
     def begin(self, user):
+        self.language = requested_language(user, self.language)
         turn = self.store.append(self.session, "user", user)
         context, history = self.store.context(self.session, user)
         messages = self.pack.messages(self._sourced_history(context, history), self.variant, memory_context=context, language=self.language)
@@ -235,6 +236,7 @@ class Conversation:
 
     def temporary(self, history):
         query = history[-1]["content"]
+        self.language = requested_language(query, self.language)
         context, public = self.store.context(self.session, query)
         context["temporary_mode"] = "本段临时对话不保存、不整理；退出后不会作为持久记忆继续使用。"
         return self.pack.messages([*self._sourced_history(context, public), *history],

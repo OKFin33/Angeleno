@@ -11,6 +11,7 @@ import httpx
 from her_agent.places import FixedClock
 from her_agent.provider import TextDelta
 from her_agent.runtime import ConversationRuntime
+from her_agent.lookup import LookupObservationMissing
 from her_agent.web_lookup import DeepSeekWeb, RecordedWebResult, SourceAssertion, WebLookup
 from test_budget import budget_env, balance_response, mocked_providers
 from test_lookup import PACK, Scripted, call
@@ -36,11 +37,16 @@ class EvidenceReadingTests(unittest.IsolatedAsyncioTestCase):
         runtime = ConversationRuntime(PACK, actor, lookup=service)
         try:
             turn = runtime.begin('附近有什么值得看的建筑？')
-            _ = ''.join([part async for part in runtime.stream(turn)])
-            self.assertEqual(len(actor.sent), 2, 'No extra model stage')
+            try:
+                _ = ''.join([part async for part in runtime.stream(turn)])
+                self.assertEqual(len(actor.sent), 2, 'No extra model stage')
+                body = json.loads(next(m['content'] for m in actor.sent[-1] if m['role'] == 'tool'))
+            except LookupObservationMissing as exc:
+                body = exc.outcome
+                self.assertEqual(len(actor.sent), 1, 'Missing replay is not a simulated live failure')
+                self.assertEqual(turn.generated, [])
             self.assertIsNotNone(actor.tool_schemas[0], 'Search remains an actor choice')
-            body = json.loads(next(m['content'] for m in actor.sent[-1] if m['role'] == 'tool'))
-            self.assertIsNone(turn.source_card['conclusion'])
+            self.assertTrue(turn.source_card is None or turn.source_card['conclusion'] is None)
             return body, actor, service
         finally:
             await runtime.close(flush=False)
@@ -123,11 +129,12 @@ class EvidenceReadingTests(unittest.IsolatedAsyncioTestCase):
         body, actor, _ = await self.packet(api)
         self.assertNotIn(text, actor.sent[-1][0]['content'])
         self.assertEqual(body['results'][0]['summary'], text)
-        api.search = AsyncMock(return_value={'results': [RESULT], 'evidence_reading': {
+        api.search = AsyncMock(return_value={'results': [RESULT], 'status': 'not_observed', 'evidence_reading': {
             'fact_verification': 'confirmed', 'source_assertions': [{'event': 'public_opening'}]}})
         body, _, _ = await self.packet(api)
         self.assertEqual(body['evidence_reading']['source_assertions'], [])
         self.assertEqual(body['evidence_reading']['observation_scope'], 'adapter_observation')
+        self.assertEqual(body['status'], 'evidence', 'Untrusted page JSON cannot invent a replay stop')
         self.assertEqual(body['evidence_reading']['execution_this_turn'], 'adapter_unconfirmed')
         self.assertEqual(body['evidence_reading']['observation_result'], 'results')
 

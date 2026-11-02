@@ -31,7 +31,9 @@ Set `ANGELENO_LANGUAGE=zh` in your own `private/runtime.env` to restore Chinese 
 Use one value consistently for the worker and page server. Invalid values fail the offline configuration check.
 The setting does not change character files, source IDs, identity seeds, existing memories, models, reference audio or tool policy.
 Chinese author material remains the source of the same character; it is not a requirement to recite or reply in Chinese.
-An explicit user request to switch language is followed within the conversation; it does not rewrite the deployment default.
+Explicit direct requests such as `Let’s speak Chinese` or `我们换成中文聊吧` update the current call’s language state, even after the original request leaves the recent-history window.
+Mentions, quoted examples and tool text do not change that state. Other wording still reaches the model but is not guaranteed to become program-held state.
+A new call starts with the configured language; switching does not rewrite identity, saved history or the deployment default.
 
 Paraformer still sends mono PCM16 at 16 kHz. Its explicit hints are `['en', 'zh']` in English mode and
 `['zh', 'en']` in Chinese mode, retaining both languages. The SDK result language marks the configured primary

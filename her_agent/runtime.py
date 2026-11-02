@@ -7,7 +7,7 @@ import re
 
 from .continuity import Conversation, Maintainer
 from .memory import MemoryStore, seed_digest
-from .language import configured_language
+from .language import configured_language, requested_language
 
 
 def _user_utterance(turn):
@@ -97,6 +97,11 @@ class ConversationRuntime:
             raise ValueError("Previous turn has no delivery disposition")
         if not isinstance(user, str) or not user.strip():
             raise ValueError("A nonempty user utterance is required")
+        self.language = requested_language(user, self.language)
+        if self.conversation:
+            self.conversation.language = self.language
+        if self.maintainer:
+            self.maintainer.language = self.language
         if self.store and (any(word in user for word in ("别记", "不要记", "别保存", "不要保存"))
                            or re.search(r"(?:^|[.!?]\s+)(?:please[ ,]+)?(?:do not|don't|don’t) (?:save|store|remember) (?:this|our|anything|that)\b", user, re.I)):
             self.set_temporary(True)
