@@ -1,3 +1,47 @@
+# 同料比较与开发入口
+
+正式同料比较沿 [Spec §8](spec.md#8-评测接受与交付) 和 [Issue #12](https://github.com/OKFin33/Angeleno/issues/12)。
+产品交付和整体接受归 Issue #1。
+
+## 当前状态
+
+D1／D2／D3 各一对实际模型开发输出已完成，属于已见、未评分开发材料，不是正式比较结果。
+发现的来源升级、偏好范围扩大等失败保留；没有手改历史输出使其通过。
+Owner 锚例校准、正式候选／参数／来源／评分冻结和独立保留集运行尚未完成，未取消比较义务。
+公开 Jo 作者包已在 `characters/jo/`；私有开发回执不随仓，不是启动人物的必需资源。
+
+## 两种入口
+
+```sh
+# 离线演练：脚本演员／维护输出，不加载密钥，不产生真实模型行为证据。
+.venv/bin/python scripts/run_development.py --output private/evaluation/development-dry-run.json
+
+# 实际模型入口默认仍是离线；显式 --run 还需要完整配置、有效 manifest 和原费用保护。
+.venv/bin/python -m her_agent.comparison_live --output private/evaluation/comparison-offline.json
+```
+
+真实运行用 `--config`、`--manifest`、`--env-file`、`--output` 与显式 `--run`；
+模板 `examples/comparison/model-manifest.template.json` 故意保留冻结／授权引用缺项，不能直接发请求。
+输入许可、双方同料及参数、当前干净候选指纹、独立状态、账号和未知费用策略必须成立。
+不能为了跳过检查重置账本、换身份、自动补未知分支或把旧失败追认为成功。
+
+双方使用同核心、同模型／参数／工具能力、共同资料与固定时钟，只有人物材料不同。
+工具次数可以因角色选择而不同；不按输出质量选择分支。普通社交反问不影响下一固定输入时 `continue`；
+必要澄清只能使用已列规则，真正未覆盖／混合／不明分支仍停。
+
+当前开发配置的保守计数护栏为184次actor／18次writer（两臂最多各7／7／9轮）；
+是最坏情况工程计数，不是预计消费或新增付费许可。每轮3工具／4模型和原超时、余额及未知保护不变。
+比较语料 `corpus.synthetic.json` 的24种组合只描述 fixture 覆盖；生产可表达的公开查询不受此闭集限制。
+未映射的比较查询记 `corpus_uncovered`，不擅自联网给某一臂补料。
+
+已见开发材料不可当 heldout；后续由 Owner 校准后再冻结正式比较，不能把六段 runner 跑完当偏好或事实验收。
+
+<details>
+<summary>历史实现、离线规则与入口开发记录（非当前运行状态）</summary>
+
+以下原文描述入口逐步实现时的状态。旧“尚未执行”、私有Jo、批次或审批描述只代表当时；
+当前状态以上文为准，历史失败和来源证据不改写。
+
 # 三段开发比较的离线运行入口
 
 沿 [Spec §8](spec.md#8-评测接受与交付) 和 [Issue12](https://github.com/OKFin33/Angeleno/issues/12)。
@@ -166,3 +210,5 @@ span是该回答Unicode字符的半开区间；例子仅适用于答案开头正
 不把唯一成功查询泛化成其它query命中。需要现实情景判定时仍须同一适用材料及完整原Spec验收。
 已冻结输入可以仍有`execution_hold: true`；已有私稿审批拒绝未解决时必须保持该执行阻断，
 载荷许可已有不代表可以改入口重试。不要为解除hold再重复问用户yes，沿父线程查审批证据。
+
+</details>

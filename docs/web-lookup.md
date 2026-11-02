@@ -1,6 +1,6 @@
 # 主动发现与网页阅读候选
 
-2026-10-31 Owner 明确选择主动发现新资料，替代仅预登记来源。Jo 的性格／成长经历影响关注、搜索和取舍；有效约定见 [Intent](intent.md) 与 [Spec](spec.md)，实现与真实证据回 [#11](https://github.com/OKFin33/Angeleno/issues/11)。旧 reader 保留回退和历史证据，不继续扩站点提取器。
+2026-10-31 Owner 明确选择主动发现新资料，替代仅预登记来源。Jo 的性格／成长经历影响关注、搜索和取舍；有效约定见 [Intent](intent.md) 与 [Spec](spec.md)，当前交付与接受见 [#1](https://github.com/OKFin33/Angeleno/issues/1)，[#11](https://github.com/OKFin33/Angeleno/issues/11) 保留已交付接合阶段证据。旧 reader 保留回退和历史证据，不继续扩站点提取器。
 
 ## 同一条运行路径
 
@@ -33,7 +33,7 @@ API只接**精确类型** `PublicQuery`，在实际发送前再次验证所有�
 当当前授权是按账户余额合理使用、没有累计次数封顶时，显式选择 `ANGELENO_WEB_REQUEST_LIMIT=account`。
 该模式不再用历史批次计数阻止新调用；旧行、未知费用、余额止损及每次新余额核查全部保留。
 整数模式仍用于确有次数限制的授权，默认空值仍拒绝。不能把 `account` 当作充值、扩大ASR/GPU额度或越过供应商403的许可。
-完整私有语音试用沿[试运行入口](trial.md#有界完整产品试用入口)，真实Search/Fetch与卡片使用同一个ConversationRuntime。
+完整私有语音试用沿[试运行说明](trial.md#启动与停止)，真实Search/Fetch与卡片使用同一个ConversationRuntime。
 
 [官方指南](https://api-docs.deepseek.com/zh-cn/guides/search/)、[Search schema](https://api-docs.deepseek.com/zh-cn/api/search/)、[Fetch schema](https://api-docs.deepseek.com/zh-cn/api/fetch/)于2026-10-31核对：固定官方 `/v1/tools/search` 与 `/v1/tools/fetch`，有结果请求各CNY0.005，空结果／失败不收费。演员和工具共用Ledger及每请求余额检查，模型仍按token计费。取消、响应未知或HTTP200无法解析保留全额预留，不猜免费；计数跨adapter／进程累计，不用新账本重置。
 
@@ -61,7 +61,7 @@ DeepSeek承担实际目标解析、连接和转取跳转。[Fetch schema](https:
 
 2026-10-31 mini旧reader的4次NHM真实读取已收束：取消／迟到隔离成立，改口丢原话被实读复现；共享生命周期已修并离线验证，未网络重跑。旧证据保留#11。
 
-下一步：独立审阅本架构修正后，再依据原许可／累计账本恢复有界API观察；本轮没有重试旧目标或新增工具HTTP。候选ID、URL词法、官方API与费用检查必须通过，供应商403立即停批，费用未知保留预留。现有4次／¥0.02不重置或自动变成新批次。模型回放可单独使用既有公开Search摘要和原DNS失败记录，但必须标明历史回放、无正文，不能冒充实时Fetch。当前仍缺真实Fetch正文／供应商安全观察、完整Jo行为、同料比较冻结、GPU／浏览器音频及Owner接受。
+**历史检查点（2026-10-31，不是当前下一步或剩余额度）：** 独立审阅本架构修正后，再依据原许可／累计账本恢复有界API观察；本轮没有重试旧目标或新增工具HTTP。候选ID、URL词法、官方API与费用检查必须通过，供应商403立即停批，费用未知保留预留。现有4次／¥0.02不重置或自动变成新批次。模型回放可单独使用既有公开Search摘要和原DNS失败记录，但必须标明历史回放、无正文，不能冒充实时Fetch。当时尚缺真实Fetch正文／供应商安全观察、完整Jo行为、同料比较冻结、GPU／浏览器音频及Owner接受；后续证据及仍未验范围见 [trial](trial.md)。
 
 本架构回归用假HTTP证明本机DNS无论返回保留地址或解析失败都不会被远端Fetch调用；实际请求只有官方余额和Fetch API。另证危险编码／私网字面量等在费用前拒绝、API302不跟随、供应商403关闭响应并跨适配器停止后续请求、取消继续保留未知费用。原直连DNS同组地址／混合私网拒绝／逐跳回归仍在完整门禁中。它们不构成供应商内部安全机制的实测证明。
 

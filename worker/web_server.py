@@ -67,7 +67,7 @@ def handler_for(env, *, lifecycle=None):
                                      **({'lifecycle_enabled':True} if lifecycle is not None else {})})
                 return
             # Never expose files outside the static page directory.
-            if self.path.split('?', 1)[0] not in {'/', '/index.html', '/livekit-client.umd.js', '/three.module.min.js', '/three.LICENSE', '/livekit-client.LICENSE', '/webgl-noise.LICENSE'}:
+            if self.path.split('?', 1)[0] not in {'/', '/index.html', '/livekit-client.umd.js', '/livekit-client.LICENSE'}:
                 self.send_error(404)
                 return
             super().do_GET()

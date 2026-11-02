@@ -15,10 +15,7 @@ and memory dependencies, and serve pinned browser assets locally.
 Bundled browser dependencies retain their own licenses:
 - LiveKit JavaScript Client 2.19.1: web/livekit-client.umd.js,
   web/livekit-client.LICENSE (Apache-2.0).
-- Three.js 0.164.1: web/three.module.min.js, web/three.LICENSE (MIT).
-- Ashima webgl-noise simplex shader used in web/index.html:
-  web/webgl-noise.LICENSE (MIT); source revision
-  6abed1e77ed1e18b181627c35f688eb30c9fe75e.
+
 
 LiveKit Agents
 Copyright 2023 LiveKit, Inc.

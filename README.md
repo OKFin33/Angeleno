@@ -4,7 +4,7 @@ A character-driven voice companion for everyday Los Angeles.
 
 Angeleno 让你与虚构人物 **Jo** 进行实时语音交流。Jo 有自己的背景、兴趣和偏好；她可以顺着话题聊天，也可以在需要时查找现实信息。项目探索的不是一个换了音色的通用助手，而是人物、记忆、现实资料与可打断语音如何协同。
 
-**v0.1.0 以中文交流为主。** 默认英文计划在 v0.1 确认可用之后的 v0.1.1 实施；当前并未切换运行语言。当前候选位于 `nexus-integrated-trial-20261031` 开发分支，main 尚未更新；仓库访问仍遵循当前权限，未进行公开发布。
+**当前 main 包含以中文交流为主的 v0.1.0 代码，尚未创建正式 Release。** 默认英文计划在 v0.1 确认可用之后的 v0.1.1 实施；当前并未切换运行语言。仓库访问与发布仍遵循维护者的实际设置。
 
 ## 你会得到什么
 
@@ -32,7 +32,7 @@ VoxCPM2 在使用者自己的 GPU 环境运行；识别和语言模型使用已�
 需要 Python 3.12、Git 和 [uv](https://docs.astral.sh/uv/)。页面测试另需 Node.js。
 
 ```sh
-git clone --branch nexus-integrated-trial-20261031 https://github.com/OKFin33/Angeleno.git
+git clone https://github.com/OKFin33/Angeleno.git
 cd Angeleno
 uv sync --locked --group dev
 .venv/bin/python -B -m unittest discover -s tests -v
