@@ -106,7 +106,7 @@ check 仍只读，真正启动才创建本机用户状态。后续启动去掉�
 
 页面显示配置状态，不把它当作 GPU／模型在线证明；拨号失败、识别／回复／播放错误和挂断均有停止路径。完整播放、打断、重拨和具体设备表现仍须真实验证。
 
-稳定地方读取可显式 `ANGELENO_PLACE_TOOLS=1`（默认 `0`），不回退人工fixture。主动Search/Fetch另由 `ANGELENO_WEB_ENABLED=1` 及[Web发送策略与账户保护](web-lookup.md)启用，优先于稳定读取；两者复用同一语音核心、定向卡片与页面，不另开查询服务。完整私有试用使用[有界产品入口](trial.md#有界完整产品试用入口)。每轮总计最多三次工具、四次模型请求；Search/Fetch可同类重复，其他工具每类一次。来源卡片不能代表完整语音交付，真实浏览器语音＋Web联合行为仍须验证。所有语音会话都需要本版token入口提供接收者metadata；旧版手工dispatch缺失身份时拒绝开始，不降级广播。
+稳定地方读取可显式 `ANGELENO_PLACE_TOOLS=1`（默认 `0`），不回退人工fixture。主动Search/Fetch另由 `ANGELENO_WEB_ENABLED=1` 及[Web发送策略与账户保护](web-lookup.md)启用，优先于稳定读取；两者复用同一语音核心、定向卡片与页面，不另开查询服务。完整私有试用使用[有界产品入口](trial.md#启动与停止)。每轮总计最多三次工具、四次模型请求；Search/Fetch可同类重复，其他工具每类一次。来源卡片不能代表完整语音交付，真实浏览器语音＋Web联合行为仍须验证。所有语音会话都需要本版token入口提供接收者metadata；旧版手工dispatch缺失身份时拒绝开始，不降级广播。
 
 常规回答首音初始保护为15秒，查证回答为30秒，均从确认输入的同一单调时钟计算。短提示、查询完成或卡片到达均不重置期限。超时停止该轮，页面提示继续说话；模型、查询、TTS取消或媒体清理失败才停止通话。这里只在服务端观察播放开始，用户实际听见及首句是否为有效结论须按 [voice lane](voice-lane.md) 测量，不能以保护未触发宣称体验通过。`session.userdata['angeleno_timing']` 保留最近100轮的内存时间标记及锚点，不含原话，不自动写日志；程序输入的 generation_start 回退不能冒充 ASR 确认时间。
 
@@ -182,3 +182,14 @@ GPU 启动时对已验证参考音频编码一次，随后按同一已加载模�
 新通话尚未提出当前话题、输入仅为寒暄或附和时，不凭历史记录续办旧工具任务；明确续接、同通话内确认以及当前实际安排仍可正常使用工具。这个窄的寒暄识别不是通用意图分类器，也不是禁止闲聊中合理查证。
 
 `USER.md` 暂为待实施设计：如采用，它是用户／操作者明确维护的资料权威，模型摘要仅派生并引用该来源，不能自动回写；与旧推断冲突时保留来源和纠正，不再复制成第二套权威用户事实。暂未创建该文件、未加入熟悉状态机，既定朋友起点仍沿 Spec。
+
+
+### Development tool decisions
+
+For synthetic development sessions only, set `ANGELENO_TOOL_TRACE=1`,
+`ANGELENO_MEMORY_PURPOSE=development`, and the existing `ANGELENO_DIAGNOSTICS_FILE` to a new private 0600 receipt.
+The trace is off by default and records at most256 events per process: proposed/validated calls, batch rejection,
+local adapter start/end, and skipped calls with a controlled reason. Only tool names, hashed call IDs/arguments,
+turn numbers and controlled statuses are retained; no raw parameters, responses, user speech, prompts or hidden reasoning.
+`tool_adapter_start` is not evidence of an HTTP request or successful lookup. Existing Fetch HTTP events and the account
+ledger provide separate network/billing evidence. Do not use missing old trace rows to invent a historical decision.

@@ -17,6 +17,8 @@ import os
 from pathlib import Path
 
 from .author import MAX_REQUEST_CHARS
+from .diagnostics import tool_trace
+from .budget import BudgetExceeded
 from .memory import encoded, new_session
 from .memory_tools import request_chars
 from .places import MAX_QUESTION_CHARS, FixedClock, ResultChannel, resolve_when
@@ -794,17 +796,25 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             raise ValueError("Empty lookup tool proposal")
         if len(pending) > 1 and not getattr(service, "serial_batches", False):
             raise ValueError("One lookup call at a time")
-        parsed, ids = [], set()
-        counts = dict(used)
         for call in pending:
-            name, arguments = service.parse_call([call], allow_memory=store is not None)
-            if call["id"] in ids:
-                raise ValueError("Duplicate tool call ID")
-            ids.add(call["id"])
-            if counts[name] and name not in getattr(service, "repeatable_classes", ()):
-                raise ValueError("One lookup call per class")
-            counts[name] += 1
-            parsed.append((call, name, arguments))
+            tool_trace('tool_proposed', call, user_turn=user_turn)
+        try:
+            parsed, ids = [], set()
+            counts = dict(used)
+            for call in pending:
+                name, arguments = service.parse_call([call], allow_memory=store is not None)
+                if call["id"] in ids:
+                    raise ValueError("Duplicate tool call ID")
+                ids.add(call["id"])
+                if counts[name] and name not in getattr(service, "repeatable_classes", ()):
+                    raise ValueError("One lookup call per class")
+                counts[name] += 1
+                parsed.append((call, name, arguments))
+                tool_trace('tool_validated', call, user_turn=user_turn)
+        except ValueError:
+            for call in pending:
+                tool_trace('tool_rejected', call, user_turn=user_turn, reason='batch_validation')
+            raise
         current = [*current, {"role": "assistant", "content": "".join(prefix) or None,
                              "tool_calls": pending}]
         stopped_reason = halt_reason or ("actor_request_limit" if requests == _MAX_ACTOR_REQUESTS else None)
@@ -817,6 +827,7 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
                 halted = True
                 halt_reason = stopped_reason
             if stopped_reason is not None:
+                tool_trace('tool_not_executed', call, user_turn=user_turn, reason=stopped_reason)
                 current.append({"role": "tool", "tool_call_id": call["id"],
                                 "content": encoded({"accepted": False, "status": "not_executed",
                                                     "conclusion": None, "detail": stopped_reason})})
@@ -832,15 +843,31 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
                 tool = {"role": "tool", "tool_call_id": call["id"], "content": ""}
                 current.append(tool)
                 next_tools = _remaining(service, used) if requests + 1 < _MAX_ACTOR_REQUESTS else None
-                fill_search(provider, current, store, arguments["query"], tool,
-                            user_seq=user_seq, tools=next_tools)
+                tool_trace('tool_adapter_start', call, user_turn=user_turn)
+                try:
+                    fill_search(provider, current, store, arguments["query"], tool,
+                                user_seq=user_seq, tools=next_tools)
+                except Exception as exc:
+                    tool_trace('tool_adapter_end', call, user_turn=user_turn, reason='budget_refused' if isinstance(exc, BudgetExceeded) else 'adapter_error')
+                    raise
+                tool_trace('tool_adapter_end', call, user_turn=user_turn, status='searched')
                 await asyncio.sleep(0)
                 continue
-            payload, card, intent = await service.execute_async(
-                name, arguments, session_id=session_id, user_turn=user_turn, utterance=utterance,
-            )
+            tool_trace('tool_adapter_start', call, user_turn=user_turn)
+            try:
+                payload, card, intent = await service.execute_async(
+                    name, arguments, session_id=session_id, user_turn=user_turn, utterance=utterance,
+                )
+            except asyncio.CancelledError:
+                tool_trace('tool_adapter_end', call, user_turn=user_turn, reason='cancelled')
+                raise
+            except Exception as exc:
+                tool_trace('tool_adapter_end', call, user_turn=user_turn, reason='budget_refused' if isinstance(exc, BudgetExceeded) else 'adapter_error')
+                raise
+            tool_trace('tool_adapter_end', call, user_turn=user_turn, status=payload.get('status'))
             await service.checkpoint(session_id, arm=name in service.check_names and intent is not None)
             payload, card = service.reconcile(session_id, name, payload, card, intent)
+            tool_trace('tool_result', call, user_turn=user_turn, status=payload.get('status'))
             if name in service.check_names and turn is not None:
                 turn.speech_phase = "answer"
                 if service.on_check_finished is not None:
