@@ -239,6 +239,8 @@ class TraceBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 rows=rows_at(env,root)
                 sent=[r for r in rows if r['event']=='card_sent'];self.assertTrue(sent)
                 self.assertTrue(all(r['turn']=='t1' for r in sent));self.assertEqual(sent[-1]['data']['card']['citations'][0]['claim_kind'],'search_summary')
+                self.assertTrue(trace.report(rows)[0]['turns'][0]['cards'])
+                self.assertTrue(any(r['event']=='card_sent' for r in trace.report(rows,expand=['tools'])[0]['turns'][0]['details']))
                 timing=[r for r in rows if r['event']=='timing'];self.assertEqual(timing[-1]['turn'],'t1')
                 self.assertEqual(timing[-1]['data']['kind'],'playout_finished')
             finally:await sender.close();await runtime.close(flush=False)

@@ -228,7 +228,7 @@ def report(rows, *, session=None, turn=None, expand=()):
         entry={'session':sid,'purpose':ss[0]['purpose'],'configuration':[r['data'] for r in ss if r['event']=='session'],'turns':[]}
         for tid in dict.fromkeys(r['turn'] for r in ss if r['turn'] is not None):
             events=[r for r in ss if r['turn']==tid]
-            item={'turn':tid,'events':len(events),'input':None,'generated':None,'delivery':None,'models':[],'tools':[],'memory':[],'timing':[],'timing_counts':{}}
+            item={'turn':tid,'events':len(events),'input':None,'generated':None,'delivery':None,'models':[],'tools':[],'memory':[],'cards':[],'timing':[],'timing_counts':{}}
             for r in events:
                 e,d=r['event'],r['data']
                 if e=='turn_input':item['input']=d
@@ -236,6 +236,7 @@ def report(rows, *, session=None, turn=None, expand=()):
                 elif e=='delivery':item['delivery']=d
                 elif e=='model_end':item['models'].append({k:v for k,v in d.items() if k not in {'output','reasoning_content','tool_calls'}})
                 elif e.startswith('tool_'):item['tools'].append({'event':e,**{k:v for k,v in d.items() if k in {'operation','call_id','reason','status'}}})
+                elif e.startswith('card_'):item['cards'].append({'event':e,**{k:v for k,v in d.items() if k!='card'},'card_status':d.get('card',{}).get('status')})
                 elif e.startswith('memory_'):item['memory'].append({'event':e,**{k:v for k,v in d.items() if k!='proposal'}})
                 elif e=='timing':
                     kind=d.get('kind','unknown');item['timing_counts'][kind]=item['timing_counts'].get(kind,0)+1
@@ -245,7 +246,7 @@ def report(rows, *, session=None, turn=None, expand=()):
                     item[field]={**item[field], 'text':item[field]['text'][:8000], 'viewer_preview_truncated':True}
             item['capture_incomplete'] = item['generated'] is None or item['delivery'] is None
             if expand:
-                wanted={'input':{'model_request','session'},'tools':{r['event'] for r in events if r['event'].startswith('tool_')},
+                wanted={'input':{'model_request','session'},'tools':{r['event'] for r in events if r['event'].startswith(('tool_','card_'))},
                         'memory':{r['event'] for r in events if r['event'].startswith('memory_')},'timing':{'timing'},'reasoning':{'model_end'}}
                 kinds=set().union(*(wanted.get(x,set()) for x in expand))
                 item['details']=[r for r in events if 'all' in expand or r['event'] in kinds]
