@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def configured_pack(env, *, root=ROOT):
-    value = env.get("ANGELENO_AUTHOR_PACK", "examples/demo/author-pack.json").strip()
+    value = env.get("ANGELENO_AUTHOR_PACK", "characters/jo/author-pack.json").strip()
     if not value:
         raise ValueError("ANGELENO_AUTHOR_PACK must select an author manifest")
     path = Path(value)

@@ -19,7 +19,7 @@ def open_memory(args, pack, *, create=False):
     user = getattr(args, "memory_user", None)
     if not user:
         return None
-    return open_store(ROOT, pack, user, create=create, data_dir=getattr(args, "data_dir", None))
+    return open_store(ROOT, pack, user, create=create, data_dir=getattr(args, "data_dir", None), purpose="real_user")
 
 
 def save_private(path, data):
@@ -40,6 +40,10 @@ async def chat(args, pack, env=None):
     from .budget import BudgetExceeded
     from .provider import configured_providers
     env = load_env(root=ROOT) if env is None else env
+    from .config import flag
+    attribution_check = flag(env, 'ANGELENO_MEMORY_ATTRIBUTION_CHECK')
+    if attribution_check and not args.memory_user:
+        raise ValueError('Attribution check requires persistent memory')
     provider, writer = configured_providers(env, root=ROOT)
     store = None
     try:
@@ -48,7 +52,8 @@ async def chat(args, pack, env=None):
         await asyncio.gather(provider.aclose(), writer.aclose())
         raise
     runtime = ConversationRuntime(pack, provider, store=store, writer=writer,
-                                  variant=args.variant, memory_tools=getattr(args, "memory_tools", False))
+                                  variant=args.variant, memory_tools=getattr(args, "memory_tools", False),
+                                  attribution_check=attribution_check)
     maintainer = runtime.maintainer
     allow_flush = True
     print("文字试聊；会调用 DeepSeek 计费。/exit 结束。")

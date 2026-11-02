@@ -1,12 +1,25 @@
 """Read frozen page fixtures. This module never opens a socket."""
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 
 import re
 
 from .model import MAX_BODY_BYTES, MAX_PAGES_PER_CHECK, NavigationRefused, PlacesError, SourceDisabled
 from .registry import vet_url
+
+
+@dataclass(frozen=True)
+class SnapshotProvenance:
+    """An observation made by trusted adapter code, never parsed page JSON."""
+    kind: str
+    content_sha256: str
+
+    def __post_init__(self):
+        if (not isinstance(self.kind, str) or self.kind not in {"synthetic_fixture", "live_http_page"}
+                or not isinstance(self.content_sha256, str) or not re.fullmatch("[0-9a-f]{64}", self.content_sha256)):
+            raise ValueError("Explicit adapter observation and body digest required")
 
 
 @dataclass(frozen=True)
@@ -17,6 +30,7 @@ class PageSnapshot:
     truncated: bool
     refused_navigations: tuple
     bytes_read: int
+    provenance: SnapshotProvenance | None = None
 
 
 class FixtureLibrary:
@@ -57,6 +71,7 @@ class FixtureLibrary:
             truncated=truncated,
             refused_navigations=tuple(refused),
             bytes_read=len(raw),
+            provenance=SnapshotProvenance("synthetic_fixture", hashlib.sha256(raw).hexdigest()),
         )
 
 

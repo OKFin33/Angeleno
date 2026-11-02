@@ -1,6 +1,7 @@
 """Offline launcher and local HTTP boundary tests; no real credentials/services."""
 import asyncio
 from contextlib import redirect_stdout
+from email import message_from_bytes
 from http.server import HTTPServer
 import io
 import json
@@ -9,7 +10,7 @@ import socket
 import tempfile
 import threading
 import unittest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -22,7 +23,7 @@ def configuration(root):
     pack_at(root)
     return {'ANGELENO_AUTHOR_PACK': str(root / 'pack.json'),
             'ANGELENO_DATA_DIR': str(root / 'private/state'),
-            'ANGELENO_MEMORY_USER': 'synthetic', 'ANGELENO_MEMORY_CREATE': '1',
+            'ANGELENO_MEMORY_USER': 'synthetic', 'ANGELENO_MEMORY_PURPOSE': 'real_user', 'ANGELENO_MEMORY_CREATE': '1',
             'ANGELENO_PAID_ENABLED': '0', 'ANGELENO_ASR_MAX_SECONDS': '5',
             'DEEPSEEK_API_KEY': 'synthetic-key', 'DASHSCOPE_API_KEY': 'synthetic-key',
             'DEEPSEEK_MODEL': 'deepseek-flash',
@@ -31,7 +32,9 @@ def configuration(root):
             'ANGELENO_PRICE_OUTPUT': '8', 'ANGELENO_PRICE_SOURCE': 'synthetic-pricing-fixture',
             'ANGELENO_MIN_BALANCE': '1', 'ANGELENO_BUDGET_CARRYOVER': '0',
             'LIVEKIT_API_KEY': 'test', 'LIVEKIT_API_SECRET': 'synthetic-secret',
-            'LIVEKIT_URL': 'ws://127.0.0.1:7880', 'VOXCPM_URL': 'http://127.0.0.1:18080'}
+            'LIVEKIT_URL': 'ws://127.0.0.1:7880', 'VOXCPM_URL': 'http://127.0.0.1:18080',
+            'VOXCPM_REFERENCE_PURPOSE': 'jo', 'VOXCPM_REFERENCE_ID': 'synthetic-jo',
+            'VOXCPM_REFERENCE_SHA256': 'a' * 64}
 
 
 class RunnerTests(unittest.TestCase):
@@ -47,6 +50,17 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(run_voice.check_configuration(env, root=root), [])
             self.assertFalse((root / 'private').exists(), 'Check must not initialize memory or ledgers')
             self.assertIn('ANGELENO_PAID_ENABLED=1', ';'.join(run_voice.check_configuration(env, root=root, starting=True)))
+
+    def test_prefetch_mode_check_is_local_and_rejects_unbounded_capacity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = configuration(root)
+            with patch('socket.socket', side_effect=AssertionError('No endpoint probe')), \
+                 patch('subprocess.Popen', side_effect=AssertionError('No resource start')):
+                self.assertEqual(run_voice.check_configuration({**env, 'ANGELENO_TTS_PREFETCH_FRAMES':'2'}, root=root), [])
+                errors = run_voice.check_configuration({**env, 'ANGELENO_TTS_PREFETCH_FRAMES':'99'}, root=root)
+                self.assertIn('ANGELENO_TTS_PREFETCH_FRAMES must be 0 or 2', errors)
+            self.assertFalse((root / 'private').exists())
 
     def test_missing_budget_or_asr_allowance_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -172,6 +186,105 @@ class RunnerTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2)
+
+
+class TokenEndpointTests(unittest.TestCase):
+    """Exercise the real HTTP handler and token factory without network/services."""
+
+    def token_request(self, *, public_url=None, origin='http://localhost:8767',
+                      host='localhost:8767', signaling='ws://127.0.0.1:7880', paid='1',
+                      forwarded=None):
+        env = {'LIVEKIT_URL': signaling, 'LIVEKIT_API_KEY': 'synthetic-key',
+               'LIVEKIT_API_SECRET': 'synthetic-secret', 'ANGELENO_PAID_ENABLED': paid,
+               'ANGELENO_WEB_ALLOWED_ORIGINS': 'https://client.example.invalid'}
+        if public_url is not None:
+            env['LIVEKIT_PUBLIC_URL'] = public_url
+        handler = object.__new__(web_server.handler_for(env))
+        handler.path = '/token'
+        handler.command, handler.request_version = 'POST', 'HTTP/1.1'
+        handler.requestline = 'POST /token HTTP/1.1'
+        handler.headers = {'Host': host, 'Content-Length': '2'}
+        if origin is not None:
+            handler.headers['Origin'] = origin
+        handler.headers.update(forwarded or {})
+        handler.rfile, handler.wfile = io.BytesIO(b'{}'), io.BytesIO()
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        client.room.create_room = AsyncMock()
+        client.agent_dispatch.create_dispatch = AsyncMock()
+        token = Mock()
+        token.with_identity.return_value = token
+        token.with_name.return_value = token
+        token.with_grants.return_value = token
+        token.to_jwt.return_value = 'synthetic-token-not-a-real-credential'
+        with patch('livekit.api.LiveKitAPI', return_value=client) as api, \
+             patch('livekit.api.AccessToken', return_value=token) as access_token, \
+             patch('socket.socket.connect', side_effect=AssertionError('No network')), \
+             patch('subprocess.Popen', side_effect=AssertionError('No services')):
+            handler.do_POST()
+        head, body = handler.wfile.getvalue().split(b'\r\n\r\n', 1)
+        status = int(head.split(b' ', 2)[1])
+        headers = message_from_bytes(head.split(b'\r\n', 1)[1])
+        return status, headers, json.loads(body), api, access_token, client
+
+    def test_local_token_uses_internal_url_without_public_configuration(self):
+        status, headers, body, api, access_token, client = self.token_request()
+        self.assertEqual(status, 200)
+        self.assertEqual(body['livekit_url'], 'ws://127.0.0.1:7880')
+        self.assertEqual(headers['Access-Control-Allow-Origin'], 'http://localhost:8767')
+        self.assertEqual(body['token'], 'synthetic-token-not-a-real-credential')
+        api.assert_called_once_with('http://127.0.0.1:7880', 'synthetic-key', 'synthetic-secret')
+        access_token.assert_called_once_with('synthetic-key', 'synthetic-secret')
+        client.room.create_room.assert_awaited_once()
+        client.agent_dispatch.create_dispatch.assert_awaited_once()
+
+    def test_configured_public_url_survives_allowed_remote_origin_and_loopback_proxy_host(self):
+        public = 'wss://media.example.invalid'
+        for origin, host in [('https://client.example.invalid', 'localhost:8767'),
+                             ('https://client.example.invalid', '127.0.0.1:8767'),
+                             ('https://client.example.invalid', 'proxy.example.invalid'),
+                             ('http://localhost:8767', 'localhost:8767')]:
+            with self.subTest(origin=origin, host=host):
+                status, headers, body, api, _, _ = self.token_request(public_url=public,
+                    origin=origin, host=host, forwarded={'X-Forwarded-Host': 'attacker.example.invalid',
+                        'X-Forwarded-Proto': 'http', 'Forwarded': 'host=attacker.example.invalid'})
+                self.assertEqual(status, 200)
+                self.assertEqual(body['livekit_url'], public)
+                self.assertEqual(headers['Access-Control-Allow-Origin'], origin)
+                api.assert_called_once_with('http://127.0.0.1:7880', 'synthetic-key', 'synthetic-secret')
+
+    def test_unallowed_or_missing_origin_is_rejected_before_livekit_or_token_creation(self):
+        for origin in [None, 'https://unallowed.example.invalid', 'http://client.example.invalid']:
+            with self.subTest(origin=origin):
+                status, headers, body, api, access_token, _ = self.token_request(
+                    public_url='wss://media.example.invalid', origin=origin,
+                    forwarded={'X-Forwarded-Host': 'client.example.invalid',
+                               'X-Forwarded-Origin': 'https://client.example.invalid'})
+                self.assertEqual(status, 403)
+                self.assertEqual(body, {'error': 'origin not allowed'})
+                self.assertIsNone(headers['Access-Control-Allow-Origin'])
+                api.assert_not_called()
+                access_token.assert_not_called()
+
+    def test_missing_or_empty_public_url_falls_back_to_configured_url_not_headers(self):
+        for public in [None, '']:
+            for signaling in ['ws://127.0.0.1:7880', 'wss://configured.example.invalid']:
+                with self.subTest(public=public, signaling=signaling):
+                    status, _, body, api, _, _ = self.token_request(public_url=public,
+                        origin='https://client.example.invalid', host='arbitrary.example.invalid',
+                        signaling=signaling, forwarded={'X-Forwarded-Host': 'invented.example.invalid'})
+                    self.assertEqual(status, 200)
+                    self.assertEqual(body['livekit_url'], signaling)
+                    api.assert_called_once_with(signaling.replace('ws://', 'http://', 1)
+                        .replace('wss://', 'https://', 1), 'synthetic-key', 'synthetic-secret')
+
+    def test_paid_off_still_refuses_before_livekit_or_token_creation(self):
+        status, _, body, api, access_token, _ = self.token_request(paid='0')
+        self.assertEqual(status, 503)
+        self.assertEqual(body, {'error': 'call service unavailable'})
+        api.assert_not_called()
+        access_token.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -286,10 +286,21 @@ class MaintenanceSourceTests(StoreFixture, unittest.IsolatedAsyncioTestCase):
 
         def correct(payload):
             # Check the actual once/provider boundary, not a stand-in renderer.
-            self.assertEqual(list(payload), ["batch", "record_evidence", "author_material"])
+            self.assertEqual(list(payload), ["batch", "record_evidence", "author_material",
+                                             "evidence_domains", "lookup_sources"])
             self.assertEqual(payload["batch"]["events"], list(expected_batch.events))
             self.assertEqual(payload["batch"]["records"], list(expected_batch.records))
             self.assertEqual(payload["record_evidence"], expected_sources)
+            self.assertEqual(payload["evidence_domains"], {
+                "user_utterances": [old[0], fresh[0]],
+                "delivered_agent_utterances": [old[1], fresh[1]],
+                "interrupted_agent_utterances": [],
+                "author_material": {"origin": "author_not_current_tool_execution", "as_of": self.pack.as_of},
+            })
+            self.assertEqual(payload["lookup_sources"], {
+                "coverage": "delivered_results_for_exposed_evidence_only", "results": [],
+                "missing_record": "no_recorded_delivered_result_not_proof_of_no_attempt",
+            })
             for doc in self.pack.documents:
                 self.assertIn(doc.sha256, payload["author_material"])
                 for section in reading_sections(doc.body):

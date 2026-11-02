@@ -29,11 +29,22 @@ from worker.audio_budget import asr_settings, is_loopback
 def check_configuration(env, *, root=ROOT, starting=False):
     """Inspect local files/settings only. Never open an endpoint or create state."""
     errors = []
-    for name in ('ANGELENO_PAID_ENABLED', 'ANGELENO_MEMORY_CREATE', 'ANGELENO_MEMORY_TOOLS', 'LIVEKIT_FORCE_TCP'):
+    from her_agent.voice_timing import configured_prefetch_frames
+    try:
+        configured_prefetch_frames(env)
+    except ValueError as exc:
+        errors.append(str(exc))
+    for name in ('ANGELENO_PAID_ENABLED', 'ANGELENO_MEMORY_CREATE', 'ANGELENO_MEMORY_TOOLS', 'ANGELENO_MEMORY_ATTRIBUTION_CHECK', 'ANGELENO_PLACE_TOOLS', 'LIVEKIT_FORCE_TCP', 'VOXCPM_COMPILE'):
         if env.get(name, '1' if name == 'LIVEKIT_FORCE_TCP' else '0') not in {'0', '1'}:
             errors.append(f'{name} must be 0 or 1')
     if starting and env.get('ANGELENO_PAID_ENABLED', '0') != '1':
         errors.append('ANGELENO_PAID_ENABLED=1 is required to start voice')
+    if starting:
+        from worker.reference import expected_jo_reference
+        try:
+            expected_jo_reference(env)
+        except ValueError as exc:
+            errors.append(str(exc))
     if env.get('ANGELENO_AUTHOR_VARIANT', 'guided') not in {'raw', 'guided'}:
         errors.append('ANGELENO_AUTHOR_VARIANT must be raw or guided')
     user = env.get('ANGELENO_MEMORY_USER', '')

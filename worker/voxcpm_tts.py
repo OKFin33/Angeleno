@@ -3,8 +3,8 @@
 """VoxCPM2 流式 TTS plugin for LiveKit agents.
 
 streaming=True：LLM 边生成边按句子边界触发 TTS，首句延迟目标 ~1.5s。
-关键：aiohttp 使用 force_close=True 禁止连接复用，防止 SSH 隧道空闲超时
-导致下一句 ServerDisconnectedError（这是6/17卡顿的根因）。
+相邻分句短暂复用连接；闲置后重新连接，未完整读取或取消的响应不复用。
+只有尚未交付音频时允许原有重试，部分播放后绝不重播。
 """
 
 from __future__ import annotations
@@ -17,12 +17,14 @@ from dataclasses import dataclass
 
 import aiohttp
 from worker.pcm import PCMResampler
+from her_agent.diagnostics import emit
 from livekit.agents import APIConnectOptions, APIStatusError, DEFAULT_API_CONNECT_OPTIONS
 from livekit.agents.tts import SynthesizeStream, TTS, TTSCapabilities
 
 _SENT_ENDS = frozenset('。！？；!?;')
 
 TARGET_SAMPLE_RATE = 24000
+HTTP_KEEPALIVE_SECONDS = 2.0  # Shorter than the local Uvicorn server's 5s idle timeout.
 
 
 def _split_with_remainder(text: str) -> tuple[list[str], str]:
@@ -98,10 +100,10 @@ class VoxCPMHttpTTS(TTS):
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
-            # force_close=True：每次请求用新 TCP 连接，不复用。
-            # 必须设置，否则 SSH 隧道在句子间隙空闲超时后断连，
-            # aiohttp 复用旧连接会触发 ServerDisconnectedError。
-            connector = aiohttp.TCPConnector(force_close=True)
+            # Reuse only completely consumed responses between nearby sentences.
+            # aiohttp closes an incomplete/cancelled body instead of pooling it;
+            # stale/disconnected requests retain the existing pre-audio retry.
+            connector = aiohttp.TCPConnector(keepalive_timeout=HTTP_KEEPALIVE_SECONDS)
             self._http_session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=aiohttp.ClientTimeout(total=120, sock_read=60),
@@ -131,38 +133,69 @@ class _VoxCPMSynthesizeStream(SynthesizeStream):
             int(os.getenv('VOXCPM_PREBUFFER_MS', '100')))) / 1000)
         pending_pcm = bytearray()
         lead_ready = lead_bytes == 0
+        measuring = os.getenv('ANGELENO_AUDIO_METRICS') == '1'
+        pushed_samples = 0
+        last_push = None
+        metric_tag = None
+
+        def push(data):
+            nonlocal pushed_samples, last_push
+            if not measuring:
+                output_emitter.push(data)
+                return
+            before = time.monotonic()
+            output_emitter.push(data)
+            after = time.monotonic()
+            pushed_samples += len(data) // 2
+            # AudioEmitter has no public playout-queue duration API.
+            # Do not relabel synchronous push time as actual queue depth.
+            emit('audio_push', request_id=metric_tag, stream_id=request_id.replace('-', ''),
+                 chunk_bytes=len(data), audio_seconds=pushed_samples / self._vox.sample_rate,
+                 gap_seconds=before - last_push if last_push is not None else 0.0,
+                 push_seconds=after - before, lead_queue_seconds=0.0,
+                 sdk_queue_seconds=None)
+            last_push = after
 
         def push_pcm(pcm):
             nonlocal lead_ready
             if lead_ready:
-                output_emitter.push(pcm)
+                push(pcm)
                 return True
             pending_pcm.extend(pcm)
             if len(pending_pcm) >= lead_bytes:
-                output_emitter.push(bytes(pending_pcm))
+                push(bytes(pending_pcm))
                 pending_pcm.clear()
                 lead_ready = True
                 return True
             return False
 
         async def send_sentence(text: str) -> None:
-            nonlocal initialized
+            nonlocal initialized, metric_tag
             text = text.strip()
             if not text:
                 return
             styled = f"({self._vox._opts.style}){text}" if self._vox._opts.style else text
             payload = {"input": styled, "voice": self._vox._opts.voice}
+            if measuring:
+                metric_tag = uuid.uuid4().hex  # one opaque correlation per sentence
 
             emitted = False
             last_exc: Exception | None = None
             for attempt in range(3):
                 pending_before = len(pending_pcm)
+                reason = "error"
+                emit("tts_http_start", request_id=request_id, attempt=attempt + 1)
                 try:
-                    # 每次请求重新获取 session（force_close 保证新 TCP 连接）
+                    # Share the owner session; the connector expires idle sockets.
                     sess = await self._vox._ensure_session()
+                    headers = {'X-Angeleno-Audio-Request': metric_tag} if measuring else {}
+                    received = 0
+                    last_receive = None
+                    receive_started = time.monotonic() if measuring else None
                     async with sess.post(
                         f"{self._vox._opts.url}/v1/audio/speech/stream",
                         json=payload,
+                        **({'headers': headers} if measuring else {}),
                     ) as resp:
                         if resp.status >= 400:
                             body = await resp.text()
@@ -187,17 +220,37 @@ class _VoxCPMSynthesizeStream(SynthesizeStream):
                             if not chunk:
                                 continue
                             pcm = resampler.push(chunk)
+                            if measuring:
+                                now = time.monotonic()
+                                received += len(chunk)
+                                duration = (received // 2) / server_sr
+                                emit('audio_http_chunk', request_id=metric_tag, stream_id=request_id.replace('-', ''),
+                                     attempt=attempt + 1, chunk_bytes=len(chunk),
+                                     elapsed_seconds=now - receive_started,
+                                     gap_seconds=now - last_receive if last_receive is not None else now - receive_started,
+                                     audio_seconds=duration,
+                                     receive_rtf=(now - receive_started) / duration if duration else None,
+                                     lead_queue_seconds=len(pending_pcm) / (self._vox.sample_rate * 2))
+                                last_receive = now
                             if pcm:
                                 emitted = push_pcm(pcm) or emitted
                         resampler.finish()
+                        emit("tts_http_eof", request_id=request_id, attempt=attempt + 1)
+                    reason = "eof"
                     return  # 成功，退出重试循环
+                except asyncio.CancelledError:
+                    reason = "cancelled"
+                    raise
                 except (aiohttp.ClientConnectionError, aiohttp.ClientPayloadError, asyncio.TimeoutError) as exc:
+                    reason = "transport_error"
                     if emitted:
                         raise  # Never replay a sentence after partial playback.
                     del pending_pcm[pending_before:]
                     last_exc = exc
                     print(f"[tts] voxcpm disconnect attempt={attempt+1}: {exc!r}", flush=True)
                     await asyncio.sleep(0.3)
+                finally:
+                    emit("tts_http_end", request_id=request_id, attempt=attempt + 1, reason=reason)
             raise RuntimeError(f"VoxCPM TTS failed after 3 attempts: {last_exc}")
 
         async for token_or_sentinel in self._input_ch:
@@ -218,7 +271,7 @@ class _VoxCPMSynthesizeStream(SynthesizeStream):
 
         # A reply shorter than the lead must still be spoken in full.
         if pending_pcm:
-            output_emitter.push(bytes(pending_pcm))
+            push(bytes(pending_pcm))
             pending_pcm.clear()
 
         if not initialized:

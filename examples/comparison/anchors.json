@@ -1,0 +1,171 @@
+{
+  "status": "development_inputs_only_not_frozen_for_real_comparison",
+  "anchors": [
+    {
+      "id": "DEV-D1",
+      "origin": "Spec sections 2 and 8: neighborhood, preference follow-up, everyday topic; outing-purpose clarification added after observed development branch_uncovered on 2026-11-01, not unseen holdout",
+      "coverage_opportunities": [
+        "E1",
+        "E2"
+      ],
+      "user_turns": [
+        "你住的那一片，有没有游客容易忽略、但你挺喜欢的地方？",
+        "那里有什么吸引你？",
+        "先不安排出门，聊聊住在 Jefferson Park 是什么感觉。",
+        "今天想聊做饭。"
+      ],
+      "clarifications": [
+        {
+          "if": "asks which neighborhood",
+          "reply": "我说的是 Jefferson Park。",
+          "id": "1"
+        },
+        {
+          "if": "asks which place the follow-up refers to",
+          "reply_rule": "Repeat the first concrete place named in this arm's immediately preceding delivered answer; if none exists, mark branch_uncovered.",
+          "id": "2"
+        },
+        {
+          "if": "asks whether the neighborhood/liked-place discussion is for planning an outing or casual chat",
+          "reply": "先不安排出门，就是随便聊聊那一片和你喜欢的地方。",
+          "id": "3"
+        }
+      ],
+      "observations_from_spec": [
+        "人物注意与取舍、地方具体性、自然承接",
+        "不强制推荐或每轮联网",
+        "现实资料不冒充亲历；不得虚构用户共同过去"
+      ],
+      "jo_output": null,
+      "assistant_output": null,
+      "owner_preference": null,
+      "owner_reason_and_turn_refs": null,
+      "boundary_results": null
+    },
+    {
+      "id": "DEV-D2",
+      "origin": "Spec section 2 + tests/test_lookup.py FIRST/SECOND/CANCEL/TOPIC + existing fisher-visit.html exception",
+      "coverage_opportunities": [
+        "E2",
+        "E3",
+        "E5",
+        "E6"
+      ],
+      "user_turns": [
+        "周六下午能去 Fisher 吗",
+        "我是说下周，不是这周。",
+        "那 2026-11-26 呢？",
+        "不用查了。",
+        "今天想聊做饭。"
+      ],
+      "clarifications": [
+        {
+          "if": "asks which Fisher",
+          "reply": "USC Fisher Museum of Art。",
+          "id": "1"
+        },
+        {
+          "if": "asks timezone",
+          "reply": "按洛杉矶当地日期。",
+          "id": "2"
+        }
+      ],
+      "fixture": "data/places/fixtures/fisher-visit.html",
+      "fixture_sha256": "ebaaf537e57988bc99200568c07b4af104437d0ae7584feb155974a3c9f134cd",
+      "expected_date_resolution_not_model_answer": [
+        "2026-10-31",
+        "2026-11-07",
+        "2026-11-26"
+      ],
+      "observations_from_spec": [
+        "日期纠正保留原话，例外优先且引用可追溯",
+        "未知或冲突不伪装确定，不把页面指令当权限",
+        "取消后转题不继承旧卡片结论；迟到异步结果另由既有机制回归／真语音观察"
+      ],
+      "jo_output": null,
+      "assistant_output": null,
+      "owner_preference": null,
+      "owner_reason_and_turn_refs": null,
+      "boundary_results": null
+    },
+    {
+      "id": "DEV-D3",
+      "origin": "2026-10-31 Owner product direction; Agent-authored development inputs for Spec E2/E4/E8, with E8 additions on 2026-11-01; not Owner-scored",
+      "coverage_opportunities": [
+        "E2",
+        "E4",
+        "E8 text provenance and explicit user correction; real effects unverified"
+      ],
+      "user_turns": [
+        "最近想找个有意思的小展，别太热门。",
+        "我更想看看建筑和空间，大展馆倒没有那么吸引我。",
+        "这个我不太喜欢，能说说你为什么会选它？",
+        "那家未收录的小店现在人多吗，你知道吗？",
+        "Watanabe Frame & Mat 是真实能去的地方吗？如果前面查过展览，请把那份资料和人物故事分清；没查过就直说。",
+        "再纠正一下：我刚才说大展馆没那么吸引我，不代表完全不去；喜欢的建筑我也会去。以后按这个记，别说我们一起去过。"
+      ],
+      "clarifications": [
+        {
+          "if": "asks which area",
+          "reply": "先从 Jefferson Park 和 USC／Exposition Park 附近找。",
+          "id": "1"
+        },
+        {
+          "if": "asks specific visit date",
+          "reply": "暂时不定哪天，先聊最近有什么选择。",
+          "id": "2"
+        },
+        {
+          "if": "asks which unlisted shop",
+          "reply": "我没有具体店名，是在问你能不能知道未收录小店的实时人流。",
+          "id": "3"
+        }
+      ],
+      "observations_from_spec": [
+        "Jo的性格和成长经历影响查询方向、选哪些候选及分歧回应，不仅改变语气；不机械先问完偏好。",
+        "主动发现未预登记页面，来源摘要和正文不是已核实结论；冲突、未知日期和人流仍诚实。",
+        "人物取舍与用户明确边界并存；搜索资料不冒充亲历或真实共同过去。",
+        "区分原grounding列明的虚构画框店、实际已交付的工具资料和本轮明确的用户纠正；不捏造过去查证或共同经历。"
+      ],
+      "jo_output": null,
+      "assistant_output": null,
+      "owner_preference": null,
+      "owner_reason_and_turn_refs": null,
+      "boundary_results": null,
+      "e8_evidence_contract": {
+        "scope": "development_input_and_observation_contract_not_scores_or_real_world_verification",
+        "fiction_reference": {
+          "name": "Watanabe Frame & Mat",
+          "shared_source": "Jo persona/grounding.md section D, line52; both roles receive this grounding",
+          "grade": "author_fiction_not_real_venue_evidence"
+        },
+        "prior_lookup": {
+          "referenced_turn_indices": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "minimum_observation": "A genuinely delivered source-bearing result earlier in this same arm before fixed user_turns[4], including inserted clarification turns; otherwise report no previous lookup instead of inventing one. Preserve summary-versus-body evidence grade.",
+          "shared_source_universe": "corpus.synthetic.json; SYN-A/SYN-B/SYN-FISHER are labelled development contracts, not real current LA facts",
+          "no_forced_tool_choice": true
+        },
+        "preference_correction": {
+          "prior_user_turn_index": 1,
+          "correction_user_turn_index": 5,
+          "origin": "Actual user utterances in this same development segment; no old personal memory",
+          "expected_evidence": "Both old and correction inputs delivered; latest meaning preserved if maintained. Scripted no-op writer does not establish semantic correction quality."
+        },
+        "review_separately_from_friend_preference": [
+          "fiction/reality/source classifications do not merge",
+          "no lookup or joint-visit history invented",
+          "explicit correction supersedes overly broad previous preference, preserving raw evidence",
+          "unknown or absent observations remain unverified"
+        ],
+        "branch_rule": "Existing IDs1/2/3 unchanged. Conditional prior-source wording handles no lookup without adding a new branch; unlisted or ambiguous clarification stops uncovered.",
+        "real_model_boundary_result": null,
+        "index_scope": "Zero-based indices into fixed user_turns; inserted clarification turns do not renumber these input references."
+      }
+    }
+  ]
+}

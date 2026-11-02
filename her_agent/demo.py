@@ -53,7 +53,10 @@ def main():
                          "evidence": [batch.events[0]["seq"]]}
             store.apply(batch, {"updates": [corrected], "retire": [rec["id"]]})
             request = Conversation(pack, store).begin("MOCA 是哪天去的？")
-            assert "周日" in request[0]["content"] and "周六" not in str(request)
+            # The actor prompt includes the real weekday. Running this demo on
+            # Saturday must not look like stale memory; check the retired fact.
+            assert "用户纠正为周日去了 MOCA" in request[0]["content"]
+            assert "用户打算周六去 MOCA" not in str(request)
             print("PASS：后台替代后，新会话使用周日，旧说法不再被召回。")
             store.forget(corrected["id"])
             context, _ = store.context("another", "MOCA")

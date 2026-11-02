@@ -173,7 +173,7 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
         return out.getvalue()
 
     def inspect(self):
-        return open_store(self.root, self.pack, "independent", data_dir=self.root / "private" / "state")
+        return open_store(self.root, self.pack, "independent", data_dir=self.root / "private" / "state", purpose="real_user")
 
     async def test_actual_cli_tool_followup_and_json_maintenance_share_budget(self):
         output = await self.run_chat(["synthetic input", "/exit"])
@@ -270,7 +270,7 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
     async def test_voice_runtime_default_provider_path_also_accounts_actor_and_writer(self):
         from her_agent import voice
         env = {**self.env, "ANGELENO_AUTHOR_PACK": str(self.root / "pack.json"),
-               "ANGELENO_MEMORY_USER": "independent", "ANGELENO_MEMORY_CREATE": "1",
+               "ANGELENO_MEMORY_USER": "independent", "ANGELENO_MEMORY_PURPOSE": "real_user", "ANGELENO_MEMORY_CREATE": "1",
                "ANGELENO_MEMORY_TOOLS": "1"}
         with patch.object(voice, "configured_providers", side_effect=self.factory):
             runtime = voice.create_voice_runtime(env, root=self.root)
@@ -288,7 +288,7 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
         env = {"ANGELENO_PAID_ENABLED": "1", "DEEPSEEK_API_KEY": "synthetic-key",
                "ANGELENO_DATA_DIR": str(self.root / "private" / "state"),
                "ANGELENO_AUTHOR_PACK": str(self.root / "pack.json"),
-               "ANGELENO_MEMORY_USER": "independent", "ANGELENO_MEMORY_CREATE": "1"}
+               "ANGELENO_MEMORY_USER": "independent", "ANGELENO_MEMORY_PURPOSE": "real_user", "ANGELENO_MEMORY_CREATE": "1"}
         with patch("her_agent.provider.httpx.AsyncClient") as client:
             with self.assertRaisesRegex(ValueError, "prices"):
                 create_voice_runtime(env, root=self.root)

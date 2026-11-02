@@ -66,7 +66,9 @@ class Batch:
 
 
 class MemoryStore:
-    def __init__(self, path, *, character, user, seed):
+    def __init__(self, path, *, character, user, seed, purpose=None):
+        if purpose not in {None, "real_user", "development"}:
+            raise ValueError("Unknown memory purpose")
         self.path = Path(path)
         if self.path.is_symlink():
             raise ValueError("Memory database must not be a symlink")
@@ -110,9 +112,21 @@ class MemoryStore:
                     for key, value in {"schema": "2", "character": character, "user": user, "seed": seed,
                                        "revision": "0", "watermark": "0"}.items():
                         self.db.execute("INSERT INTO meta VALUES (?,?)", (key, value))
-            for key, value in {"schema": "2", "character": character, "user": user, "seed": seed}.items():
+            if self._meta("schema") not in {"2", "3"}:
+                raise ValueError("Memory schema differs; explicit migration is required")
+            for key, value in {"character": character, "user": user, "seed": seed}.items():
                 if self._meta(key) != value:
                     raise ValueError(f"Memory {key} differs; explicit migration is required")
+            row = self.db.execute("SELECT value FROM meta WHERE key='purpose'").fetchone()
+            previous = row[0] if row else None
+            if previous is not None and previous != purpose:
+                raise ValueError("Memory purpose differs; development cannot open a real-user store")
+            if purpose is not None and previous is None:
+                with self.db:
+                    self.db.execute("INSERT INTO meta VALUES ('purpose',?)", (purpose,))
+                    # Old schema2 writers cannot honor quarantines/purpose.
+                    self._set_meta("schema", "3")
+            self.purpose = purpose
         except Exception:
             self.db.close()
             os.close(self.lock)
@@ -155,7 +169,7 @@ class MemoryStore:
         with self.db:
             parent = None
             if role == "assistant":
-                parent = self.db.execute("SELECT seq FROM events WHERE session=? AND role='user' AND delivery!='forgotten' ORDER BY seq DESC LIMIT 1", (session,)).fetchone()
+                parent = self.db.execute("SELECT seq FROM events WHERE session=? AND role='user' AND delivery NOT IN ('forgotten','quarantined') ORDER BY seq DESC LIMIT 1", (session,)).fetchone()
                 if parent is None:
                     raise ValueError("Delivered assistant speech needs a user turn")
             cursor = self.db.execute("INSERT INTO events(session,role,text,delivery,created) VALUES (?,?,?,?,?)",
@@ -163,13 +177,44 @@ class MemoryStore:
             self.db.execute("UPDATE events SET turn=? WHERE seq=?", (parent[0] if parent else cursor.lastrowid, cursor.lastrowid))
         return cursor.lastrowid
 
+    def quarantine_synthetic(self, seqs, *, reason):
+        """Reversibly hide explicitly evidenced development rows, never erase text.
+
+        Mixed-source summaries require separate review; do not discard their
+        genuine user facts by automatically labelling the whole record synthetic.
+        """
+        seqs = set(seqs)
+        if not seqs or any(type(n) is not int or n < 1 for n in seqs) or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("Explicit event IDs and evidence reference required")
+        placeholders = ','.join('?' for _ in seqs)
+        rows = self.db.execute(f"SELECT seq,delivery FROM events WHERE seq IN ({placeholders})", tuple(seqs)).fetchall()
+        if {r['seq'] for r in rows} != seqs:
+            raise ValueError("Unknown quarantine event")
+        affected = []
+        for record in self.records(include_hidden=True):
+            evidence = set(record['evidence'])
+            if evidence & seqs:
+                if not evidence <= seqs:
+                    raise ValueError("Mixed-source memory needs explicit repair; left untouched")
+                affected.append(record['id'])
+        with self.db:
+            self.db.execute("CREATE TABLE IF NOT EXISTS quarantined_events (seq INTEGER PRIMARY KEY, original_delivery TEXT NOT NULL, reason TEXT NOT NULL)")
+            for row in rows:
+                self.db.execute("INSERT OR IGNORE INTO quarantined_events VALUES (?,?,?)", (row['seq'],row['delivery'],reason))
+            self.db.execute(f"UPDATE events SET delivery='quarantined' WHERE seq IN ({placeholders})",tuple(seqs))
+            for rid in affected:
+                self.db.execute("UPDATE records SET active=0 WHERE id=?",(rid,))
+            self._set_meta('schema','3')
+            self._set_meta('revision',self.revision+1)
+        return {'event_ids':sorted(seqs),'record_ids':affected}
+
     def records(self, *, include_hidden=False):
         records = [json.loads(r[0]) for r in self.db.execute("SELECT payload FROM records WHERE active=1 ORDER BY rowid")]
         return [r for r in records if include_hidden or r["known"]]
 
     def pending(self):
         return [dict(r) for r in self.db.execute(
-            "SELECT * FROM events WHERE seq>? AND delivery!='forgotten' ORDER BY seq", (self.watermark,))]
+            "SELECT * FROM events WHERE seq>? AND delivery NOT IN ('forgotten','quarantined') ORDER BY seq", (self.watermark,))]
 
     def select(self, query):
         cards = [json.loads(r[0]) for r in self.db.execute(
@@ -199,7 +244,7 @@ class MemoryStore:
         # resolve references without a keyword match or a search tool. Prior
         # unprocessed turns retain their existing full-backlog budget below.
         recent = [dict(r) for r in self.db.execute(
-            "SELECT * FROM events WHERE session=? OR seq<=? ORDER BY seq DESC LIMIT ?",
+            "SELECT * FROM events WHERE (session=? OR seq<=?) AND delivery!='quarantined' ORDER BY seq DESC LIMIT ?",
             (session, self.watermark, MAX_HISTORY_MESSAGES))][::-1]
         hidden = {seq for row in self.db.execute("SELECT payload FROM records WHERE known=0")
                   for seq in json.loads(row[0])["evidence"]}
@@ -208,7 +253,7 @@ class MemoryStore:
             f"SELECT seq,turn,delivery FROM events WHERE turn IN ({','.join('?' for _ in turns)})",
             tuple(turns)) if turns else ()
         unavailable_turns = {r["turn"] for r in partners
-                             if r["delivery"] == "forgotten" or r["seq"] in hidden}
+                             if r["delivery"] in {"forgotten", "quarantined"} or r["seq"] in hidden}
         recent = [r for r in recent if r["turn"] not in unavailable_turns]
         # Match the compiler's usable window before removing these events from
         # unprocessed. Otherwise its leading-assistant trim loses pending evidence.
@@ -222,6 +267,11 @@ class MemoryStore:
         # Keep all-citation time anchors compact. Optional raw turns below use
         # only spare space; maintenance still reads full direct evidence.
         context["record_sources"] = self.record_sources(context["records"])
+        # Reuse the delivered-result projection for the same complete raw
+        # utterances the actor actually sees, not every lookup in this identity.
+        sources = self.maintenance_lookup_sources((*recent, *backlog))
+        if sources["results"]:
+            context["lookup_sources"] = sources
         if len(encoded(context)) > CONTEXT_LIMIT:
             raise BacklogFull("Continuity sources exceed the budget; inspect memory and pending maintenance before continuing")
         # Optional source material uses only remaining space; it never displaces
@@ -231,7 +281,14 @@ class MemoryStore:
         readback = self.source_readback(context["records"], query,
                                         ids | {e["seq"] for e in backlog}, budget)
         if readback is not None:
-            context["source_readback"] = readback
+            candidate = {**context, "source_readback": readback}
+            sources = self.maintenance_lookup_sources((*recent, *backlog, *readback["events"]))
+            if sources["results"]:
+                candidate["lookup_sources"] = sources
+            # Optional raw readback and its source records travel together;
+            # neither may displace mandatory corrections or hide their grade.
+            if len(encoded(candidate)) <= CONTEXT_LIMIT:
+                context = candidate
         history = [{"role": r["role"], "content": r["text"] if r["delivery"] == "complete"
                     else "[交付中断或范围不确定的发言] " + r["text"]} for r in recent]
         return context, history
@@ -247,7 +304,7 @@ class MemoryStore:
     def current_turn(self, session):
         """Latest saved user turn, for opt-in actor tool exposure only."""
         row = self.db.execute("SELECT seq FROM events WHERE session=? AND role='user' "
-                              "AND delivery!='forgotten' ORDER BY seq DESC LIMIT 1", (session,)).fetchone()
+                              "AND delivery NOT IN ('forgotten','quarantined') ORDER BY seq DESC LIMIT 1", (session,)).fetchone()
         if row is None:
             raise ValueError("No saved user turn")
         return row[0]
@@ -385,7 +442,7 @@ class MemoryStore:
                 continue  # Never fall back to an older citation.
             turn = [dict(e) for e in self.db.execute(
                 "SELECT * FROM events WHERE session=? AND turn=? ORDER BY seq", (source["session"], source["turn"]))]
-            if any(e["delivery"] == "forgotten" or e["seq"] in hidden for e in turn):
+            if any(e["delivery"] in {"forgotten", "quarantined"} or e["seq"] in hidden for e in turn):
                 entry["omitted"] = "unavailable"
                 continue
             visible = [e for e in turn if e["seq"] not in excluded]
@@ -532,6 +589,10 @@ class MemoryStore:
                 delivered_text TEXT NOT NULL
             )
         """)
+        # Additive, only on a delivered-result write. Reading/opening an older
+        # store never migrates it or guesses missing evidence grades.
+        if "source_context" not in {row[1] for row in self.db.execute("PRAGMA table_info(lookup_results)")}:
+            self.db.execute("ALTER TABLE lookup_results ADD COLUMN source_context TEXT")
 
     def _lookup_table_exists(self):
         return self.db.execute(
@@ -556,31 +617,76 @@ class MemoryStore:
         ).fetchone()
         if row is None or row["text"] != payload["delivered_text"] or row["turn"] != payload["user_turn"]:
             return None
-        self._ensure_lookup_table()
+        context = payload.get("source_context")
+        if context is not None and not isinstance(context, dict):
+            raise ValueError("Lookup source context must be an object")
+        # SAVEPOINT includes additive DDL and the source row in one write;
+        # a failed insert must not leave a half-applied legacy upgrade.
+        self.db.execute("SAVEPOINT delivered_lookup_source")
         try:
-            with self.db:
-                self.db.execute(
-                    "INSERT INTO lookup_results(session,user_turn,request_id,assistant_seq,status,subject,"
-                    "conclusion,applicable_date,checked_at,source_id,source_url,excerpt,delivered_text) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (
-                        session, payload["user_turn"], payload["request_id"], row["seq"], payload["status"],
-                        payload["subject"], payload["conclusion"], payload["applicable_date"], payload["checked_at"],
-                        payload.get("source_id"), payload.get("source_url"), payload.get("excerpt"),
-                        payload["delivered_text"],
-                    ),
-                )
-        except sqlite3.IntegrityError:
-            return None
+            self._ensure_lookup_table()
+            self.db.execute(
+                "INSERT INTO lookup_results(session,user_turn,request_id,assistant_seq,status,subject,"
+                "conclusion,applicable_date,checked_at,source_id,source_url,excerpt,delivered_text,source_context) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    session, payload["user_turn"], payload["request_id"], row["seq"], payload["status"],
+                    payload["subject"], payload["conclusion"], payload["applicable_date"], payload["checked_at"],
+                    payload.get("source_id"), payload.get("source_url"), payload.get("excerpt"),
+                    payload["delivered_text"], None if context is None else encoded(context),
+                ),
+            )
+            self.db.execute("RELEASE delivered_lookup_source")
+        except BaseException as exc:
+            self.db.execute("ROLLBACK TO delivered_lookup_source")
+            self.db.execute("RELEASE delivered_lookup_source")
+            if isinstance(exc, sqlite3.IntegrityError):
+                return None
+            raise
         return row["seq"]
 
-    def lookup_results(self):
+    def lookup_results(self, *, assistant_seqs=None):
         if not self._lookup_table_exists():
             return []
-        return [dict(row) for row in self.db.execute(
+        ids = None if assistant_seqs is None else sorted(set(assistant_seqs))
+        if ids == []:
+            return []
+        context = ("source_context" if "source_context" in {
+            row[1] for row in self.db.execute("PRAGMA table_info(lookup_results)")}
+            else "NULL AS source_context")
+        where = " WHERE assistant_seq IN (SELECT seq FROM events WHERE delivery='complete')"
+        if ids is not None:
+            where += " AND assistant_seq IN (" + ",".join("?" for _ in ids) + ")"
+        rows = [dict(row) for row in self.db.execute(
             "SELECT session,user_turn,request_id,assistant_seq,status,subject,conclusion,applicable_date,"
-            "checked_at,source_id,source_url,excerpt,delivered_text FROM lookup_results ORDER BY id",
+            "checked_at,source_id,source_url,excerpt,delivered_text," + context + " FROM lookup_results" + where + " ORDER BY id",
+            () if ids is None else ids,
         )]
+        for row in rows:
+            row["source_context"] = None if row["source_context"] is None else json.loads(row["source_context"])
+        return rows
+
+    def maintenance_lookup_sources(self, events):
+        """Only records tied to the exact raw evidence exposed to this writer.
+
+        This is a delivered-result log, not an exhaustive tool-attempt journal.
+        Missing/legacy data cannot certify either a fetch or that none occurred.
+        """
+        visible = {event["seq"] for event in events if event["delivery"] == "complete"}
+        rows = []
+        for result in self.lookup_results(assistant_seqs=visible):
+            row = {key: value for key, value in result.items() if key != "delivered_text"}
+            context = row["source_context"] or {}
+            reading = context.get("reading") or {}
+            evidence_reading = reading.get("evidence_reading") or {}
+            scope = evidence_reading.get("observation_scope")
+            known_scopes = {"synthetic_fixture", "live_http_page", "recorded_query_empty", "recorded_query_results",
+                            "recorded_page", "replay_query_unobserved", "replay_body_unobserved",
+                            "live_query_empty", "live_query_results", "live_page"}
+            row["source_context_status"] = scope if isinstance(scope, str) and scope in known_scopes else "unknown"
+            rows.append(row)
+        return {"coverage": "delivered_results_for_exposed_evidence_only", "results": rows,
+                "missing_record": "no_recorded_delivered_result_not_proof_of_no_attempt"}
 
     def _drop_lookup_results(self, seqs=None):
         if not self._lookup_table_exists():

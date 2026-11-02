@@ -1,0 +1,58 @@
+{
+  "format": "angeleno-development/1",
+  "mode": "dry_run",
+  "scope": "development_only",
+  "clock_utc": "2026-10-30T22:04:05+00:00",
+  "timezone": "America/Los_Angeles",
+  "variant": "guided",
+  "model": "deepseek-flash",
+  "temperature": 0.7,
+  "writer_temperature": 0.2,
+  "actor_max_tokens": 512,
+  "writer_max_tokens": 2048,
+  "actor_requests_per_turn": 4,
+  "tools_per_turn": 3,
+  "writer_requests_per_segment": 3,
+  "actor_requests_total": 184,
+  "writer_requests_total": 18,
+  "turn_timeout_seconds": 10,
+  "maintenance_timeout_seconds": 10,
+  "case": "normal",
+  "anchors": "anchors.json",
+  "corpus": "corpus.synthetic.json",
+  "order": [
+    [
+      "DEV-D1",
+      "character"
+    ],
+    [
+      "DEV-D1",
+      "assistant"
+    ],
+    [
+      "DEV-D2",
+      "assistant"
+    ],
+    [
+      "DEV-D2",
+      "character"
+    ],
+    [
+      "DEV-D3",
+      "character"
+    ],
+    [
+      "DEV-D3",
+      "assistant"
+    ]
+  ],
+  "frozen_for_real_comparison": false,
+  "paid_execution": false,
+  "owner_calibration": null,
+  "holdout_included": false,
+  "files": {
+    "anchors.json": "22f61066732800cea8610c268965ad7b7e57f918872f7de63fa5a8306b0d3a04",
+    "corpus.synthetic.json": "e24ed638d146ebf5496703beb989fe4b096f88e886ca7791f93cd79f2e590971"
+  },
+  "batch_guard_derivation": "Development inputs max turns per arm7/7/9 (fixed inputs + each listed clarification once), both arms46 turns, at most4 actor each =184; writer<=3 per each of6 segments =18. Conservative offline guard, not a new spend allowance; per-turn3 tools/4 actor unchanged."
+}

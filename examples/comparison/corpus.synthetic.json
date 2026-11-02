@@ -1,0 +1,250 @@
+{
+  "status": "development_only_synthetic_not_real_source",
+  "clock": "2026-10-30T22:04:05+00:00",
+  "cases": [
+    "normal",
+    "empty",
+    "conflicting_body",
+    "truncated_body"
+  ],
+  "selection_rule": "All 24 legal public combinations explicitly mapped, identical for both arms; same outbound query words share the same records. No missing-key fallback. Empty means this frozen synthetic collection has no match, never a real-world claim.",
+  "records": [
+    {
+      "id": "SYN-A",
+      "areas": [
+        "usc_exposition"
+      ],
+      "topics": [
+        "small_art_exhibitions",
+        "architecture"
+      ],
+      "place_id": null,
+      "title": "合成空间A：纸与街道",
+      "url": "https://example.org/synthetic/paper-streets",
+      "summary": "开发合成资料：小型纸模型与街道空间展；不提供现场人流。",
+      "date": "2026-10-28",
+      "content": "开发合成资料，不对应现实场所。展览聚焦纸模型、街道尺度和室内空间。2026-11-03 12:00–17:00开放；其余日期未知。现场人流与是否热门未知。",
+      "conflicting_body": "开发合成资料：页首说2026-11-03 12:00–17:00开放，页尾公告说同日全天暂停，未注明谁更新得晚。冲突未解决。"
+    },
+    {
+      "id": "SYN-B",
+      "areas": [
+        "usc_exposition",
+        "jefferson_park"
+      ],
+      "topics": [
+        "small_art_exhibitions",
+        "community_spaces"
+      ],
+      "place_id": null,
+      "title": "合成空间B：邻里声音",
+      "url": "https://example.org/synthetic/neighborhood-sounds",
+      "summary": "开发合成资料：邻里录音、口述与小型装置；无适用日期。",
+      "date": null,
+      "content": "开发合成资料，不对应现实场所。展览包含邻里录音、口述与小型装置。页面没有当前展期、开放时段、人数或预约信息。",
+      "conflicting_body": "开发合成资料：一处称活动正在进行，另一处称已经结束；没有日期，无法判断当前状态。"
+    },
+    {
+      "id": "SYN-FISHER",
+      "areas": [
+        "usc_exposition"
+      ],
+      "topics": [
+        "visit_hours"
+      ],
+      "place_id": "place.fisher",
+      "title": "Fisher开发契约样本（非官方快照）",
+      "url": "https://example.org/synthetic/fisher-contract",
+      "summary": "合成契约：常态时间与指定日期例外；不是现实开放证据。",
+      "date": null,
+      "content_fixture": "data/places/fixtures/fisher-visit.html",
+      "content_fixture_sha256": "ebaaf537e57988bc99200568c07b4af104437d0ae7584feb155974a3c9f134cd",
+      "conflicting_body": "合成契约：同一页面对2026-11-26同时写开放和关闭，没有更新时间，无法消除冲突。"
+    }
+  ],
+  "queries": [
+    {
+      "area": "jefferson_park",
+      "topic": "small_art_exhibitions",
+      "place_id": null,
+      "record_ids": [
+        "SYN-B"
+      ],
+      "meaning": "frozen_synthetic_matches"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "small_art_exhibitions",
+      "place_id": "place.fisher",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "small_art_exhibitions",
+      "place_id": "place.nhm",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "architecture",
+      "place_id": null,
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "architecture",
+      "place_id": "place.fisher",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "architecture",
+      "place_id": "place.nhm",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "community_spaces",
+      "place_id": null,
+      "record_ids": [
+        "SYN-B"
+      ],
+      "meaning": "frozen_synthetic_matches"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "community_spaces",
+      "place_id": "place.fisher",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "community_spaces",
+      "place_id": "place.nhm",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "visit_hours",
+      "place_id": null,
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "visit_hours",
+      "place_id": "place.fisher",
+      "record_ids": [
+        "SYN-FISHER"
+      ],
+      "meaning": "frozen_synthetic_matches"
+    },
+    {
+      "area": "jefferson_park",
+      "topic": "visit_hours",
+      "place_id": "place.nhm",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "small_art_exhibitions",
+      "place_id": null,
+      "record_ids": [
+        "SYN-A",
+        "SYN-B"
+      ],
+      "meaning": "frozen_synthetic_matches"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "small_art_exhibitions",
+      "place_id": "place.fisher",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "small_art_exhibitions",
+      "place_id": "place.nhm",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "architecture",
+      "place_id": null,
+      "record_ids": [
+        "SYN-A"
+      ],
+      "meaning": "frozen_synthetic_matches"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "architecture",
+      "place_id": "place.fisher",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "architecture",
+      "place_id": "place.nhm",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "community_spaces",
+      "place_id": null,
+      "record_ids": [
+        "SYN-B"
+      ],
+      "meaning": "frozen_synthetic_matches"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "community_spaces",
+      "place_id": "place.fisher",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "community_spaces",
+      "place_id": "place.nhm",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "visit_hours",
+      "place_id": null,
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "visit_hours",
+      "place_id": "place.fisher",
+      "record_ids": [
+        "SYN-FISHER"
+      ],
+      "meaning": "frozen_synthetic_matches"
+    },
+    {
+      "area": "usc_exposition",
+      "topic": "visit_hours",
+      "place_id": "place.nhm",
+      "record_ids": [],
+      "meaning": "explicit_synthetic_empty_not_real_world_absence"
+    }
+  ]
+}

@@ -56,10 +56,12 @@ class Scripted:
         self.service = service
         self.rounds = []
         self.sent = []
+        self.tool_schemas = []
         self.cancel_after_check = False
 
     def chat_events(self, messages, *, tools=None, temperature=0.7):
         self.sent.append(json.loads(json.dumps(messages, ensure_ascii=False)))
+        self.tool_schemas.append(tools)
         events = self.rounds.pop(0)
         service, cancel = self.service, self.cancel_after_check
 
@@ -173,12 +175,15 @@ class LookupLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(STANDING, dumped(sent[2]))
         self.assertIn(STANDING, dumped(sent[4]))
         self.assertNotIn(STANDING, dumped(sent[3]))
-        self.assertNotIn("2026-10-31", dumped(sent[3]))
-        self.assertNotIn("2026-10-31", dumped(sent[4]))
+        # The independent actor system prompt includes today's LA calendar date.
+        # That may equal a fixture date; only conversation/tool history can leak
+        # the previous check. Keep the source-text and request-ID checks global.
+        self.assertNotIn("2026-10-31", dumped(sent[3][1:]))
+        self.assertNotIn("2026-10-31", dumped(sent[4][1:]))
         self.assertIn("2026-11-07", dumped(sent[4]))
         for later in (sent[5], sent[6], sent[7]):
             self.assertNotIn(STANDING, dumped(later))
-            self.assertNotIn("2026-11-07", dumped(later))
+            self.assertNotIn("2026-11-07", dumped(later[1:]))
         blob = dumped(sent)
         for request_id in (first.source_card["request_id"], second.source_card["request_id"]):
             self.assertNotIn(request_id, blob)
@@ -188,6 +193,103 @@ class LookupLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Ignore previous instructions", blob)
         self.assertIn("place_search", sent[0][0]["content"])
         self.assertNotIn("不提供持久记忆、搜索或外部操作", sent[0][0]["content"])
+
+    async def test_invalid_search_filter_is_not_a_coverage_claim_or_retry(self):
+        # Exact arguments observed in the bounded real-model run. This city
+        # string is not one of the catalog's area IDs.
+        arguments = {"query": "Natural History Museum of Los Angeles County NHM", "area": "Los Angeles"}
+        turn, _ = await self.say(
+            "帮我核对今天 NHM 是否开放。",
+            [call("place_search", arguments)],
+            [TextDelta("这次查询参数没被接受，暂时无法核实。")],
+        )
+        result = json.loads(self.scripted.sent[1][-1]["content"])
+        self.assertEqual(result["status"], "invalid_arguments")
+        self.assertIsNone(result["coverage_gap"])
+        self.assertEqual(result["invalid_fields"], ["area"])
+        self.assertEqual(result["scope"], {"query": arguments["query"], "filters": {"area": "Los Angeles"}})
+        self.assertEqual(result["hits"], [])
+        self.assertIsNone(turn.source_card)
+        self.assertEqual(len(self.scripted.sent), 2)
+        self.assertNotIn("place_search", [tool["function"]["name"] for tool in self.scripted.tool_schemas[1]])
+        denied, card, intent = self.lookup.execute(
+            "place_check", {**check_args("今天"), "place_id": "place.nhm", "source_id": "src.nhm.visit"},
+            session_id=self.lookup.local_session, user_turn=1, utterance="NHM",
+        )
+        self.assertEqual(denied["detail"], "not_in_search")
+        self.assertIsNone(card)
+        self.assertIsNone(intent)
+        self.assertEqual(self.lookup.checked_events, [])
+
+    async def test_actor_gets_catalog_filter_ids_and_unfiltered_nhm_matches(self):
+        await self.say("NHM", [call("place_search", {"query": "NHM"})], [TextDelta("找到条目了。")])
+        tool = next(t["function"] for t in self.scripted.tool_schemas[0] if t["function"]["name"] == "place_search")
+        properties = tool["parameters"]["properties"]
+        self.assertEqual(tool["parameters"]["required"], ["query"])
+        self.assertEqual(properties["place_id"]["enum"], sorted(self.bundle.catalog.by_id))
+        self.assertEqual(properties["area"]["enum"], sorted({e.area for e in self.bundle.catalog.entries}))
+        self.assertNotIn("Los Angeles", properties["area"]["enum"])
+        result = json.loads(self.scripted.sent[1][-1]["content"])
+        self.assertEqual([h["place_id"] for h in result["hits"]], ["place.nhm"])
+        self.assertEqual(result["scope"]["filters"], {})
+        self.assertFalse(result["coverage_gap"])
+
+    def test_search_scope_and_invalid_id_do_not_broaden_results(self):
+        for filters in ({"place_id": "NHM"}, {"place_id": "unknown", "area": "Los Angeles"}):
+            with self.subTest(filters=filters):
+                result, _, _ = self.lookup._search({"query": "NHM", **filters})
+                self.assertEqual(result["status"], "invalid_arguments")
+                self.assertIsNone(result["coverage_gap"])
+                self.assertEqual(result["hits"], [])
+                self.assertEqual(set(result["invalid_fields"]), set(filters))
+        for query, filters, gap in (
+            ("NHM", {"area": "usc-exposition"}, False),
+            ("NHM", {"place_id": "place.nhm"}, False),
+            ("NHM", {"area": "jefferson-park"}, True),
+            ("未收录的小店", {}, True),
+        ):
+            with self.subTest(query=query, filters=filters):
+                result, _, _ = self.lookup._search({"query": query, **filters})
+                self.assertEqual(result["status"], "searched")
+                self.assertEqual(result["coverage_gap"], gap)
+                self.assertEqual(result["scope"], {"query": query, "filters": filters})
+                self.assertEqual([h["place_id"] for h in result["hits"]], [] if gap else ["place.nhm"])
+
+    def test_multiple_place_matches_still_require_clarification(self):
+        result, _, _ = self.lookup._search({"query": "Fisher 和 NHM"})
+        self.assertFalse(result["coverage_gap"])
+        self.assertTrue(result["needs_clarification"])
+        self.assertEqual({h["place_id"] for h in result["hits"]}, {"place.fisher", "place.nhm"})
+
+    async def test_check_type_is_declared_and_wrong_type_keeps_the_reason(self):
+        from her_agent.live_sources import LiveChecker
+        class NoRead:
+            async def read(self, source):
+                raise AssertionError("Invalid type must not read a source")
+        self.lookup.checker = LiveChecker(self.bundle.catalog, self.bundle.registry, CLOCK,
+                                          channel=self.lookup.channel, reader=NoRead())
+        turn, _ = await self.say(
+            "NHM今天开放吗？",
+            [call("place_search", {"query": "NHM"})],
+            [call("place_check", {"place_id": "place.nhm", "source_id": "src.nhm.visit",
+                                  "question_type": "opening_hours", "when": "2026-10-31"})],
+            [TextDelta("这次请求类型超出支持范围，无法核实。")],
+        )
+        search = json.loads(self.scripted.sent[1][-1]["content"])
+        self.assertEqual(search["hits"][0]["sources"],
+                         [{"source_id": "src.nhm.visit", "question_types": ["hours", "event", "access"]}])
+        tool = next(t["function"] for t in self.scripted.tool_schemas[1] if t["function"]["name"] == "place_check")
+        properties = tool["parameters"]["properties"]
+        self.assertIn("hours", properties["question_type"]["enum"])
+        self.assertNotIn("opening_hours", properties["question_type"]["enum"])
+        self.assertIn("src.nhm.visit", properties["source_id"]["enum"])
+        self.assertIn("place.nhm", properties["place_id"]["enum"])
+        result = json.loads(self.scripted.sent[2][-1]["content"])
+        self.assertEqual(result["status"], "out_of_scope")
+        self.assertEqual(result["detail"], "source_scope")
+        self.assertIsNone(result["conclusion"])
+        self.assertEqual(turn.source_card["status"], "out_of_scope")
+        self.assertEqual(turn.source_card["citations"], [])
 
     async def test_cancelled_result_never_enters_the_next_turn(self):
         self.scripted.cancel_after_check = True
@@ -238,17 +340,18 @@ class LookupLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, "那就聊做饭。")
         self.assertNotIn(marker, dumped(self.scripted.sent))
 
-    def test_lookup_and_memory_tools_stay_separate(self):
+    def test_lookup_and_memory_tools_can_share_the_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = MemoryStore(
                 Path(tmp) / "memory.sqlite3", character=PACK.id, user="lookup-test", seed=seed_digest(PACK),
             )
             try:
-                with self.assertRaisesRegex(ValueError, "separate loops"):
-                    ConversationRuntime(
-                        PACK, self.scripted, store=store, writer=IdleWriter(),
-                        memory_tools=True, lookup=self.lookup,
-                    )
+                runtime = ConversationRuntime(
+                    PACK, self.scripted, store=store, writer=IdleWriter(),
+                    memory_tools=True, lookup=self.lookup,
+                )
+                self.assertTrue(runtime.memory_tools)
+                self.assertIs(runtime.lookup, self.lookup)
             finally:
                 store.close()
 

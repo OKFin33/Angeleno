@@ -67,17 +67,55 @@ class Prices:
         return int(((prompt - hit) * self.input + hit * self.cache_hit + completion * self.output)
                    .to_integral_value(rounding=ROUND_CEILING))
 
+    def snapshot(self):
+        """Operator-supplied rates, never inferred from the request or provider."""
+        if (not isinstance(self.model, str) or not self.model.strip()
+                or not isinstance(self.currency, str) or self.currency not in {"CNY", "USD"}
+                or not isinstance(self.source, str) or not self.source.strip()):
+            raise ValueError("Explicit model, currency and price evidence required")
+        return {"model": self.model, "currency": self.currency, "source": self.source,
+                **{name: str(decimal_setting(getattr(self, name), name, positive=True))
+                   for name in ("input", "cache_hit", "output")}}
+
+    @classmethod
+    def from_snapshot(cls, snapshot):
+        if not isinstance(snapshot, dict) or set(snapshot) != {
+                "model", "currency", "source", "input", "cache_hit", "output"}:
+            raise ValueError("Invalid request price snapshot")
+        prices = cls(**{**snapshot, **{name: decimal_setting(snapshot[name], name, positive=True)
+                                      for name in ("input", "cache_hit", "output")}})
+        prices.snapshot()
+        return prices
+
 
 class Ledger:
-    def __init__(self, path, prices, *, minimum_balance, carryover, account):
-        self.path, self.prices = Path(path), prices
-        self.minimum = micros(decimal_setting(minimum_balance, "ANGELENO_MIN_BALANCE"))
-        self.carryover = micros(decimal_setting(carryover, "ANGELENO_BUDGET_CARRYOVER"))
-        settings = {"model": prices.model, "currency": prices.currency,
+    @staticmethod
+    def configuration(prices, *, minimum_balance, carryover, account):
+        return {"model": prices.model, "currency": prices.currency,
                     "input": str(prices.input), "cache_hit": str(prices.cache_hit),
                     "output": str(prices.output), "source": prices.source,
-                    "minimum": self.minimum, "carryover": self.carryover,
+                    "minimum": micros(decimal_setting(minimum_balance, "ANGELENO_MIN_BALANCE")),
+                    "carryover": micros(decimal_setting(carryover, "ANGELENO_BUDGET_CARRYOVER")),
                     "account": hashlib.sha256(account.encode()).hexdigest()}
+
+    @classmethod
+    def validate_existing(cls, path, prices, **settings):
+        """Offline preflight: never create/reconcile a ledger or check balance."""
+        path = Path(path)
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("Existing original budget ledger required")
+        with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as db:
+            if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
+                raise ValueError("Not an Angeleno budget ledger; left untouched")
+            row = db.execute("SELECT payload FROM settings WHERE id=1").fetchone()
+            if row is None or json.loads(row[0]) != cls.configuration(prices, **settings):
+                raise ValueError("Existing budget settings differ; explicit reconciliation is required")
+
+    def __init__(self, path, prices, *, minimum_balance, carryover, account):
+        self.path, self.prices = Path(path), prices
+        settings = self.configuration(prices, minimum_balance=minimum_balance,
+                                      carryover=carryover, account=account)
+        self.minimum, self.carryover = settings["minimum"], settings["carryover"]
         if self.path.is_symlink():
             raise ValueError("Budget ledger must not be a symlink")
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -96,7 +134,19 @@ class Ledger:
                 db.execute("INSERT INTO settings VALUES(1,?,NULL)", (json.dumps(settings, sort_keys=True),))
             if json.loads(db.execute("SELECT payload FROM settings WHERE id=1").fetchone()[0]) != settings:
                 raise ValueError("Existing budget settings differ; explicit reconciliation is required")
+            self._ensure_request_prices(db)
         self.path.chmod(0o600)
+
+    @staticmethod
+    def _ensure_request_prices(db):
+        # Transactional, additive migration. NULL means the unchanged historical
+        # global configuration; never backfill/reprice existing rows.
+        if "price_snapshot" not in {row[1] for row in db.execute("PRAGMA table_info(requests)")}:
+            db.execute("ALTER TABLE requests ADD COLUMN price_snapshot TEXT")
+        db.execute("""CREATE TRIGGER IF NOT EXISTS request_prices_immutable
+                      BEFORE UPDATE OF price_snapshot ON requests
+                      WHEN NEW.price_snapshot IS NOT OLD.price_snapshot
+                      BEGIN SELECT RAISE(ABORT, 'Request prices are immutable'); END""")
 
     def connect(self):
         return sqlite3.connect(self.path, timeout=10)
@@ -105,21 +155,52 @@ class Ledger:
         with self.connect() as db:
             return db.execute("SELECT coalesce(sum(estimated_micros),0) FROM requests").fetchone()[0]
 
-    def reserve(self, payload, purpose, balance, settled_before):
+    def request_quote(self, payload, purpose, prices=None):
+        prices = self.prices if prices is None else prices
+        if not isinstance(prices, Prices):
+            raise ValueError("Explicit Prices required")
+        snapshot = prices.snapshot()
+        prices = Prices.from_snapshot(snapshot)
+        if prices.currency != self.prices.currency:
+            raise ValueError("Request prices must use the original account currency")
         if purpose not in {"actor", "maintenance"}:
             raise ValueError("Unknown model request purpose")
-        if payload.get("model") != self.prices.model or payload.get("thinking") != {"type": "disabled"}:
+        if payload.get("model") != prices.model or payload.get("thinking") != {"type": "disabled"}:
             raise ValueError("Request does not match configured non-thinking model prices")
         output = payload.get("max_tokens")
         if type(output) is not int or not 1 <= output <= 2048:
             raise ValueError("Paid output cap must be 1..2048 tokens")
         # UTF-8 bytes bound tokenized text conservatively; reserve extra framing
-        # and the full output cap, without assuming cache or off-peak discounts.
+        # and the full output cap, without assuming cache hits or discounts
+        # beyond the explicitly supplied rates.
         input_bound = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 4096
-        rate = max(self.prices.input, self.prices.cache_hit)
-        reserved = int((input_bound * rate + output * self.prices.output).to_integral_value(rounding=ROUND_CEILING))
+        rate = max(prices.input, prices.cache_hit)
+        reserved = int((input_bound * rate + output * prices.output).to_integral_value(rounding=ROUND_CEILING))
+        return reserved, json.dumps(snapshot, sort_keys=True)
+
+    def reserve(self, payload, purpose, balance, settled_before, *, prices=None):
+        reserved, snapshot = self.request_quote(payload, purpose, prices)
+        return self._reserve(reserved, purpose, balance, settled_before, price_snapshot=snapshot)
+
+    def reserve_web(self, purpose, balance, settled_before, request_limit):
+        if purpose not in {"web_search", "web_fetch"} or self.prices.currency != "CNY":
+            raise ValueError("Web requests require explicit CNY pricing")
+        if request_limit != "account" and (type(request_limit) is not int or request_limit < 1):
+            raise ValueError("Explicit positive cumulative web request limit or account policy required")
+        # Official 2026-10-31 tariff: CNY .005 per nonempty response. Unknown
+        # outcomes retain the full reserve; the existing account ledger is used.
+        # A current account-use authorization may supersede a historical batch.
+        # It does not reset any rows, unknown reserves, floor or fresh balance.
+        return self._reserve(5000, purpose, balance, settled_before,
+                             None if request_limit == "account" else request_limit)
+
+    def _reserve(self, reserved, purpose, balance, settled_before, web_limit=None, *, price_snapshot=None):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if web_limit is not None:
+                count = db.execute("SELECT count(*) FROM requests WHERE purpose IN ('web_search','web_fetch')").fetchone()[0]
+                if count >= web_limit:
+                    raise BudgetExceeded("Authorized web request batch exhausted; no request sent")
             # The provider's fresh balance is the source for already billed work.
             # Deduct unknown/cancelled usage plus requests that were not settled
             # before this GET. Known usage is an estimate for audit, never a
@@ -130,23 +211,46 @@ class Ledger:
             if balance - outstanding - self.carryover - reserved < self.minimum:
                 db.commit()
                 raise BudgetExceeded("Insufficient verified balance after reservations; no paid request sent")
-            result = db.execute("INSERT INTO requests(created,purpose,reserved_micros,status) VALUES(?,?,?,?)",
-                                (datetime.now(timezone.utc).isoformat(), purpose, reserved, "reserved"))
+            result = db.execute("INSERT INTO requests(created,purpose,reserved_micros,status,price_snapshot) VALUES(?,?,?,?,?)",
+                                (datetime.now(timezone.utc).isoformat(), purpose, reserved, "reserved", price_snapshot))
             return result.lastrowid
 
-    def finish(self, request_id, usage, status, http_status=None):
-        fields = None
-        if isinstance(usage, dict):
-            prompt, completion, hit = (usage.get(k) for k in
-                                       ("prompt_tokens", "completion_tokens", "prompt_cache_hit_tokens"))
-            if all(type(value) is int and value >= 0 for value in (prompt, completion, hit)) and hit <= prompt:
-                fields = (self.prices.cost(prompt, completion, hit), prompt, completion, hit)
+    def finish_web(self, request_id, *, charged, status, http_status=None):
+        # No prompt or URL is stored. Zero tokens indicate request pricing,
+        # while estimated_micros NULL preserves uncertain billing after cancel.
         with self.connect() as db:
-            if fields is None:
-                db.execute("UPDATE requests SET status=?,http_status=? WHERE id=?", (status, http_status, request_id))
-            else:
-                db.execute("UPDATE requests SET estimated_micros=?,prompt_tokens=?,completion_tokens=?,cache_hit_tokens=?,status=?,http_status=? WHERE id=?",
-                           (*fields, status, http_status, request_id))
+            row = db.execute("SELECT purpose,reserved_micros FROM requests WHERE id=?", (request_id,)).fetchone()
+            if row is None or row[0] not in {"web_search", "web_fetch"}:
+                raise ValueError("Not a web reservation")
+            cost = None if charged is None else row[1] if charged else 0
+            db.execute("UPDATE requests SET estimated_micros=?,status=?,http_status=?,prompt_tokens=?,completion_tokens=?,cache_hit_tokens=? WHERE id=?",
+                       (cost,status,http_status,*((None,)*3 if charged is None else (0,)*3),request_id))
+
+    def finish(self, request_id, usage, status, http_status=None):
+        if not isinstance(status, str) or not status or status == "reserved":
+            raise ValueError("Terminal request status required")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("""SELECT purpose,status,price_snapshot,estimated_micros,
+                                prompt_tokens,completion_tokens,cache_hit_tokens,http_status
+                                FROM requests WHERE id=?""", (request_id,)).fetchone()
+            if row is None or row[0] not in {"actor", "maintenance"}:
+                raise ValueError("Not a model reservation")
+            prices = self.prices if row[2] is None else Prices.from_snapshot(json.loads(row[2]))
+            if prices.currency != self.prices.currency:
+                raise ValueError("Request snapshot currency differs from account")
+            fields = (None,) * 4
+            if isinstance(usage, dict):
+                prompt, completion, hit = (usage.get(k) for k in
+                                           ("prompt_tokens", "completion_tokens", "prompt_cache_hit_tokens"))
+                if all(type(value) is int and value >= 0 for value in (prompt, completion, hit)) and hit <= prompt:
+                    fields = (prices.cost(prompt, completion, hit), prompt, completion, hit)
+            if row[1] != "reserved":
+                if (row[1], *row[3:]) != (status, *fields, http_status):
+                    raise ValueError("Request already settled differently; left untouched")
+                return
+            db.execute("UPDATE requests SET estimated_micros=?,prompt_tokens=?,completion_tokens=?,cache_hit_tokens=?,status=?,http_status=? WHERE id=?",
+                       (*fields, status, http_status, request_id))
 
     def summary(self):
         with self.connect() as db:
@@ -161,10 +265,25 @@ class Ledger:
 
 
 class PaidBudget:
-    def __init__(self, ledger, api_key):
-        self.ledger, self.api_key = ledger, api_key
+    """Default Flash path is unchanged; an isolated caller may supply Prices.
+
+    request_prices affects only new model reservations, not the ledger's account
+    configuration, old rows, Web prices, or previously bound reservations.
+    """
+    def __init__(self, ledger, api_key, *, request_prices=None):
+        self.ledger, self.api_key, self.request_prices = ledger, api_key, request_prices
 
     async def reserve(self, client, payload, purpose):
+        # Reject mismatched experimental prices before even a balance GET.
+        self.ledger.request_quote(payload, purpose, self.request_prices)
+        balance, settled = await self._balance(client)
+        return self.ledger.reserve(payload, purpose, balance, settled, prices=self.request_prices)
+
+    async def reserve_web(self, client, purpose, request_limit):
+        balance, settled = await self._balance(client)
+        return self.ledger.reserve_web(purpose, balance, settled, request_limit)
+
+    async def _balance(self, client):
         settled = self.ledger.settled_before_check()
         try:
             response = await client.get("https://api.deepseek.com/user/balance",
@@ -181,7 +300,7 @@ class PaidBudget:
         except Exception:
             # HTTP errors may contain account information. Never emit their body.
             raise BudgetExceeded("Account balance is unknown or unavailable; no paid request sent") from None
-        return self.ledger.reserve(payload, purpose, balance, settled)
+        return balance, settled
 
     def finish(self, *args, **kwargs):
         self.ledger.finish(*args, **kwargs)

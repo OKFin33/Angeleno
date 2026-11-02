@@ -12,6 +12,7 @@ LA_ZONE = "America/Los_Angeles"
 CHANNEL = "source_status"
 PARSER_ID = "places.extract.v1"
 STATUSES = frozenset({
+    "evidence",
     "supported",
     "insufficient",
     "conflict",

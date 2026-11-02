@@ -15,10 +15,17 @@ from worker.audio_budget import configured_allowance
 from worker.energy_vad import EnergyVAD
 from worker.paraformer_stt import ParaformerSTT
 from worker.voxcpm_tts import VoxCPMHttpTTS
+from her_agent.voice_timing import tagged_tts, configured_prefetch_frames
 
 
 class VoiceAgent(Agent):
     def __init__(self, instructions, *, llm_instance, env):
+        self.bridge = llm_instance.bridge
+        self.tts_prefetch_frames = configured_prefetch_frames(env)
+        self.voice_tts = VoxCPMHttpTTS(
+            url=env['VOXCPM_URL'], voice='jo',
+            paid_enabled=env.get('ANGELENO_PAID_ENABLED') == '1',
+        )
         super().__init__(
             instructions=instructions,
             llm=llm_instance,
@@ -28,13 +35,13 @@ class VoiceAgent(Agent):
                 allowance=configured_allowance(env),
                 paid_enabled=env.get('ANGELENO_PAID_ENABLED') == '1',
             ),
-            tts=VoxCPMHttpTTS(
-                url=env['VOXCPM_URL'], voice='jo',
-                paid_enabled=env.get('ANGELENO_PAID_ENABLED') == '1',
-            ),
+            tts=self.voice_tts,
             vad=EnergyVAD(speech_threshold=500, silence_threshold=200,
                           min_speech_duration=0.4, min_silence_duration=0.5),
         )
+
+    def tts_node(self, text, model_settings):
+        return tagged_tts(text, self.bridge, self.voice_tts, prefetch_frames=self.tts_prefetch_frames)
 
 
 def main():
@@ -46,6 +53,8 @@ def main():
     if errors:
         raise ValueError('; '.join(errors))
     validate_voice_setup(env)
+    from worker.reference import check_jo_endpoint
+    check_jo_endpoint(env)  # Before agent/ASR construction or joining a user room.
     os.environ.update(env)
     server = AgentServer(job_executor_type=JobExecutorType.THREAD,
                          initialize_process_timeout=60,

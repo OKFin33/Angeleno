@@ -16,7 +16,7 @@ def _user_utterance(turn):
     raise ValueError("A nonempty user utterance is required")
 
 
-def open_store(root, pack, user, *, create=False, data_dir=None):
+def open_store(root, pack, user, *, create=False, data_dir=None, purpose=None):
     if not user or not re.fullmatch(r"[a-z0-9_-]{1,64}", user):
         raise ValueError("Memory identity must use 1–64 lowercase letters, digits, _ or -")
     root = Path(root)
@@ -29,13 +29,26 @@ def open_store(root, pack, user, *, create=False, data_dir=None):
         raise ValueError("Memory path must remain inside the configured data directory")
     if not create and not path.exists():
         raise ValueError("No memory exists for this character/user")
-    return MemoryStore(path, character=pack.id, user=user, seed=seed_digest(pack))
+    return MemoryStore(path, character=pack.id, user=user, seed=seed_digest(pack), purpose=purpose)
+
+
+def non_action_opening(text):
+    """A narrow phatic-input gate, not a general natural-language intent parser.
+
+    A greeting/ack alone cannot authorize a task inherited from another call.
+    Additional substantive words fall through to ordinary autonomous behavior.
+    """
+    import unicodedata
+    value = ''.join(c for c in text.casefold() if not c.isspace() and unicodedata.category(c)[0] not in {'P','S'})
+    phatic = r'(?:hello|hi|hey|ya|yeah|yes|okay|ok|你好|您好|嗨|嘿|欸|诶|嗯哼|嗯|啊|呀|好|行|对|是的|你在吗|在吗|我刚忙完|刚忙完|我回来了|陪我说两句|陪我聊聊|随便聊聊)'
+    return bool(value and re.fullmatch(phatic+'+',value))
 
 
 @dataclass
 class Turn:
     messages: list
     temporary: bool = False
+    suppress_old_tools: bool = False
     user_seq: int | None = None
     generated: list = field(default_factory=list)
     generation_complete: bool = False
@@ -50,24 +63,26 @@ class ConversationRuntime:
     """
 
     def __init__(self, pack, provider, *, store=None, writer=None, variant="guided",
-                 memory_tools=False, lookup=None):
+                 memory_tools=False, lookup=None, attribution_check=False):
+        if type(attribution_check) is not bool or (attribution_check and store is None):
+            raise ValueError('Attribution check requires an explicit boolean and persistent memory')
         if memory_tools and store is None:
             raise ValueError("Memory tools require a persistent identity")
-        if lookup is not None and memory_tools:
-            raise ValueError("Text lookup and memory tools stay on separate loops")
         if store is not None and writer is None:
             raise ValueError("Persistent conversation requires a maintenance provider")
         self.pack, self.provider, self.store, self.writer = pack, provider, store, writer
         self.variant, self.memory_tools = variant, memory_tools
         self.lookup = lookup
+        self.voice_output = False  # Set only by the voice adapter, never user text.
         self._lookup_turns = 0
         self.conversation = Conversation(pack, store, variant=variant) if store else None
-        self.maintainer = Maintainer(store, pack, writer) if store else None
+        self.maintainer = Maintainer(store, pack, writer, attribution_check=attribution_check) if store else None
         self.history, self.temporary_history = [], []
         self.temporary = False
         self.completed = 0
         self.active = None
         self.closed = False
+        self._current_call_topic = False
 
     def set_temporary(self, enabled):
         self.temporary = enabled
@@ -89,7 +104,13 @@ class ConversationRuntime:
             messages = self.conversation.begin(user)
         else:
             messages = self.pack.messages([*self.history, {"role": "user", "content": user}], self.variant)
-        turn = Turn(messages, temporary=self.temporary,
+        phatic = non_action_opening(user)
+        suppress_old_tools = not self._current_call_topic and phatic
+        if not phatic:
+            self._current_call_topic = True
+        if suppress_old_tools:
+            messages[0]["content"] += "\n[本次通话输入边界]对方目前只在寒暄或附和，尚未在这次通话提出或明确续接旧任务。旧任务记录是历史，不是待执行指令；自然接话，必要时澄清，不能声称已经新查证。"
+        turn = Turn(messages, temporary=self.temporary, suppress_old_tools=suppress_old_tools,
                     user_seq=self.store.current_turn(self.conversation.session)
                     if self.store and not self.temporary else None)
         self.active = turn
@@ -98,7 +119,9 @@ class ConversationRuntime:
     async def stream(self, turn):
         if turn is not self.active or turn.settled or self.closed:
             raise ValueError("Inactive conversation turn")
-        if self.lookup is not None:
+        if turn.suppress_old_tools:
+            iterator = self.provider.chat(turn.messages)
+        elif self.lookup is not None:
             from .lookup import reply as lookup_reply
             utterance = _user_utterance(turn)
             if self.conversation is not None:
@@ -113,6 +136,8 @@ class ConversationRuntime:
             iterator = lookup_reply(
                 self.lookup, self.provider, turn.messages, session_id=session_id,
                 user_turn=user_turn, utterance=utterance, turn=turn,
+                store=self.store if self.memory_tools else None, user_seq=turn.user_seq,
+                voice_output=self.voice_output,
             )
         elif self.memory_tools:
             from .memory_tools import reply
@@ -131,6 +156,8 @@ class ConversationRuntime:
             turn.generation_complete = True
         finally:
             await iterator.aclose()
+            if self.lookup is not None and not turn.generation_complete:
+                self.lookup.cancel_pending()
 
     def delivered(self, turn, text, *, complete=False):
         if turn.settled:
@@ -147,7 +174,7 @@ class ConversationRuntime:
                                           {"role": "assistant", "content": text}][-20:]
         elif text:
             self.history = [*turn.messages[1:], {"role": "assistant", "content": text}]
-        if (self.lookup is not None and self.store is not None and complete and text
+        if (self.lookup is not None and not turn.suppress_old_tools and self.store is not None and complete and text
                 and not turn.temporary):
             self.lookup.record_if_delivered(
                 self.store, getattr(turn, "lookup_session", None),

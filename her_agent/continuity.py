@@ -3,8 +3,9 @@
 import asyncio
 from dataclasses import asdict
 import json
+import math
 
-from .memory import new_session
+from .memory import StaleBatch, new_session
 from .author import MAX_REQUEST_CHARS
 
 
@@ -40,13 +41,33 @@ batch.events 是待整理交流，record_evidence 是旧记录直接引用的完
 用户“下周日”等保留原表达，必要时在 text 写明“用户于<原created时间>说‘下周日’”；维护器换算不是用户确认的活动日期。明确日期同样看原话的提问、否认或假设性质。角色推算若有保留价值，只记作角色解释并引她的发言。
 前台 record_sources 是每条记录全部引用的时间范围，不是分句时间锚。需要精确锚的内容在 text 保留实际来源，不用多源范围猜日期。
 排练、作息或作者规则不证明本次发生过某事；人物说法与作者/日期冲突时可保留说错及确实发生的纠正，不登记为兼容近况，不编造纠正。
+evidence_domains 区分原话来源，lookup_sources 是程序提供的已交付查询记录，不是演员或网页的自我认证。
+查证、取得摘要或读取正文只沿 lookup_sources 中关联 assistant_seq/request_id/source_id 的记录、状态、日期和 claim_kind；
+Search摘要不升成Fetch正文，evidence不升成事实确认，历史或回放不升成本次实时读取。缺记录/旧记录缺等级只表示该范围未留证，不断言从未尝试。
+source_context_status为synthetic_fixture时，即使URL是官方域名、status为supported且有checked_at，也只是合成契约结果；unknown不按URL/状态/日期猜成真实读取。live_http_page只证明读取，仍不认证事实真值。
+作者grounding的来源等级与as_of属于作者历史资料；角色说“我查过”只证明说过这句话。没有对应程序证据时，不将它写成真实查询事实；必要时按原来源记为角色说法。
+作者明确的虚构人生和既定过去仍按作者来源成立，包括自己的既定经历；新检索不能赋予亲历，也不能因此编造真实用户经历或共同约定。
+用户事实只沿 user_utterances 指向的完整用户原话。演员解释、含混指代及可选建议不变成用户确认；没有用户原话支持的性别、住处、习惯等不补出，称“用户”。
+明确纠正保留原意思，不把“没那么吸引”扩大成完全排除；对“这个/那里”的未确认解释只记用户原话/问题或保留未定，不替用户选一个对象。
 """
 
 
-def maintenance_messages(pack, batch, record_evidence):
+def maintenance_messages(pack, batch, record_evidence, lookup_sources=None):
     """One evidence-first request; author prose remains complete check material."""
     payload = {"batch": asdict(batch), "record_evidence": record_evidence,
                "author_material": pack.maintenance_material()}
+    events = {event["seq"]: event for event in (*record_evidence, *batch.events)}
+    payload["evidence_domains"] = {
+        "user_utterances": sorted(seq for seq, event in events.items() if event["role"] == "user"
+                                  and event["delivery"] == "complete"),
+        "delivered_agent_utterances": sorted(seq for seq, event in events.items() if event["role"] == "assistant"
+                                            and event["delivery"] == "complete"),
+        "interrupted_agent_utterances": sorted(seq for seq, event in events.items() if event["role"] == "assistant"
+                                              and event["delivery"] != "complete"),
+        "author_material": {"origin": "author_not_current_tool_execution", "as_of": pack.as_of},
+    }
+    payload["lookup_sources"] = lookup_sources if lookup_sources is not None else {
+        "coverage": "not_supplied", "results": [], "missing_record": "unknown"}
     return [{"role": "system", "content": MAINTAIN + SOURCE_MAINTENANCE},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
 
@@ -75,22 +96,48 @@ def normalize_replacements(proposal, batch):
 
 
 class Maintainer:
-    def __init__(self, store, pack, provider):
+    def __init__(self, store, pack, provider, *, attribution_check=False):
+        if type(attribution_check) is not bool:
+            raise ValueError("Attribution candidate flag must be explicit")
         self.store, self.pack, self.provider = store, pack, provider
+        self.attribution_check = attribution_check  # experimental; production default unchanged
+        seconds = getattr(provider, "timeout_s", 30.0)
+        if attribution_check and (type(seconds) not in {int, float} or not math.isfinite(seconds) or seconds <= 0):
+            raise ValueError("Finite existing writer timeout required")
+        self._attribution_seconds = min(seconds, 30.0) if attribution_check else None
         self.task = None
         self.error = None
         self.last_attempt = None
 
     async def once(self):
+        if self.attribution_check:
+            try:
+                # One conservative total budget for both calls, not a fresh
+                # provider timeout for the extra stage. Existing caller close5s
+                # or comparison10s cancellation still takes precedence.
+                async with asyncio.timeout(self._attribution_seconds):
+                    return await self._once()
+            except TimeoutError:
+                self.error = "TimeoutError"
+                if self.last_attempt is not None:
+                    self.last_attempt.update(status="rejected", error=self.error)
+                return False
+        return await self._once()
+
+    async def _once(self):
         self.last_attempt = None
         try:
             batch = self.store.batch()
             if batch is None:
                 return False
-            messages = maintenance_messages(self.pack, batch, self.store.record_evidence(batch.records))
+            evidence = self.store.record_evidence(batch.records)
+            messages = maintenance_messages(self.pack, batch, evidence,
+                self.store.maintenance_lookup_sources((*evidence, *batch.events)))
             if sum(len(m["content"]) for m in messages) > MAX_REQUEST_CHARS:
                 raise ValueError("Maintenance sources exceed the input budget; inspect memory explicitly")
             pieces = [piece async for piece in self.provider.chat(messages, temperature=0.2)]
+            if self.attribution_check and asyncio.current_task().cancelling():
+                raise asyncio.CancelledError
             text = "".join(pieces)
             if len(text) > 40_000:
                 raise ValueError("Maintenance output is too large")
@@ -99,10 +146,33 @@ class Maintainer:
             self.last_attempt = {"revision": batch.revision, "watermark": batch.watermark,
                                  "through": batch.through, "original_proposal": proposal,
                                  "normalized_card_replacements": replacements, "status": "prepared"}
+            if self.attribution_check:
+                from .attribution import prepare_check, validate_check
+                if self.store.revision != batch.revision or self.store.watermark != batch.watermark:
+                    raise StaleBatch("Memory changed before attribution check; no extra request")
+                check = prepare_check(normalized, batch, evidence)
+                if check is not None:
+                    check_messages, payload = check
+                    self.last_attempt["phase"] = "attribution"
+                    chunks = [piece async for piece in self.provider.chat(check_messages, temperature=0.2)]
+                    checked_text = "".join(chunks)
+                    if len(checked_text) > 40_000:
+                        raise ValueError("Attribution verdict is too large")
+                    result = json.loads(checked_text)
+                    self.last_attempt["attribution_result"] = result
+                    validate_check(result, payload)
+            if self.attribution_check and asyncio.current_task().cancelling():
+                raise asyncio.CancelledError  # a cancellation-insensitive checker cannot commit late
             self.store.apply(batch, normalized)
             self.last_attempt["status"] = "committed"
             self.error = None
             return True
+        except asyncio.CancelledError:
+            if self.attribution_check:
+                self.error = "CancelledError"
+                if self.last_attempt is not None:
+                    self.last_attempt["status"] = "cancelled"
+            raise
         except Exception as exc:
             # Retain unprocessed evidence. No automatic retry or fallback memory.
             self.error = type(exc).__name__
@@ -112,6 +182,8 @@ class Maintainer:
             return False
 
     def schedule(self):
+        if self.attribution_check and self.error is not None:
+            return  # no background retry of a rejected/cancelled candidate
         if self.task is None or self.task.done():
             self.task = asyncio.create_task(self.once())
 
@@ -137,10 +209,17 @@ class Conversation:
         self.pack, self.store, self.variant = pack, store, variant
         self.session = new_session()
 
+    @staticmethod
+    def _sourced_history(context, history):
+        # Internal seq annotations move with the exact raw message through the
+        # compiler's final window/leading-assistant trim; never sent on the wire.
+        return [{**message, "_source_seq": source["seq"]}
+                for message, source in zip(history, context["history_sources"], strict=True)]
+
     def begin(self, user):
         turn = self.store.append(self.session, "user", user)
         context, history = self.store.context(self.session, user)
-        messages = self.pack.messages(history, self.variant, memory_context=context)
+        messages = self.pack.messages(self._sourced_history(context, history), self.variant, memory_context=context)
         self.store.capture_input(turn, context)
         return messages
 
@@ -152,4 +231,5 @@ class Conversation:
         query = history[-1]["content"]
         context, public = self.store.context(self.session, query)
         context["temporary_mode"] = "本段临时对话不保存、不整理；退出后不会作为持久记忆继续使用。"
-        return self.pack.messages([*public, *history], self.variant, memory_context=context)
+        return self.pack.messages([*self._sourced_history(context, public), *history],
+                                  self.variant, memory_context=context)
