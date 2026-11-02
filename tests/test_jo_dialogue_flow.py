@@ -1,11 +1,11 @@
 """Dialogue policy/data flow only: scripted text is not model-quality evidence."""
 import json
 import unittest
-from her_agent.author import reading_sections
-from her_agent.provider import TextDelta
-from her_agent.runtime import ConversationRuntime
-from her_agent.voice import VoiceBridge
-from her_agent.web_lookup import WebLookup, WebFailure
+from angeleno.author import reading_sections
+from angeleno.provider import TextDelta
+from angeleno.runtime import ConversationRuntime
+from angeleno.voice import VoiceBridge
+from angeleno.web_lookup import WebLookup, WebFailure
 from test_lookup import CLOCK, PACK, Scripted, call
 
 

@@ -5,13 +5,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from her_agent.author import assistant_control_pack, load_pack, reading_sections
-from her_agent.baseline import author_instructions
-from her_agent.language import configured_language
-from her_agent.memory import seed_digest
-from her_agent.runtime import ConversationRuntime, open_store
-from worker.paraformer_stt import ParaformerSTT
-from worker.voxcpm_tts import _split_with_remainder
+from angeleno.author import assistant_control_pack, load_pack, reading_sections
+from angeleno.baseline import author_instructions
+from angeleno.language import configured_language
+from angeleno.memory import seed_digest
+from angeleno.runtime import ConversationRuntime, open_store
+from angeleno.worker.paraformer_stt import ParaformerSTT
+from angeleno.worker.voxcpm_tts import _split_with_remainder
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,8 +56,8 @@ class LanguageTests(unittest.TestCase):
 class LanguagePreflightTests(unittest.TestCase):
     def test_development_memory_override_is_used_without_moving_account_ledgers(self):
         from test_voice_runner import configuration
-        from scripts.run_voice import check_configuration
-        from her_agent.baseline import configured_pack
+        from angeleno.launcher import check_configuration
+        from angeleno.baseline import configured_pack
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);env=configuration(root)
             env.update(ANGELENO_MEMORY_CREATE='0',ANGELENO_MEMORY_USER='dev-language',
@@ -73,7 +73,7 @@ class ASRLanguageTests(unittest.IsolatedAsyncioTestCase):
         from livekit.agents import stt
         owner=ParaformerSTT(api_key='synthetic',url='ws://127.0.0.1:1',language='en')
         # Construct streams without opening sockets; run-task and emit_result are pure adapter seams.
-        with patch('worker.paraformer_stt.ParaformerStream._run', return_value=None):
+        with patch('angeleno.worker.paraformer_stt.ParaformerStream._run', return_value=None):
             for language,hints in [('en',['en','zh']),('zh',['zh','en'])]:
                 stream=owner.stream(language=language)
                 params=stream.message('run-task')['payload']['parameters']

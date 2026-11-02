@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock
 
 import httpx
 
-from her_agent.places import FixedClock
-from her_agent.provider import TextDelta
-from her_agent.runtime import ConversationRuntime
-from her_agent.lookup import LookupObservationMissing
-from her_agent.web_lookup import DeepSeekWeb, RecordedWebResult, SourceAssertion, WebLookup
+from angeleno.places import FixedClock
+from angeleno.provider import TextDelta
+from angeleno.runtime import ConversationRuntime
+from angeleno.lookup import LookupObservationMissing
+from angeleno.web_lookup import DeepSeekWeb, RecordedWebResult, SourceAssertion, WebLookup
 from test_budget import budget_env, balance_response, mocked_providers
 from test_lookup import PACK, Scripted, call
 from test_web_lookup import FakeWeb, RESULT

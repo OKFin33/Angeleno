@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 
-from her_agent.voice_cards import VoiceCards, TOPIC
-from her_agent.web_lookup import WebLookup, WebFailure
+from angeleno.voice_cards import VoiceCards, TOPIC
+from angeleno.web_lookup import WebLookup, WebFailure
 from test_lookup import CLOCK
 from test_web_lookup import FakeWeb, RESULT, URL
 
@@ -32,7 +32,7 @@ class WebCardFailureTests(unittest.IsolatedAsyncioTestCase):
         _, searched, _=await self.search(service)
         service.remaining_seconds=.02
         selected=searched.citations[1].source_id
-        with patch('her_agent.web_lookup.emit') as emit:
+        with patch('angeleno.web_lookup.emit') as emit:
             payload,card,intent=await self.fetch(service,selected)
         self.assertEqual(card.status,'unavailable')
         self.assertEqual(card.citations,searched.citations)

@@ -4,8 +4,8 @@ import io
 from contextlib import redirect_stderr
 from unittest.mock import Mock, patch
 import unittest
-from worker.reference import expected_jo_reference, validate_jo_health, check_jo_endpoint, _NoRedirect
-from worker.reference import ReferenceConfigurationError
+from angeleno.worker.reference import expected_jo_reference, validate_jo_health, check_jo_endpoint, _NoRedirect
+from angeleno.worker.reference import ReferenceConfigurationError
 
 
 def env():
@@ -28,7 +28,7 @@ class ReferenceWorkerTests(unittest.TestCase):
     def test_missing_declaration_never_opens_endpoint(self):
         for key in ('VOXCPM_REFERENCE_PURPOSE','VOXCPM_REFERENCE_ID','VOXCPM_REFERENCE_SHA256'):
             value=env();value.pop(key)
-            with patch('worker.reference.build_opener',side_effect=AssertionError('no network')):
+            with patch('angeleno.worker.reference.build_opener',side_effect=AssertionError('no network')):
                 with self.assertRaises(ValueError):check_jo_endpoint(value)
         for purpose in ('diagnostic','',None):
             with self.assertRaises(ValueError):expected_jo_reference({**env(),'VOXCPM_REFERENCE_PURPOSE':purpose})
@@ -46,11 +46,11 @@ class ReferenceWorkerTests(unittest.TestCase):
         response=Mock(status=200);response.read.return_value=json.dumps(health()).encode()
         response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False)
         opener=Mock();opener.open.return_value=response
-        with patch('worker.reference.build_opener',return_value=opener):check_jo_endpoint(env())
+        with patch('angeleno.worker.reference.build_opener',return_value=opener):check_jo_endpoint(env())
         opener.open.assert_called_once_with('http://127.0.0.1:18080/health',timeout=3)
         self.assertIsNone(_NoRedirect().redirect_request(None,None,None,None,None,None))
         response.read.return_value=b'invalid'
-        with patch('worker.reference.build_opener',return_value=opener):
+        with patch('angeleno.worker.reference.build_opener',return_value=opener):
             with self.assertRaisesRegex(ValueError,'startup stopped'):check_jo_endpoint(env())
 
 
@@ -63,15 +63,15 @@ class OptimizationContractTests(unittest.TestCase):
         validate_jo_health(compiled,{**health(),'optimization_active':True})
         with self.assertRaisesRegex(ValueError,'Expected eager'):
             validate_jo_health(env(),{**health(),'optimization_active':True})
-        with patch('worker.reference.build_opener',side_effect=AssertionError('No endpoint')):
+        with patch('angeleno.worker.reference.build_opener',side_effect=AssertionError('No endpoint')):
             with self.assertRaisesRegex(ValueError,'VOXCPM_COMPILE'):check_jo_endpoint({**env(),'VOXCPM_COMPILE':'auto'})
 
     def test_candidate_failure_precedes_ASR_and_agent_creation(self):
-        from worker import agent
+        from angeleno.worker import agent
         with patch.object(agent,'load_env',return_value={**env(),'VOXCPM_COMPILE':'1'}), \
-             patch('scripts.run_voice.check_configuration',return_value=[]), \
+             patch('angeleno.launcher.check_configuration',return_value=[]), \
              patch.object(agent,'validate_voice_setup'), \
-             patch('worker.reference.check_jo_endpoint',side_effect=ValueError('compiled not ready')), \
+             patch('angeleno.worker.reference.check_jo_endpoint',side_effect=ValueError('compiled not ready')), \
              patch.object(agent,'AgentServer') as server, patch.object(agent,'ParaformerSTT') as asr:
             with self.assertRaisesRegex(ValueError,'not ready'):agent.main()
             server.assert_not_called();asr.assert_not_called()

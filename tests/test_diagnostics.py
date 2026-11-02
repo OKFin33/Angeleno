@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
-from her_agent import diagnostics
-from worker.voxcpm_tts import VoxCPMHttpTTS, _VoxCPMSynthesizeStream
+from angeleno import diagnostics
+from angeleno.worker.voxcpm_tts import VoxCPMHttpTTS, _VoxCPMSynthesizeStream
 
 
 class ReceiptTests(unittest.TestCase):
@@ -90,7 +90,7 @@ class TTSReceiptTests(unittest.IsolatedAsyncioTestCase):
         tts._ensure_session = AsyncMock(return_value=SimpleNamespace(post=Mock(return_value=Response())))
         async def tokens():yield 'public synthetic sentence.'
         stream = SimpleNamespace(_vox=tts, _input_ch=tokens())
-        with patch('worker.voxcpm_tts.emit') as emit:
+        with patch('angeleno.worker.voxcpm_tts.emit') as emit:
             if cancel:
                 with self.assertRaises(asyncio.CancelledError):
                     await _VoxCPMSynthesizeStream._run(stream, Mock())

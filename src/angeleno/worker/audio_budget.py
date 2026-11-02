@@ -5,7 +5,7 @@ from pathlib import Path
 import sqlite3
 from urllib.parse import urlparse
 
-ROOT = Path(__file__).resolve().parents[1]
+from angeleno.paths import ROOT
 
 
 class BudgetExceeded(RuntimeError):
@@ -80,14 +80,13 @@ def asr_settings(env, *, root=ROOT):
         raise ValueError("ANGELENO_ASR_MAX_SECONDS must be an explicit positive integer") from exc
     if seconds < 1:
         raise ValueError("ANGELENO_ASR_MAX_SECONDS must be positive")
-    data_dir = Path(env.get("ANGELENO_DATA_DIR", "private/state"))
-    if not data_dir.is_absolute():
-        data_dir = Path(root) / data_dir
+    from angeleno.paths import data_directory
+    data_dir = data_directory(env, root=root)
     path = Path(env.get("ANGELENO_ASR_LEDGER", str(data_dir / "asr.sqlite3")))
     if not path.is_absolute():
         path = Path(root) / path
-    if not path.resolve().is_relative_to((Path(root) / "private").resolve()):
-        raise ValueError("ANGELENO_ASR_LEDGER must remain inside this repository's private directory")
+    if not path.resolve().is_relative_to(data_dir.resolve()):
+        raise ValueError("ANGELENO_ASR_LEDGER must remain inside ANGELENO_DATA_DIR")
     return path, seconds
 
 

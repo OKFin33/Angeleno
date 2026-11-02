@@ -7,7 +7,7 @@ import unittest
 
 import httpx
 
-from her_agent.provider import DeepSeekChatStream
+from angeleno.provider import DeepSeekChatStream
 
 
 class OfflineBudget:

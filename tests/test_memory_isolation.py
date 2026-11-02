@@ -4,8 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from her_agent.memory import MemoryStore
-from her_agent.runtime import ConversationRuntime, open_store, non_action_opening
+from angeleno.memory import MemoryStore
+from angeleno.runtime import ConversationRuntime, open_store, non_action_opening
 
 class Pack:
     id='fixture'
@@ -76,7 +76,7 @@ class RoutingTests(unittest.IsolatedAsyncioTestCase):
             s.append('old','user','有空再看河岸摄影展，先不查')
             rt=ConversationRuntime(Pack(),provider,store=s,writer=Provider(),lookup=Lookup())
             called=[]
-            with patch('her_agent.lookup.reply',reply):
+            with patch('angeleno.lookup.reply',reply):
                 t=rt.begin('嗯哼，刚忙完');text=''.join([x async for x in rt.stream(t)]);rt.delivered(t,text,complete=True)
                 self.assertFalse(called);self.assertEqual(len(provider.calls),1)
                 t=rt.begin('图书馆今晚时间，看看吧');text=''.join([x async for x in rt.stream(t)]);rt.delivered(t,text,complete=True)
@@ -85,7 +85,7 @@ class RoutingTests(unittest.IsolatedAsyncioTestCase):
                 rt.delivered(t,text,complete=True)
             await rt.close(flush=False)
             s=open_store(tmp,Pack(),'u',purpose='real_user');rt=ConversationRuntime(Pack(),provider,store=s,writer=Provider(),lookup=Lookup())
-            with patch('her_agent.lookup.reply',reply):
+            with patch('angeleno.lookup.reply',reply):
                 t=rt.begin('接着看昨天那个河岸摄影展，找周末场次');text=''.join([x async for x in rt.stream(t)]);rt.delivered(t,text,complete=True)
                 self.assertEqual(called[-1],'接着看昨天那个河岸摄影展，找周末场次')
             await rt.close(flush=False)

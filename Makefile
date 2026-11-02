@@ -1,7 +1,7 @@
-# Offline gate: baseline commands, diff check, and negative path self-check.
-.PHONY: verify sync diff-check gate tests gpu page preview demo
+# Application checks: locked dependencies, regressions, assets and installed commands.
+.PHONY: verify sync diff-check gate tests gpu page preview demo install-check
 
-verify: sync diff-check gate tests gpu page preview demo
+verify: sync diff-check gate tests gpu page preview demo install-check
 
 sync:
 	uv sync --locked --group dev
@@ -23,7 +23,10 @@ page:
 	node tests/test_call_page.js web/index.html
 
 preview:
-	.venv/bin/python -S -B -m her_agent preview --env-file .env.example
+	.venv/bin/angeleno preview --env-file .env.example
 
 demo:
-	.venv/bin/python -m her_agent.demo
+	.venv/bin/python -m angeleno.demo
+
+install-check:
+	.venv/bin/python scripts/check_installation.py

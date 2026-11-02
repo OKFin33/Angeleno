@@ -12,7 +12,7 @@ from .config import flag, load_env, resolve_path
 from .runtime import ConversationRuntime, open_store
 
 
-ROOT = Path(__file__).resolve().parent.parent
+from angeleno.paths import ROOT
 
 
 def open_memory(args, pack, *, create=False):
@@ -22,11 +22,10 @@ def open_memory(args, pack, *, create=False):
     return open_store(ROOT, pack, user, create=create, data_dir=getattr(args, "data_dir", None), purpose="real_user")
 
 
-def save_private(path, data):
-    path = Path(path).resolve()
-    private = (ROOT / "private").resolve()
-    if not path.is_relative_to(private):
-        raise ValueError("Input snapshots must be saved inside Angeleno/private/")
+def save_private(path, data, *, env=None):
+    path = Path(path)
+    from .paths import private_file
+    path = private_file(path, env or {}, root=ROOT)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -154,7 +153,7 @@ async def chat(args, pack, env=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["preview", "chat", "memory"])
+    parser.add_argument("action", choices=["config", "preview", "chat", "memory"])
     parser.add_argument("--env-file", type=Path, help="Explicit optional KEY=value configuration file")
     parser.add_argument("--pack", type=Path, help="Author pack; defaults to ANGELENO_AUTHOR_PACK or the synthetic demo")
     parser.add_argument("--variant", choices=["raw", "guided"])
@@ -166,12 +165,17 @@ def main(argv=None):
     parser.add_argument("--operation", choices=["inspect", "forget", "clear", "backup"], default="inspect")
     parser.add_argument("--record-id", help="Memory id to forget; also deletes dependent later exchanges across sessions")
     args = parser.parse_args(argv)
+    if args.action == "config":
+        from .paths import resource_path
+        print(resource_path(".env.example").read_text(), end="")
+        return
     env = load_env(env_file=args.env_file, root=ROOT)
     if env.get("ANGELENO_TIMEZONE"):
         # Author dates need this one setting; never export credentials or the
         # complete configuration into the process environment.
         os.environ["ANGELENO_TIMEZONE"] = env["ANGELENO_TIMEZONE"]
-    args.pack = resolve_path(args.pack or env.get("ANGELENO_AUTHOR_PACK", "examples/demo/author-pack.json"), root=ROOT)
+    from .paths import resource_or_path
+    args.pack = resource_or_path(args.pack or env.get("ANGELENO_AUTHOR_PACK", "examples/demo/author-pack.json"), root=ROOT)
     args.variant = args.variant or env.get("ANGELENO_AUTHOR_VARIANT", "guided")
     if args.variant not in {"raw", "guided"}:
         parser.error("ANGELENO_AUTHOR_VARIANT must be raw or guided")
@@ -179,7 +183,8 @@ def main(argv=None):
     # A configured chat identity must not make preview read or create its state.
     if args.action != "preview":
         args.memory_user = args.memory_user or env.get("ANGELENO_MEMORY_USER")
-    args.data_dir = resolve_path(args.data_dir or env.get("ANGELENO_DATA_DIR", "private/state"), root=ROOT)
+    from .paths import data_directory
+    args.data_dir = resolve_path(args.data_dir, root=ROOT) if args.data_dir else data_directory(env, root=ROOT)
     env["ANGELENO_DATA_DIR"] = str(args.data_dir)
     if args.memory_tools is None:
         args.memory_tools = flag(env, "ANGELENO_MEMORY_TOOLS") if args.action == "chat" else False
@@ -200,7 +205,7 @@ def main(argv=None):
                 store.close()
         result = {"variant": args.variant, "provenance": pack.provenance(), "messages": messages}
         if args.output:
-            save_private(args.output, result)
+            save_private(args.output, result, env=env)
             print(f"Input snapshot saved: {args.output}")
         print(json.dumps({"id": pack.id, "variant": args.variant, "source_count": len(pack.documents),
                           "messages": len(messages), "input_chars": sum(len(m["content"]) for m in messages),
@@ -220,8 +225,10 @@ def main(argv=None):
             elif args.operation == "clear":
                 print(f"Removed {store.forget()} records and all exchange text; separate backups are unchanged.")
             else:
-                if not args.output or not args.output.resolve().is_relative_to((ROOT / "private").resolve()):
-                    parser.error("backup requires --output inside Angeleno/private/")
+                if not args.output:
+                    parser.error("backup requires --output inside configured private storage")
+                from .paths import private_file
+                args.output = private_file(args.output, env, root=ROOT)
                 store.backup(args.output)
                 print("Private database backup saved; future deletions do not modify this separate copy.")
         finally:
@@ -232,9 +239,13 @@ def main(argv=None):
         asyncio.run(chat(args, pack, env))
 
 
-if __name__ == "__main__":
+def entrypoint():
     try:
-        main()
+        return main()
     except (ValueError, OSError) as exc:
         print(f"Cannot start: {exc}", file=sys.stderr)
-        raise SystemExit(2) from None
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(entrypoint())

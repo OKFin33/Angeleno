@@ -43,7 +43,7 @@
 
 ## 真实来源读取候选
 
-2026-10-31：`her_agent/live_sources.py` 把实际 HTTPS 页面接到现有结果事件。`places` 包仍是纯离线契约。生产读取仅尝试既定 Fisher／NHM 访问页，现只解释开放时间；其他来源或问题类型返回不可用／范围外。
+2026-10-31：`src/angeleno/live_sources.py` 把实际 HTTPS 页面接到现有结果事件。`places` 包仍是纯离线契约。生产读取仅尝试既定 Fisher／NHM 访问页，现只解释开放时间；其他来源或问题类型返回不可用／范围外。
 
 - 连接使用校验后的同一组 DNS 地址；任一地址不是公网即拒绝。保持 TLS 主机名校验，不使用环境代理、Cookie、凭据或私人会话内容。DNS 返回代理 fake-IP 的机器会被拒绝，不为连通绕过。
 - 每跳只到精确登记 URL，最多两次 HTTP 请求；DNS、TLS、跳转和完整读取合用 10 秒期限。页面实测约 438 KB／133 KB，因此生产传输上限为 512 KiB；证据仍受 4,000 字符上限约束。超限、编码压缩、非 HTML、空白、失败和超时明确不可用。没有自动重试或 fixture 回退。
@@ -54,9 +54,9 @@
 不调用模型的显式网络探针：
 
 ```sh
-.venv/bin/python -m her_agent.live_sources
+.venv/bin/python -m angeleno.live_sources
 # 默认 disabled，零网络。以下命令才读取公开页面：
-.venv/bin/python -m her_agent.live_sources --fetch --source src.nhm.visit --date 2026-11-03
+.venv/bin/python -m angeleno.live_sources --fetch --source src.nhm.visit --date 2026-11-03
 ```
 
 退出码 0 仅表示该次结果 `supported`；1 表示不足、不可用等，JSON 保留状态和原因，不证明人物表现或真实语音通过。
@@ -68,7 +68,7 @@
 默认命令不调用模型：
 
 ```sh
-python -m her_agent.lookup
+python -m angeleno.lookup
 ```
 
 它打印 `bounded real-model run: disabled`，并以 0 退出。
@@ -115,6 +115,6 @@ python -m her_agent.lookup
 
 - `lookup_results` 要不要升成显式 schema 迁移。现在不升 schema，避免打开旧库时静默改写。
 - 用户另报时区时的文字工具参数。时钟契约已能澄清，这条文字环没有加新参数。
-- 互动文字入口何时展示卡片。`her_agent` 的命令行入口不在本单元范围内。
+- 互动文字入口何时展示卡片。`angeleno` 的命令行入口不在本单元范围内。
 
 </details>

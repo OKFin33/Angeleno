@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 import httpx
 
-from her_agent.budget import BudgetExceeded
-from her_agent.provider import configured_providers, validate_provider_configuration
+from angeleno.budget import BudgetExceeded
+from angeleno.provider import configured_providers, validate_provider_configuration
 from test_provider import DONE, USAGE, event, response
 
 
@@ -83,7 +83,7 @@ class BudgetTests(unittest.IsolatedAsyncioTestCase):
             ("ANGELENO_PAID_ENABLED", "true"), ("ANGELENO_PRICE_MODEL", "other-model"),
             ("ANGELENO_PRICE_INPUT", "NaN"), ("ANGELENO_MIN_BALANCE", "Infinity"),
             ("ANGELENO_PRICE_OUTPUT", "-1"), ("ANGELENO_BUDGET_CARRYOVER", "-1"))]
-        with patch("her_agent.provider.httpx.AsyncClient") as client:
+        with patch("angeleno.provider.httpx.AsyncClient") as client:
             for env in cases:
                 with self.assertRaises(ValueError):
                     configured_providers(env, root=self.root)

@@ -103,9 +103,9 @@
 
 获准并且暂停已经解除之后才执行。顺序是：
 
-1. 在仓库根目录做离线配置检查：`.venv/bin/python scripts/run_voice.py check`。需要指定文件时加上 `--env-file`，指向 `private/runtime.env`。
+1. 在仓库根目录做离线配置检查：`angeleno-voice check`。需要指定文件时加上 `--env-file`，指向 `private/runtime.env`。
 2. 使用本机合成时，先在独立 GPU 环境启动 `python -m gpu.server`。running 文档给出带私有配置文件的启动写法。`/health` 只在模型加载成功后表示就绪。进程绑定在 loopback。启动器不负责拉起它。
-3. 再启动语音：`.venv/bin/python scripts/run_voice.py start`。若由这次进程一并拉起已经安装的 LiveKit 可执行文件，使用 `start --livekit-bin`，并传入该可执行文件的名字。此模式只接受 loopback 的 `ws` 信令地址。子进程顺序是：可选的 LiveKit、`worker.web_server`、`worker.main start`。
+3. 再启动语音：`angeleno-voice start`。若由这次进程一并拉起已经安装的 LiveKit 可执行文件，使用 `start --livekit-bin`，并传入该可执行文件的名字。此模式只接受 loopback 的 `ws` 信令地址。子进程顺序是：可选的 LiveKit、`worker.web_server`、`worker.main start`。
 4. 浏览器打开 `ANGELENO_WEB_PORT` 上的本机页面。麦克风、拨号和真听属于 Issue #11。
 
 端口占用时直接失败，不查找、不结束占用者。跨设备的 HTTPS、媒体网络和公网入口不由本清单打开。
@@ -247,7 +247,7 @@ Spec 还要求能留下查询开始、查询结束、打断和音频停止的时
 3. 角色主动发出附和声不是失败条件。若以后要把它写成必须行为，需另作决定。
 4. 三项公开用途写在一份授权里还是分成三份，由 Owner 决定。记录里没有点名的用途继续阻断。
 5. 模型权重许可是否足够，仍由 Owner 接受。`model_weight_licence_noted` 只表示私有笔记写过所依据的许可。
-6. 执行替换时可能要改、而本次不能改的现有文件：`worker/agent.py`、`gpu/server.py`、`docs/running.md`，以及未跟踪的 `private/runtime.env`。当前 HTTP 合成只接受产品声音名 `jo`，并且必须有 `VOXCPM_REFERENCE`。这个声音名留不留，本文不决定。
+6. 执行替换时可能要改、而本次不能改的现有文件：`src/angeleno/worker/agent.py`、`gpu/server.py`、`docs/running.md`，以及未跟踪的 `private/runtime.env`。当前 HTTP 合成只接受产品声音名 `jo`，并且必须有 `VOXCPM_REFERENCE`。这个声音名留不留，本文不决定。
 7. `.env.example` 尚未列出代码已经读取的 `LIVEKIT_WORKER_PORT`、`ANGELENO_AGENT_NAME`、`ANGELENO_ASR_LEDGER`、`ANGELENO_BUDGET_LEDGER`、`VOXCPM_PORT`、`VOXCPM_COMPILE`、`HF_HOME`、`HF_HUB_OFFLINE`。要不要补进示例文件，本次不改现有文件。
 8. 当前私有参考声音的文件是保留还是在执行阶段另作处理，本文不删除它。无论是否保留，都不进入 Git。
 9. WSL 里 GPU 是否可见、驱动是否匹配安装说明，留到获准运行时核对。本文不探测。

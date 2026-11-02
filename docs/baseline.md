@@ -3,14 +3,14 @@
 ## 当前版本
 
 main 的中文 v0.1.0 基线由 [PR #31](https://github.com/OKFin33/Angeleno/pull/31) 合入。
-开发分支 `nexus-integrated-trial-20261031` 包含默认英文、中文切换、能力说明修复及可选本地逐轮 trace。
+main 已通过 PR #32 纳入默认英文、中文切换、能力说明修复与可选本地逐轮 trace。结构开发分支提供可安装的 `src/angeleno/` 应用。
 版本安装、验证范围与中文基线证据见 [trial](trial.md)。
 
 | 层 | 职责与边界 |
 | --- | --- |
 | `characters/jo/` | 随仓原创虚构作者包；声音不随仓，素材再许可见 NOTICE |
-| `her_agent/` | 人物编译、会话、SQLite 记忆、维护、模型及费用、工具循环和来源记录 |
-| `worker/` | Paraformer 识别、VoxCPM HTTP、VAD、LiveKit 及页面适配 |
+| `src/angeleno/` | 人物编译、会话、SQLite 记忆、维护、模型及费用、工具循环和来源记录 |
+| `src/angeleno/worker/` | Paraformer 识别、VoxCPM HTTP、VAD、LiveKit 及页面适配 |
 | `gpu/` | 独立 CUDA 合成服务、参考资产验证、有界预热；应用默认依赖不安装模型权重 |
 | `scripts/` | `run_voice.py` 通用部署；`run_trial.py` 既有私有 Tailnet 部署维护；独立探针和开发工具 |
 | `data/`、`examples/` | 地方条目／登记来源、明确标记的合成测试资料和开发输入；不当作生产实时事实 |
@@ -48,7 +48,7 @@ Jo／普通助手均可使用真实 Search／Fetch。仅最小公开查询字段
 
 | 部分 | 入口与边界 |
 | --- | --- |
-| 人物与会话 | `her_agent/author.py`、`runtime.py`；显式人物包、原话与实际交付分别处理，运行日期默认LA；保留旧模块名不构成外部仓库依赖 |
+| 人物与会话 | `src/angeleno/author.py`、`runtime.py`；显式人物包、原话与实际交付分别处理，运行日期默认LA；保留旧模块名不构成外部仓库依赖 |
 | 记忆与工具 | SQLite、来源读回、纠正／遗忘、临时交流、后台维护；地方与记忆工具共用有界循环，每类一次、总计至多三次 |
 | 地方查询 | PR #14、#16 接入条目、登记来源、结果事件；本分支显式启用语音实时查证与页面卡片，默认关闭。实际读取限制见下节 |
 | 模型与费用 | 本仓DeepSeek流式provider；actor、工具续接、JSON维护共用余额与费用入口，失败／未知usage保留预留，不持久化请求正文 |
@@ -140,8 +140,8 @@ uv sync --locked --group dev
 .venv/bin/python -B -m unittest discover -s tests -v
 .venv/bin/python -B -m pytest -q gpu/test_server.py
 node tests/test_call_page.js web/index.html
-.venv/bin/python -S -B -m her_agent preview --env-file .env.example
-.venv/bin/python -m her_agent.demo
+.venv/bin/python -S -B -m angeleno preview --env-file .env.example
+.venv/bin/python -m angeleno.demo
 ```
 
 检查使用合成人物、假传输与本地服务。费用估算、实际余额、未结预留分别记录；模型／ASR／TTS真实收费调用本轮为零。没有访问已暂停的设备。离线检查不能证明模型表现、真实声学或设备可靠性。
@@ -208,7 +208,7 @@ Jo人物稿获新明确许可后，按原回放方案一次重试已完成：1�
 
 ## 显式比较模型入口候选（2026-10-31）
 
-在已审PR27之上新增`python -m her_agent.comparison_live`，默认仍完整离线；只有显式`--run`、冻结开发清单和原env路径才接原provider／已存在原账本。未冻结模板拒绝运行；材料／配置／角色指纹、当前干净候选、同模型及上限不符均拒绝。真实模式只用共同本地检索材料，未覆盖查询即停，不发Search／Fetch。每段新状态，维护在下一轮前及段末结算；关闭后逐段清理。失败、取消、用量未知或未知分支停止整批，并持续保留请求／输出前缀和原账本快照；不自动重放HTTP。分支分类器尚未接入，真实CLI保守停于branch_uncovered，不声称比较就绪。
+在已审PR27之上新增`python -m angeleno.comparison_live`，默认仍完整离线；只有显式`--run`、冻结开发清单和原env路径才接原provider／已存在原账本。未冻结模板拒绝运行；材料／配置／角色指纹、当前干净候选、同模型及上限不符均拒绝。真实模式只用共同本地检索材料，未覆盖查询即停，不发Search／Fetch。每段新状态，维护在下一轮前及段末结算；关闭后逐段清理。失败、取消、用量未知或未知分支停止整批，并持续保留请求／输出前缀和原账本快照；不自动重放HTTP。分支分类器尚未接入，真实CLI保守停于branch_uncovered，不声称比较就绪。
 
 本次仅默认离线实跑和假官方HTTP测试，未执行真实比较、私稿外发或任何付费／设备调用。11项新回归覆盖原账本逐次余额与维护计账、六段同控、未知分支、未知usage／低余额／维护失败／取消停止、manifest漂移、默认不读配置、原账本及输出上限、未覆盖查询和回执不覆盖。Owner校准、评分和保留集不自动生成。完整使用与剩余边界见[comparison](comparison.md)。
 

@@ -6,8 +6,8 @@ import json
 import unittest
 from pathlib import Path
 
-from her_agent.places import FixedClock, QueryIntent, ResultChannel, load_bundle
-from her_agent.places.check import Checker
+from angeleno.places import FixedClock, QueryIntent, ResultChannel, load_bundle
+from angeleno.places.check import Checker
 
 
 ROOT = Path(__file__).resolve().parents[1] / "data" / "places"

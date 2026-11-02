@@ -12,9 +12,10 @@
 git clone https://github.com/OKFin33/Angeleno.git
 cd Angeleno
 uv sync --locked --group dev
+. .venv/bin/activate
 .venv/bin/python -B -m unittest discover -s tests -v
-.venv/bin/python -m her_agent.demo
-.venv/bin/python -m her_agent preview --env-file .env.example
+.venv/bin/python -m angeleno.demo
+.venv/bin/python -m angeleno preview --env-file .env.example
 node tests/test_call_page.js web/index.html
 ```
 
@@ -42,18 +43,34 @@ The same reference-only VoxCPM2 path is used. Cross-language voice quality and a
 no reference transcript is fabricated, and the reference audio is not sent to cloud TTS.
 
 
+## 安装应用与命令
+
+源码开发使用上面的 `uv sync --locked --group dev`，应用以 editable 模式安装。
+只使用应用时，在 Python 3.12 虚拟环境中执行 `pip install .`，或安装 wheel。
+
+| 命令 | 用途 |
+| --- | --- |
+| `angeleno config` | 输出无密钥配置模板 |
+| `angeleno preview` | 离线查看人物输入概况 |
+| `angeleno chat` / `angeleno memory` | 文字交流与记忆管理 |
+| `angeleno-voice check` / `angeleno-voice start` | 离线配置检查与语音启动 |
+| `angeleno-trace` | 查看本地逐轮记录 |
+
+配置、人物、网页与地方资料通过应用路径层定位。内置公开资源随 wheel 提供；GPU 服务仍在独立环境安装。
+
 ## 配置、人物与私有状态
 
 ```sh
-mkdir -p private
-cp .env.example private/runtime.env
-chmod 600 private/runtime.env
+angeleno config > .env
+chmod 600 .env
 ```
 
-在私有文件中填写配置。环境变量优先于文件；可用 `--env-file PATH` 或 `ANGELENO_ENV_FILE` 明确选择其他文件。解析器不执行shell、不插值，也不发现宿主账号文件。
+随后为命令添加 `--env-file .env`。源码开发也可沿用默认的 `private/runtime.env`。
 
-- `ANGELENO_AUTHOR_PACK` 指向本仓作者包，或操作者提供的独立资源包；manifest中的正文必须在包内。默认完整 Jo 包随仓位于 `characters/jo/author-pack.json`；`examples/demo/` 是独立合成接线示例。不要把新包指向旧seed的记忆库。
-- `ANGELENO_DATA_DIR` 默认 `private/state`，需保持在本仓 `private/` 内。人物与用户身份下分别保存数据库，费用账本和ASR账本独立保存；原始聊天、输入快照和数据库不进入Git。
+在私有文件中填写配置。环境变量优先于文件；可用 `--env-file PATH` 或 `ANGELENO_ENV_FILE` 明确选择文件。相对配置与数据路径以启动目录为基准，跨目录启动推荐使用绝对路径。解析器不执行shell、不插值，也不发现宿主账号文件。
+
+- `ANGELENO_AUTHOR_PACK` 指向本仓作者包，或操作者提供的独立资源包；manifest中的正文必须在包内。默认完整 Jo 包来自随安装包提供的 `characters/jo/author-pack.json`；`examples/demo/` 是独立合成接线示例。不要把新包指向旧seed的记忆库。
+- `ANGELENO_DATA_DIR` 默认 `private/state`，可指向仓库外的绝对路径（例如操作者的应用数据目录）。人物／用户记忆、费用及 ASR 账本分别保存；账本路径仍须位于该数据目录内。原始聊天、快照、账本和参考声音按私有数据保管。
 - `ANGELENO_MEMORY_USER` 明确选择身份。首次创建需 `--memory-create` 或临时设置 `ANGELENO_MEMORY_CREATE=1`；创建后恢复为0，恢复时遇到不存在的身份、seed／schema不兼容或占用直接失败，不自动清库或改身份。
 - `ANGELENO_TIMEZONE` 默认 `America/Los_Angeles`，只影响运行日期；不改作者事实或seed。
 
@@ -67,9 +84,9 @@ chmod 600 private/runtime.env
 
 ```sh
 # 首次创建独立身份；此后的重开去掉 --memory-create
-.venv/bin/python -m her_agent chat --memory-create
+angeleno chat --env-file .env --memory-create
 # 已有身份的后续交流
-.venv/bin/python -m her_agent chat
+angeleno chat --env-file .env
 ```
 
 文字 CLI 的 `ANGELENO_MEMORY_TOOLS=1` 恢复每轮最多一次记忆查询、最多两次 actor 请求，只查询当前身份的记忆。语音同时启用地方核对时的共用限额见下节。普通聊天不强制调用工具。维护使用同一 provider 的 JSON 输出，失败保留原文和旧状态。
@@ -83,7 +100,7 @@ CLI保留 `/memory`、`/sync`、`/private`、`/public`、`/forget ID` 与 `/exit
 先离线检查；该命令不创建记忆、不探测远端URL、不连接GPU：
 
 ```sh
-.venv/bin/python scripts/run_voice.py check
+angeleno-voice check --env-file .env
 ```
 
 首次运行尚无身份库时，给下列 check／start 命令临时加 `ANGELENO_MEMORY_CREATE=1`；
@@ -93,9 +110,9 @@ check 仍只读，真正启动才创建本机用户状态。后续启动去掉�
 
 ```sh
 # 使用已经配置的LiveKit服务
-.venv/bin/python scripts/run_voice.py start
+angeleno-voice start --env-file .env
 # 或由本次进程同时管理已安装的本地LiveKit executable
-.venv/bin/python scripts/run_voice.py start --livekit-bin livekit-server
+angeleno-voice start --env-file .env --livekit-bin livekit-server
 ```
 
 自启模式只接受loopback `ws://` 信令地址。默认网页 `http://127.0.0.1:8767`，信令7880、媒体TCP7881／UDP7882、worker8081。端口占用直接失败，不杀占用者；Ctrl-C只关闭本次创建的子进程组，不安装系统服务或修改操作系统启动项。
@@ -125,7 +142,7 @@ uv pip install --python gpu/.venv/bin/python -r gpu/requirements.txt
 
 随仓默认人物包是 `characters/jo/author-pack.json`；公开示例 `examples/demo/` 仅用于接线测试。
 参考音频不随人物包分发。将自己有权使用的参考放在 **GPU 主机**的 `private/voices/reference.wav`，
-或者在 `VOXCPM_REFERENCE` 配置其他明确路径。worker 只核对逻辑资产和摘要，不要求复制声音到另一台机器。
+这只是路径示例；`VOXCPM_REFERENCE` 可指向 GPU 主机上的任意可读参考文件，包括源码目录外。worker 只核对逻辑资产和摘要，不要求复制声音到另一台机器。
 当前服务走 VoxCPM2 的 **reference-only** 路径（`reference_wav_path`），不需要参考音频转写；
 没有启用 continuation／combined 的 `prompt_wav_path` 和 `prompt_text`，也没有视频上传或自动提取音轨入口。
 建议使用清晰、单一说话人、无背景音乐的 PCM16 WAV；现有真实参考的已验证输入是44.1kHz双声道PCM16 WAV，
@@ -162,7 +179,7 @@ worker 要求它与本次配置匹配。`scripts/run_trial.py` 使用 `--tts-can
 
 GPU 启动时对已验证参考音频编码一次，随后按同一已加载模型和参考内容摘要复用 VoxCPM2 的 reference 特征；每句仍创建独立生成状态，保留原10步、CFG与取消释放。缓存只在本进程内存中，不保存或上传；运行期间参考路径或内容改变会拒绝合成，须重新验证并重启。`VOXCPM_REFERENCE_CACHE=0` 可回退原逐句编码路径作诊断，默认 `1`。此项不自动打开 `VOXCPM_COMPILE`，编译仍按原配置。
 
-音频性能观测默认关闭。仅在有界诊断中给GPU与worker进程显式设置 `ANGELENO_AUDIO_METRICS=1`；worker另需既有 `ANGELENO_DIAGNOSTICS_FILE` 指向本仓ignored `private/` 内0600文件。GPU数值计量、worker新增块计量各自每进程最多2048条，跨句／请求共享，不随请求重置；到限只停止计量，服务和原生命周期事件继续。GPU输出仅数值JSON到当前私有进程日志；HTTP相关ID是每句新生成的随机值，不含对白或参考声音标识。记录生成／收块时序、PCM累计秒数、RTF（墙钟秒／音频秒）与本地队列；GPU推理RTF扣除输出队列等待，EOF排空不增加推理时长。worker同步push耗时不等于实际播放队列，SDK未公开的队列时长记为未知。预缓冲可跨句累积，不能把对应推帧精确归因到单句。
+音频性能观测默认关闭。仅在有界诊断中给GPU与worker进程显式设置 `ANGELENO_AUDIO_METRICS=1`；worker 另需 `ANGELENO_DIAGNOSTICS_FILE` 指向本地 `private/` 或配置的数据目录内的 0600 文件。GPU数值计量、worker新增块计量各自每进程最多2048条，跨句／请求共享，不随请求重置；到限只停止计量，服务和原生命周期事件继续。GPU输出仅数值JSON到当前私有进程日志；HTTP相关ID是每句新生成的随机值，不含对白或参考声音标识。记录生成／收块时序、PCM累计秒数、RTF（墙钟秒／音频秒）与本地队列；GPU推理RTF扣除输出队列等待，EOF排空不增加推理时长。worker同步push耗时不等于实际播放队列，SDK未公开的队列时长记为未知。预缓冲可跨句累积，不能把对应推帧精确归因到单句。
 
 页面仅显式访问 `?audio_metrics=1` 时按秒读取音轨公开RTC统计，保存在本页 `window.angelenoAudioMetrics`，最多120条、120秒后停止，不上传。记录丢包、jitter、concealed samples和累计jitter-buffer平均等待；后者不是当前队列深度。不保存对白、音频、地址或用户／房间标识；缺失计数保持未知，挂断停止采样并拒收迟到结果。采样到期后仅停止观测，服务按原生命周期运行。
 
@@ -173,7 +190,7 @@ GPU 启动时对已验证参考音频编码一次，随后按同一已加载模�
 
 ### 真实试用与开发资料分开
 
-真实语音入口显式使用 `ANGELENO_MEMORY_PURPOSE=real_user`。技术语音入口使用 `development`、`dev-` 开头的独立身份及 `ANGELENO_MEMORY_DATA_DIR=private/development-state`；比较器也显式标记开发存储。内存用途绑定后不可在两者之间悄悄切换，未标用途的调用不能打开已绑定的库。`ANGELENO_MEMORY_DATA_DIR` 仅分开人物／用户记忆，不改变原 `ANGELENO_DATA_DIR` 中的费用或 ASR 累计账本。
+真实语音入口显式使用 `ANGELENO_MEMORY_PURPOSE=real_user`。技术语音入口使用 `development`、`dev-` 开头的独立身份及独立的 `ANGELENO_MEMORY_DATA_DIR`（例如 `private/development-state`）；比较器也显式标记开发存储。内存用途绑定后不可在两者之间悄悄切换，未标用途的调用不能打开已绑定的库。`ANGELENO_MEMORY_DATA_DIR` 仅分开人物／用户记忆，不改变原 `ANGELENO_DATA_DIR` 中的费用或 ASR 累计账本。
 
 已绑定或隔离的库使用 memory schema3，旧 schema2 写入器必须拒绝，恢复时使用包含本修复的开发版本。明确有回执的开发记录可在一致备份后隔离：原文保留，原交付状态和依据另外保留，纯派生记忆停止供给；混合来源摘要不能自动整条当作合成丢弃。身份、seed 和真实历史不重置。原来真实说过的助手推断仍是助手发言，不能据此认证用户事实。
 
@@ -183,7 +200,7 @@ GPU 启动时对已验证参考音频编码一次，随后按同一已加载模�
 ### Development tool decisions
 
 For synthetic development sessions only, set `ANGELENO_TOOL_TRACE=1`,
-`ANGELENO_MEMORY_PURPOSE=development`, and the existing `ANGELENO_DIAGNOSTICS_FILE` to a new private 0600 receipt.
+`ANGELENO_MEMORY_PURPOSE=development`, and the existing `ANGELENO_DIAGNOSTICS_FILE` to a new 0600 file in the configured data directory or local `private/`.
 The trace is off by default and records at most 256 events per process: proposed/validated calls, batch rejection,
 local adapter start/end, and skipped calls with a controlled reason. Only tool names, hashed call IDs/arguments,
 turn numbers and controlled statuses are retained; no raw parameters, responses, user speech, prompts or hidden reasoning.
@@ -194,18 +211,18 @@ ledger provide separate network/billing evidence. Do not use missing old trace r
 ### Private per-turn trace
 
 Set `ANGELENO_TRACE=1` and choose a new `ANGELENO_DIAGNOSTICS_FILE` under an existing local
-`private/` directory. Capture is off by default. Files have mode 0600 and a 32 MiB limit.
+`private/` directory or the configured `ANGELENO_DATA_DIR`. Capture is off by default. Files have mode 0600 and a 32 MiB limit.
 Use `ANGELENO_MEMORY_PURPOSE=real_user` for a real trial, or `development` with the isolated
 development store for synthetic evaluation. Each file has one purpose; temporary/no-save mode omits its content.
 
 ```sh
 mkdir -p private/my-trial
-# Add to private/runtime.env, then start normally:
+# Add to .env, then start normally:
 # ANGELENO_TRACE=1
 # ANGELENO_DIAGNOSTICS_FILE=private/my-trial/operator-metadata.jsonl
-.venv/bin/python -m her_agent.trace --file private/my-trial/operator-metadata.jsonl --purpose real_user
+angeleno-trace --env-file .env --file private/my-trial/operator-metadata.jsonl --purpose real_user
 # Expand one turn's effective input, tool evidence and memory outcome:
-.venv/bin/python -m her_agent.trace --file private/my-trial/operator-metadata.jsonl --purpose real_user --session <id> --turn t2 --expand input tools memory
+angeleno-trace --env-file .env --file private/my-trial/operator-metadata.jsonl --purpose real_user --session <id> --turn t2 --expand input tools memory
 ```
 
 The default view groups records by session and turn. It shows final user input, model timings and usage,
@@ -227,3 +244,13 @@ Memory and billing databases remain the authoritative state; trace records never
 `ANGELENO_TRACE_REASONING=1` optionally captures bounded, redacted `reasoning_content` when the supplier
 returns it. The provider uses `thinking: {type: disabled}`; the capture switch does not change that setting.
 Synthetic evaluation uses the same fields in separate development files.
+
+## 从源码运行型版本升级
+
+先在原项目目录执行 `uv sync --locked --group dev`，再使用上表命令。
+旧 `python -m her_agent ...` 改为 `angeleno ...`；`python scripts/run_voice.py ...` 可继续作为源码入口，推荐使用 `angeleno-voice ...`。
+内部导入路径为 `angeleno` 与 `angeleno.worker`，无需再手动修改 `sys.path`。
+
+已有部署保留原人物、用户身份、seed、数据库与账本。只要继续使用原启动目录和配置，`private/state` 仍指向原位置；
+改从其他目录启动时，先将配置中的数据、账本与自定义资源路径改为原文件的绝对路径。
+这次结构整理不会搬移或初始化已有运行数据。

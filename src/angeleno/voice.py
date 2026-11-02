@@ -23,7 +23,7 @@ from .language import configured_language
 from . import trace as tracing
 
 
-ROOT = Path(__file__).resolve().parents[1]
+from angeleno.paths import ROOT, resolve_path, data_directory
 UNCERTAIN_DELIVERY = "[语音交付中断或未确认，无法确认对方已听到的文字；不据此建立人物事实]"
 
 
@@ -39,8 +39,11 @@ def voice_configuration(env, *, root=ROOT):
     purpose = env.get("ANGELENO_MEMORY_PURPOSE", "development")
     if purpose not in {"real_user", "development"}:
         raise ValueError("Explicit real_user or development memory purpose required")
-    if purpose == "development" and (not user.startswith("dev-") or env.get("ANGELENO_MEMORY_DATA_DIR") != "private/development-state"):
-        raise ValueError("Development voice requires dev- identity and private/development-state")
+    if purpose == "development":
+        selected = env.get("ANGELENO_MEMORY_DATA_DIR")
+        if (not user.startswith("dev-") or not selected
+                or resolve_path(selected, root=root) == data_directory(env, root=root)):
+            raise ValueError("Development voice requires dev- identity and separate ANGELENO_MEMORY_DATA_DIR")
     variant = env.get("ANGELENO_AUTHOR_VARIANT", "guided")
     if variant not in {"raw", "guided"}:
         raise ValueError("Unknown ANGELENO_AUTHOR_VARIANT")

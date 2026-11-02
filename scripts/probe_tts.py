@@ -18,8 +18,6 @@ import time
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 INPUTS = ROOT / 'examples/tts-probe'
 NAMES = ('normal', 'cancel', 'recovery')
 
@@ -77,7 +75,7 @@ async def health(session, url):
 
 
 async def collect(session, url, case, receipt, cancel_bytes):
-    from worker.pcm import PCMResampler
+    from angeleno.worker.pcm import PCMResampler
     case.update(status='started', pcm_bytes=0, first_pcm_ms=None, ended_ms=None,
                 client_closed_ms=None, eof=False, client_cancelled=False,
                 pcm_path=f"{case['name']}.pcm")

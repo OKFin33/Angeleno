@@ -6,12 +6,12 @@ import unittest
 from unittest.mock import patch
 
 import httpx
-from her_agent import provider as llm_factory
+from angeleno import provider as llm_factory
 from test_provider import OfflineBudget
 
-from her_agent.continuity import Conversation
-from her_agent.memory import encoded
-from her_agent.memory_tools import TOOLS, prepare_messages, reply, request_chars
+from angeleno.continuity import Conversation
+from angeleno.memory import encoded
+from angeleno.memory_tools import TOOLS, prepare_messages, reply, request_chars
 from test_memory import StoreFixture, record
 
 

@@ -1,7 +1,8 @@
 [project]
 name = "angeleno"
 version = "0.1.1"
-description = "Angeleno / Jo standalone conversation and realtime voice candidate"
+description = "A character-driven realtime voice companion"
+readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "livekit-agents==1.8.4",
@@ -16,8 +17,29 @@ dependencies = [
 [dependency-groups]
 dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "fastapi>=0.115,<1"]
 
-[tool.uv]
-package = false
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+angeleno = "angeleno.__main__:entrypoint"
+angeleno-voice = "angeleno.launcher:main"
+angeleno-trace = "angeleno.trace:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/angeleno"]
+
+[tool.hatch.build.targets.wheel.force-include]
+".env.example" = "angeleno/_resources/.env.example"
+"characters" = "angeleno/_resources/characters"
+"data" = "angeleno/_resources/data"
+"examples" = "angeleno/_resources/examples"
+"web" = "angeleno/_resources/web"
+"LICENSES" = "angeleno/_resources/LICENSES"
+"NOTICE" = "angeleno/_resources/NOTICE"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/characters", "/data", "/examples", "/web", "/LICENSES", "/LICENSE", "/NOTICE", "/README.md", "/pyproject.toml", "/.env.example"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"

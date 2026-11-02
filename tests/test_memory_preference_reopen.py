@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from datetime import datetime, timezone
 import unittest
 from unittest.mock import patch
-from her_agent.continuity import Maintainer
-from her_agent.runtime import open_store
+from angeleno.continuity import Maintainer
+from angeleno.runtime import open_store
 
 class Pack:
     id='synthetic-role'
@@ -28,7 +28,7 @@ class PreferenceReopenTests(unittest.IsolatedAsyncioTestCase):
             store=reopen(create=True)
             for phase,(user,role) in enumerate(fixture['exchanges']):
                 clock=SimpleNamespace(now=lambda _:datetime(2026,11,1,20,51,7+2*phase,tzinfo=timezone.utc))
-                with patch('her_agent.memory.datetime',clock):
+                with patch('angeleno.memory.datetime',clock):
                     u=store.append('synthetic-phase'+str(phase),'user',user)
                     a=store.append('synthetic-phase'+str(phase),'assistant',role)
                 self.assertTrue(await Maintainer(store,pack,writer).once())

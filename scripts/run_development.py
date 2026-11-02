@@ -7,9 +7,8 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-from her_agent.author import load_pack
-from her_agent.comparison import load_config, run_development
+from angeleno.author import load_pack
+from angeleno.comparison import load_config, run_development
 
 
 async def main():
@@ -32,7 +31,7 @@ async def main():
         report['tracked_diff_present'] = bool(subprocess.check_output(['git','diff','--name-only','HEAD'], cwd=ROOT))
         report['source_kind'] = 'public_synthetic_character_not_Jo'
         report['runner_files'] = {str(p.relative_to(ROOT)): __import__('hashlib').sha256(p.read_bytes()).hexdigest()
-            for p in (Path(__file__), ROOT/'her_agent/comparison.py')}
+            for p in (Path(__file__), ROOT/'src/angeleno/comparison.py')}
     except BaseException as exc:
         dest.write_text(json.dumps({'status':'aborted','error_type':type(exc).__name__,'mode':'dry_run'})+'\n')
         raise

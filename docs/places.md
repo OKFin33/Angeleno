@@ -2,7 +2,7 @@
 
 本文冻结离线契约。行为依据是 [Spec](spec.md) 第 3、4 节。这里不接入人物运行、语音或页面，也不发起网络读取。
 
-加载 `her_agent.places` 只读本仓 `data/places/`。当前核对必须传入 `FixedClock`。包内没有墙钟、套接字或模型调用。
+加载 `angeleno.places` 只读本仓 `data/places/`。当前核对必须传入 `FixedClock`。包内没有墙钟、套接字或模型调用。
 
 ## 数据
 
@@ -65,7 +65,7 @@
 
 本模块不解析 DNS。公共主机名若实际指向私网，当前契约发现不了。
 
-本段只描述离线包。真实 HTTPS 读取由包外 `her_agent/live_sources.py` 承担，其同组地址 DNS 校验、取消、时限与解析见 [真实来源读取候选](lookup.md#真实来源读取候选)。生产路径不会消费本目录的人工 fixture。
+本段只描述离线包。真实 HTTPS 读取由包外 `src/angeleno/live_sources.py` 承担，其同组地址 DNS 校验、取消、时限与解析见 [真实来源读取候选](lookup.md#真实来源读取候选)。生产路径不会消费本目录的人工 fixture。
 
 页面和条目里的指令只是数据。脚本、表单和 `data-instruction` 块不执行，也不能改登记。
 

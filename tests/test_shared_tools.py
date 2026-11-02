@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 import json
 import unittest
 
-from her_agent.lookup import TextLookup
-from her_agent.places import FixedClock, load_bundle
-from her_agent.provider import TextDelta
-from her_agent.runtime import ConversationRuntime
+from angeleno.lookup import TextLookup
+from angeleno.places import FixedClock, load_bundle
+from angeleno.provider import TextDelta
+from angeleno.runtime import ConversationRuntime
 from test_lookup import Scripted, IdleWriter, call, check_args
 from test_memory import StoreFixture, record
 

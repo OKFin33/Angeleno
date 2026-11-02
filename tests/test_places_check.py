@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from her_agent.places import FixedClock, PlacesError, QueryIntent, load_bundle, resolve_when
-from her_agent.places.check import Checker
-from her_agent.places.extract import decide, extract_html
+from angeleno.places import FixedClock, PlacesError, QueryIntent, load_bundle, resolve_when
+from angeleno.places.check import Checker
+from angeleno.places.extract import decide, extract_html
 
 
 ROOT = Path(__file__).resolve().parents[1] / "data" / "places"

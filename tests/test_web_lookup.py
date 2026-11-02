@@ -12,14 +12,14 @@ from unittest.mock import AsyncMock, Mock, patch
 import httpx
 from livekit.agents import AgentSession
 
-from her_agent.budget import BudgetExceeded
-from her_agent.lookup import TextLookup, LookupObservationMissing
-from her_agent.places import load_bundle
-from her_agent.provider import TextDelta, ToolCalls
-from her_agent.runtime import ConversationRuntime, open_store
-from her_agent.voice import VoiceBridge, HerVoiceLLM
-from her_agent.voice_cards import VoiceCards
-from her_agent.web_lookup import (DeepSeekWeb, DNSRefused, RecordedWebResult, WebFailure, WebLookup,
+from angeleno.budget import BudgetExceeded
+from angeleno.lookup import TextLookup, LookupObservationMissing
+from angeleno.places import load_bundle
+from angeleno.provider import TextDelta, ToolCalls
+from angeleno.runtime import ConversationRuntime, open_store
+from angeleno.voice import VoiceBridge, HerVoiceLLM
+from angeleno.voice_cards import VoiceCards
+from angeleno.web_lookup import (DeepSeekWeb, DNSRefused, RecordedWebResult, WebFailure, WebLookup,
     PublicQuery, configured_web_lookup, parse_web_call, public_dns, public_url)
 from test_budget import budget_env, balance_response, mocked_providers
 from test_lookup import CLOCK, PACK, Scripted, IdleWriter, call, check_args
@@ -495,7 +495,7 @@ class WebLoopTests(unittest.IsolatedAsyncioTestCase):
 
     def test_live_calendar_refreshes_without_changing_frozen_comparison_clock(self):
         service=WebLookup(FakeWeb(),CLOCK,refresh_clock=True)
-        with patch("her_agent.web_lookup.datetime") as clock:
+        with patch("angeleno.web_lookup.datetime") as clock:
             clock.now.return_value=datetime(2026,11,1,6,59,tzinfo=timezone.utc)
             service.begin_turn("s",1)
             self.assertEqual(service.clock.now().date().isoformat(),"2026-10-31")
@@ -525,7 +525,7 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
             sent.append(request)
             return httpx.Response(200,json={'content':'Public response not retained in diagnostic'})
         api=self.api(handle)
-        with patch('her_agent.web_lookup.emit') as emit:
+        with patch('angeleno.web_lookup.emit') as emit:
             await api.fetch(URL)
         start,end=emit.call_args_list
         import hashlib
@@ -771,7 +771,7 @@ class WebPaidAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(URL.encode(),raw)
 
     async def test_explicit_renewed_cumulative_cap_preserves_old_web_history_and_unknown(self):
-        from her_agent.budget import BudgetExceeded
+        from angeleno.budget import BudgetExceeded
         def handle(request):
             if request.method=='GET':return balance_response()
             return httpx.Response(200,json={'results':[RESULT]})

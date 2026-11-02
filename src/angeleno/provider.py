@@ -277,6 +277,7 @@ class DeepSeekChatStream:
 def _provider_configuration(env, root):
     from .budget import Prices, decimal_setting
     from .config import flag, resolve_path
+    from .paths import data_directory
     if not flag(env, "ANGELENO_PAID_ENABLED"):
         raise ValueError("Paid requests are disabled; set ANGELENO_PAID_ENABLED=1 explicitly")
     key = env.get("DEEPSEEK_API_KEY", "").strip()
@@ -288,9 +289,7 @@ def _provider_configuration(env, root):
         if name not in env or not str(env[name]).strip():
             raise ValueError(f"{name} must be explicit (0 is allowed)")
         decimal_setting(env[name], name)
-    data_dir = resolve_path(env.get("ANGELENO_DATA_DIR", "private/state"), root=root)
-    if not data_dir.is_relative_to((Path(root) / "private").resolve()):
-        raise ValueError("Budget data directory must remain inside this repository private directory")
+    data_dir = data_directory(env, root=root)
     path = resolve_path(env.get("ANGELENO_BUDGET_LEDGER", str(data_dir / "budget.sqlite3")), root=root)
     if not path.is_relative_to(data_dir):
         raise ValueError("Budget ledger must remain inside ANGELENO_DATA_DIR")

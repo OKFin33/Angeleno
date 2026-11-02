@@ -9,9 +9,9 @@ from unittest.mock import patch
 from aiohttp import web
 from livekit import rtc
 from livekit.agents import APIConnectOptions, APIConnectionError, APIStatusError, APITimeoutError, stt
-from worker.pcm import PCMResampler
-from worker.paraformer_stt import ParaformerSTT
-from worker.voxcpm_tts import VoxCPMHttpTTS
+from angeleno.worker.pcm import PCMResampler
+from angeleno.worker.paraformer_stt import ParaformerSTT
+from angeleno.worker.voxcpm_tts import VoxCPMHttpTTS
 
 
 class PCMTests(unittest.TestCase):
@@ -94,7 +94,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
     async def test_asr_allowance_stops_audio_before_unreserved_second(self):
         from pathlib import Path
         import tempfile
-        from worker.audio_budget import ASRAllowance
+        from angeleno.worker.audio_budget import ASRAllowance
         audio = bytearray()
 
         async def handler(request):
@@ -191,7 +191,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(connections[0].is_closing())
 
     async def test_idle_expiry_and_server_closed_socket_reconnect_without_replay(self):
-        import worker.voxcpm_tts as module
+        import angeleno.worker.voxcpm_tts as module
         for expire in (False,True):
             connections=[];raw=b'\x01\x00'*9600
             async def handler(request):
@@ -270,7 +270,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 return response
             url = await self.serve('/v1/audio/speech/stream', handler)
             with patch.dict(os.environ, {'ANGELENO_AUDIO_METRICS': flag}), \
-                    patch('worker.voxcpm_tts.emit', side_effect=lambda event, **kw: notes.append((event, kw))):
+                    patch('angeleno.worker.voxcpm_tts.emit', side_effect=lambda event, **kw: notes.append((event, kw))):
                 tts = VoxCPMHttpTTS(url=url, sample_rate=48000)
                 stream = tts.stream(conn_options=APIConnectOptions(max_retry=0))
                 stream.push_text('合成一句。再一句。'); stream.end_input()
@@ -416,7 +416,7 @@ class AudioBudgetTests(unittest.TestCase):
     def test_duration_reservations_survive_restart_and_reject_enlargement(self):
         from pathlib import Path
         import tempfile
-        from worker.audio_budget import ASRAllowance, BudgetExceeded
+        from angeleno.worker.audio_budget import ASRAllowance, BudgetExceeded
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'asr.sqlite3'
             allowance = ASRAllowance(path, 3)
@@ -436,7 +436,7 @@ class AudioBudgetTests(unittest.TestCase):
         from pathlib import Path
         import sqlite3
         import tempfile
-        from worker.audio_budget import ASRAllowance
+        from angeleno.worker.audio_budget import ASRAllowance
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'other.sqlite3'
             with sqlite3.connect(path) as db:

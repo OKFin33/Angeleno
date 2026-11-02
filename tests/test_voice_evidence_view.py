@@ -5,11 +5,11 @@ import json
 import unittest
 from unittest.mock import AsyncMock, Mock
 
-from her_agent.lookup import voice_request_messages, voice_tool_payload
-from her_agent.memory import encoded
-from her_agent.places.model import Citation
-from her_agent.voice_cards import VoiceCards
-from her_agent.web_lookup import WebLookup
+from angeleno.lookup import voice_request_messages, voice_tool_payload
+from angeleno.memory import encoded
+from angeleno.places.model import Citation
+from angeleno.voice_cards import VoiceCards
+from angeleno.web_lookup import WebLookup
 from test_lookup import CLOCK
 from test_voice_presentation import PublicReplay, expand_evidence
 

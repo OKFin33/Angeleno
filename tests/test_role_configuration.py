@@ -7,11 +7,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from her_agent.author import (ASSISTANT_SETTING, CAPABILITIES, MEMORY_CAPABILITIES,
+from angeleno.author import (ASSISTANT_SETTING, CAPABILITIES, MEMORY_CAPABILITIES,
     Document, assistant_control_pack, load_pack, reading_sections)
-from her_agent.memory import seed_digest
-from her_agent.runtime import ConversationRuntime, open_store
-from her_agent.web_lookup import NOTE, WebLookup
+from angeleno.memory import seed_digest
+from angeleno.runtime import ConversationRuntime, open_store
+from angeleno.web_lookup import NOTE, WebLookup
 from test_lookup import PACK, CLOCK, Scripted, IdleWriter
 from test_web_lookup import FakeWeb
 

@@ -7,10 +7,10 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch,Mock
-from her_agent import diagnostics
-from her_agent.runtime import ConversationRuntime
-from her_agent.provider import TextDelta,ToolCalls
-from her_agent.web_lookup import WebLookup
+from angeleno import diagnostics
+from angeleno.runtime import ConversationRuntime
+from angeleno.provider import TextDelta,ToolCalls
+from angeleno.web_lookup import WebLookup
 from test_lookup import PACK,CLOCK,Scripted,call
 from test_web_lookup import FakeWeb
 
@@ -61,7 +61,7 @@ class ToolTraceFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_bad_batch_has_rejection_but_no_adapter_start(self):
         calls=call('web_search',{'area':'usc_exposition','topic':'architecture'}).calls
         rounds=[[ToolCalls((calls[0],calls[0]))]]
-        with patch('her_agent.lookup.tool_trace') as trace:
+        with patch('angeleno.lookup.tool_trace') as trace:
             with self.assertRaisesRegex(ValueError,'Duplicate tool call ID'):await self.run_case(rounds)
         events=[c.args[0] for c in trace.call_args_list]
         self.assertIn('tool_rejected',events);self.assertNotIn('tool_adapter_start',events)
@@ -74,11 +74,11 @@ class ToolTraceFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(skipped),1);self.assertEqual(skipped[0]['reason'],'tool_limit_reached')
 
     async def test_budget_rejection_is_distinct_from_cancel_or_parameter_rejection(self):
-        from her_agent.budget import BudgetExceeded
+        from angeleno.budget import BudgetExceeded
         class BudgetRefused(FakeWeb):
             async def search(self,q):raise BudgetExceeded('Synthetic budget stop')
         rounds=[[call('web_search',{'area':'usc_exposition','topic':'architecture'})]]
-        with patch('her_agent.lookup.tool_trace') as trace:
+        with patch('angeleno.lookup.tool_trace') as trace:
             with self.assertRaises(BudgetExceeded):await self.run_case(rounds,api=BudgetRefused())
         self.assertEqual(trace.call_args_list[-1].kwargs['reason'],'budget_refused')
         self.assertNotIn('tool_result',[c.args[0] for c in trace.call_args_list])
@@ -87,7 +87,7 @@ class ToolTraceFlowTests(unittest.IsolatedAsyncioTestCase):
         class Cancelled(FakeWeb):
             async def search(self,q):raise asyncio.CancelledError
         rounds=[[call('web_search',{'area':'usc_exposition','topic':'architecture'})]]
-        with patch('her_agent.lookup.tool_trace') as trace:
+        with patch('angeleno.lookup.tool_trace') as trace:
             with self.assertRaises(asyncio.CancelledError):await self.run_case(rounds,api=Cancelled())
         self.assertIn('tool_adapter_end',[c.args[0] for c in trace.call_args_list])
         self.assertNotIn('tool_result',[c.args[0] for c in trace.call_args_list])

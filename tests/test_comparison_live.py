@@ -8,9 +8,9 @@ import unittest
 import httpx
 from unittest.mock import patch
 
-from her_agent.author import assistant_control_pack, load_pack
-from her_agent.comparison import digest, file_hash, load_config
-from her_agent.comparison_live import ROOT, OperatorBranches, Receipt, load_manifest, main, revision, run_models
+from angeleno.author import assistant_control_pack, load_pack
+from angeleno.comparison import digest, file_hash, load_config
+from angeleno.comparison_live import ROOT, OperatorBranches, Receipt, load_manifest, main, revision, run_models
 from test_budget import budget_env, balance_response, mocked_providers
 from test_provider import response, event
 
@@ -113,7 +113,7 @@ class RealEntryTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(reference=reference):
                 self.m.update(historical_unresolved=[row], historical_unresolved_authorization=reference)
                 path.write_text(json.dumps(self.m))
-                with patch('her_agent.comparison_live.load_pack', side_effect=AssertionError('no payload load')):
+                with patch('angeleno.comparison_live.load_pack', side_effect=AssertionError('no payload load')):
                     with self.assertRaisesRegex(ValueError, 'authorization reference'):
                         load_manifest(path, CONFIG)
                 with self.assertRaisesRegex(ValueError, 'authorization reference'):
@@ -181,8 +181,8 @@ class RealEntryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([x['purpose'] for x in self.ledger.summary()['rows']],['actor']*3+['maintenance'])
 
     async def test_unobserved_query_is_not_an_empty_result(self):
-        from her_agent.comparison import CorpusWeb, RunStopped
-        from her_agent.web_lookup import PublicQuery
+        from angeleno.comparison import CorpusWeb, RunStopped
+        from angeleno.web_lookup import PublicQuery
         corpus=deepcopy(self.corpus)
         for row in corpus['queries']:
             row['record_ids']=[];row['uncovered']=True
@@ -258,7 +258,7 @@ class RealEntryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(self.out.read_text())['status'],'aborted')
 
     async def test_default_cli_does_not_read_env_or_construct_paid_provider(self):
-        with patch('her_agent.comparison_live.load_env',side_effect=AssertionError('no config')),patch('her_agent.comparison_live.configured_providers',side_effect=AssertionError('no provider')):
+        with patch('angeleno.comparison_live.load_env',side_effect=AssertionError('no config')),patch('angeleno.comparison_live.configured_providers',side_effect=AssertionError('no provider')):
             result=await main(['--output',str(self.out)])
         self.assertEqual(result,0)
         self.assertEqual(json.loads(self.out.read_text())['mode'],'dry_run')

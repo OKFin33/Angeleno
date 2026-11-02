@@ -12,11 +12,11 @@ import json
 from pathlib import Path
 import secrets
 
-from her_agent.config import load_env
-from her_agent.baseline import configured_pack
-from her_agent.language import configured_language
+from angeleno.config import load_env
+from angeleno.baseline import configured_pack
+from angeleno.language import configured_language
 
-ROOT = Path(__file__).resolve().parents[1]
+from angeleno.paths import ROOT, resource_path
 
 
 async def create_room_and_token(env):
@@ -48,7 +48,7 @@ def handler_for(env, *, lifecycle=None):
 
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=str(ROOT / 'web'), **kwargs)
+            super().__init__(*args, directory=str(resource_path("web")), **kwargs)
 
         def do_GET(self):
             if self.path == '/trial-status':
@@ -57,7 +57,7 @@ def handler_for(env, *, lifecycle=None):
             if self.path == '/healthz':
                 # This is local configuration readiness, not a remote liveness
                 # claim. Remote connections occur only when the user dials.
-                from scripts.run_voice import check_configuration
+                from angeleno.launcher import check_configuration
                 ready = not check_configuration(env, starting=True) and (lifecycle is None or lifecycle.can_join())
                 try:
                     pack_id = configured_pack(env).id

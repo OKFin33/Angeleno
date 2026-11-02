@@ -10,12 +10,12 @@ from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from her_agent.live_sources import (
+from angeleno.live_sources import (
     LiveChecker, LiveReader, MAX_LIVE_BODY_BYTES, PublicResolver,
     live_decision, live_lookup, main,
 )
-from her_agent.places import NavigationRefused, SourceDisabled, load_bundle
-from her_agent.places.fixture import PageSnapshot
+from angeleno.places import NavigationRefused, SourceDisabled, load_bundle
+from angeleno.places.fixture import PageSnapshot
 
 
 HOURS = ("Monday-Sunday<br>9:30 AM-5:00 PM<br>"
@@ -164,9 +164,9 @@ class LiveSourceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(card.conclusion)
 
     async def test_live_read_result_runs_through_shared_model_loop_and_card(self):
-        from her_agent.author import load_pack
-        from her_agent.provider import TextDelta, ToolCalls
-        from her_agent.runtime import ConversationRuntime
+        from angeleno.author import load_pack
+        from angeleno.provider import TextDelta, ToolCalls
+        from angeleno.runtime import ConversationRuntime
 
         service = live_lookup()
         service.checker.reader = AsyncMock()
@@ -230,9 +230,9 @@ class LiveSourceTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 stopped.set()
 
-        with patch("her_agent.live_sources.aiohttp.ClientSession", Session), \
-                patch("her_agent.live_sources.aiohttp.TCPConnector", return_value=object()), \
-                patch("her_agent.live_sources.MAX_EXTERNAL_READ_SECONDS", .01), \
+        with patch("angeleno.live_sources.aiohttp.ClientSession", Session), \
+                patch("angeleno.live_sources.aiohttp.TCPConnector", return_value=object()), \
+                patch("angeleno.live_sources.MAX_EXTERNAL_READ_SECONDS", .01), \
                 patch.object(reader, "_read", blocked):
             with self.assertRaisesRegex(SourceDisabled, "timeout"):
                 await reader.read(self.source)

@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 import unittest
-from her_agent.public_dates import bind_local_date
-from her_agent.web_lookup import PublicQuery
+from angeleno.public_dates import bind_local_date
+from angeleno.web_lookup import PublicQuery
 from test_lookup import CLOCK
 
 

@@ -1,11 +1,11 @@
 """Synthetic source-quality counterexamples; no model or historical private text."""
 
 import json
-from her_agent.author import reading_sections
+from angeleno.author import reading_sections
 from dataclasses import replace
 import unittest
 
-from her_agent.continuity import Conversation, Maintainer
+from angeleno.continuity import Conversation, Maintainer
 from test_memory import StoreFixture, FakeProvider, record
 
 

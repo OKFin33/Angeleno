@@ -24,7 +24,8 @@ from .registry import Registry, SourceRecord, load_registry, vet_url
 
 
 def default_root():
-    return Path(__file__).resolve().parents[2] / "data" / "places"
+    from ..paths import resource_path
+    return resource_path("data/places")
 
 
 @dataclass(frozen=True)
