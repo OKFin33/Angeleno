@@ -54,9 +54,10 @@ node tests/test_call_page.js web/index.html
 ```sh
 mkdir -p private/voices
 cp .env.example private/runtime.env
-# 按 docs/running.md 填写配置并准备自己的参考音频后：
-.venv/bin/python scripts/run_voice.py check
-.venv/bin/python scripts/run_voice.py start --livekit-bin livekit-server
+# 按 docs/running.md 填写配置并准备自己的参考音频后，首次创建本机身份：
+ANGELENO_MEMORY_CREATE=1 .venv/bin/python scripts/run_voice.py check
+ANGELENO_MEMORY_CREATE=1 .venv/bin/python scripts/run_voice.py start --livekit-bin livekit-server
+# 以后恢复同一身份时去掉 ANGELENO_MEMORY_CREATE=1，不换身份或重置已有状态。
 ```
 
 配置检查不会调用模型或启动 GPU。真实启动需要显式启用收费服务；`ANGELENO_PAID_ENABLED=0` 是示例的默认值。默认本地网页地址为 `http://127.0.0.1:8767`，跨设备麦克风访问需要受信任的 HTTPS 与可达的媒体网络。

@@ -70,6 +70,9 @@ CLI保留 `/memory`、`/sync`、`/private`、`/public`、`/forget ID` 与 `/exit
 .venv/bin/python scripts/run_voice.py check
 ```
 
+首次运行尚无身份库时，给下列 check／start 命令临时加 `ANGELENO_MEMORY_CREATE=1`；
+check 仍只读，真正启动才创建本机用户状态。后续启动去掉该前缀；不复制他人的身份库，也不以初始化重置已有记忆。
+
 检查通过只证明本地配置可用。`ANGELENO_PAID_ENABLED=0` 仍是安全默认值，实际启动还需要明确开启。服务就绪后，选择一种启动方式：
 
 ```sh
