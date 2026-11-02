@@ -11,6 +11,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import json
+import time
+import uuid
+from . import trace as tracing
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -122,12 +125,31 @@ class DeepSeekChatStream:
         if self.budget is None:
             raise ValueError("A paid budget is required; use configured_providers")
         client = self._get_client()
-        request_id = await self.budget.reserve(client, payload, self.purpose)
+        trace_request = uuid.uuid4().hex
+        started = time.monotonic()
+        capture = tracing.current()
+        if capture is not None and capture.sink.path is None:capture=None
+        captured_text, captured_reasoning = [], []
+        reasoning_chars = 0
+        first_chunk_at = first_text_at = http_started = None
+        tracing.record('model_request', request_id=trace_request, purpose=self.purpose,
+                       model=self.model, thinking=payload['thinking'], payload=payload)
+        try:
+            request_id = await self.budget.reserve(client, payload, self.purpose)
+        except BaseException as exc:
+            tracing.record('model_end', request_id=trace_request, model=self.model, purpose=self.purpose,
+                           status='reservation_refused', error_type=type(exc).__name__,
+                           http_dispatched=False, elapsed_seconds=time.monotonic()-started)
+            raise
         usage, status, http_status = None, "interrupted", None
         first_token, saw_done = True, False
         finish_reason = None
         calls = {}
+        error_type = None
         try:
+            http_started = time.monotonic()
+            tracing.record('model_http_start', request_id=trace_request, ledger_request_id=request_id,
+                           model=self.model, purpose=self.purpose)
             async with client.stream("POST", f"{self.base_url}/v1/chat/completions",
                                      headers=headers, json=payload) as r:
                 http_status = r.status_code
@@ -146,6 +168,10 @@ class DeepSeekChatStream:
                             raise ValueError("SSE object required")
                     except (ValueError, TypeError) as exc:
                         raise RuntimeError("DeepSeek returned invalid SSE data") from exc
+                    if first_chunk_at is None:
+                        first_chunk_at = time.monotonic()
+                        tracing.record('model_first_chunk', request_id=trace_request,
+                                       after_http_seconds=first_chunk_at-http_started)
                     if obj.get("error"):
                         raise RuntimeError("DeepSeek returned an in-stream error")
                     if obj.get("usage") is not None:
@@ -161,12 +187,20 @@ class DeepSeekChatStream:
                     delta = choice.get("delta") or {}
                     if not isinstance(delta, dict):
                         raise RuntimeError("Invalid DeepSeek delta")
+                    reasoning = delta.get('reasoning_content')
+                    if isinstance(reasoning,str):
+                        reasoning_chars += len(reasoning)
+                        if capture and capture.sink.capture_reasoning and sum(map(len,captured_reasoning))<16384:
+                            captured_reasoning.append(reasoning[:16384-sum(map(len,captured_reasoning))])
                     piece = delta.get("content")
                     if piece:
                         if not isinstance(piece, str):
                             raise RuntimeError("Invalid text delta")
                         if first_token:
                             first_token = False
+                            first_text_at = time.monotonic()
+                        if capture and sum(map(len,captured_text))<32000:
+                            captured_text.append(piece[:32000-sum(map(len,captured_text))])
                         yield TextDelta(piece)
                     fragments = delta.get("tool_calls", [])
                     if not isinstance(fragments, list):
@@ -214,11 +248,30 @@ class DeepSeekChatStream:
             if status != "completed":
                 status = "cancelled"
             raise
-        except BaseException:
+        except BaseException as exc:
             status = "failed"
+            error_type = type(exc).__name__
             raise
         finally:
-            self.budget.finish(request_id, usage, status, http_status)
+            try:
+                self.budget.finish(request_id, usage, status, http_status)
+            finally:
+                extra = {}
+                if capture and capture.sink.capture_reasoning and reasoning_chars:
+                    extra['reasoning_content'] = ''.join(captured_reasoning)
+                    extra['reasoning_truncated_chars'] = reasoning_chars-len(extra['reasoning_content'])
+                tracing.record('model_end', request_id=trace_request, ledger_request_id=request_id,
+                    model=self.model, thinking=payload['thinking'], purpose=self.purpose,
+                    status=status, error_type=error_type, http_status=http_status,
+                    elapsed_seconds=time.monotonic()-started,
+                    http_elapsed_seconds=time.monotonic()-http_started if http_started else None,
+                    first_chunk_seconds=first_chunk_at-http_started if first_chunk_at else None,
+                    first_text_seconds=first_text_at-http_started if first_text_at else None,
+                    finish_reason=finish_reason, usage=usage, output=''.join(captured_text),
+                    tool_calls=list(calls.values()),
+                    proposal='present' if calls else 'none', tools_offered=tools is not None,
+                    reasoning_capture='supplier_returned' if extra else 'not_returned' if capture and capture.sink.capture_reasoning else 'disabled',
+                    **extra)
 
 
 def _provider_configuration(env, root):

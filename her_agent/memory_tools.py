@@ -6,6 +6,7 @@ import json
 from .author import MAX_REQUEST_CHARS
 from .capabilities import capability_contract, set_capabilities
 from .memory import encoded
+from . import trace as tracing
 
 
 TOOLS = [{"type": "function", "function": {
@@ -102,13 +103,26 @@ async def reply(provider, messages, store, *, user_seq=None):
         await iterator.aclose()
     if pending is None:
         return
-    call, query = parse_call(pending)
+    for proposed in pending:tracing.tool('tool_proposed',proposed)
+    try:
+        call, query = parse_call(pending)
+    except ValueError:
+        for proposed in pending:tracing.tool('tool_rejected',proposed,reason='validation')
+        raise
+    tracing.tool('tool_validated',call)
     # Cancellation delivered before this point prevents both reading and followup.
     await asyncio.sleep(0)
     assistant = {"role": "assistant", "content": "".join(prefix) or None, "tool_calls": [call]}
     tool = {"role": "tool", "tool_call_id": call["id"], "content": ""}
     followup = [*current, assistant, tool]
-    fill_search(provider, followup, store, query, tool, user_seq=user_seq)
+    tracing.tool('tool_adapter_start',call)
+    try:
+        fill_search(provider, followup, store, query, tool, user_seq=user_seq)
+    except Exception as exc:
+        tracing.tool('tool_adapter_end',call,reason=type(exc).__name__)
+        raise
+    tracing.tool('tool_adapter_end',call,status='searched')
+    tracing.record('tool_evidence',operation='memory_search',call_id=call['id'],result=json.loads(tool['content']))
     # There was no await between querying the SQLite versions and saving exposure.
     await asyncio.sleep(0)
     iterator = provider.chat_events(followup)

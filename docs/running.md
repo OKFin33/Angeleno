@@ -195,3 +195,42 @@ local adapter start/end, and skipped calls with a controlled reason. Only tool n
 turn numbers and controlled statuses are retained; no raw parameters, responses, user speech, prompts or hidden reasoning.
 `tool_adapter_start` is not evidence of an HTTP request or successful lookup. Existing Fetch HTTP events and the account
 ledger provide separate network/billing evidence. Do not use missing old trace rows to invent a historical decision.
+
+
+### Private per-turn trace
+
+`ANGELENO_TRACE=1` captures text diagnostics into the existing `ANGELENO_DIAGNOSTICS_FILE`.
+It is off by default. Choose a **new file** under an existing ignored `private/` directory;
+files are0600 and bounded to32MiB. Keep `ANGELENO_MEMORY_PURPOSE=real_user` for a real trial or
+`development` with the existing isolated development store for synthetic evaluation. The two purposes cannot share a trace file.
+Do not relabel a real-user identity to enable development tracing. The existing no-save/temporary mode omits trace content too.
+
+```sh
+mkdir -p private/my-trial
+# Set in your local env, then use the normal startup entry:
+# ANGELENO_TRACE=1
+# ANGELENO_DIAGNOSTICS_FILE=private/my-trial/operator-metadata.jsonl
+.venv/bin/python -m her_agent.trace --file private/my-trial/operator-metadata.jsonl --purpose real_user
+# Inspect one turn, expanding the actual redacted input and tool evidence:
+.venv/bin/python -m her_agent.trace --file private/my-trial/operator-metadata.jsonl --purpose real_user --session <id> --turn t2 --expand input tools memory
+```
+
+The default view shows final user input, generated text separately from adapter-confirmed delivery,
+model timings/usage, observable tool decisions, evidence grades, memory outcome and linked TTS/playout events.
+Input expansion contains the effective model messages/tools, including character/rule version,
+current language/capabilities and selected memory/context. `turn_inputs`, memory and billing databases
+remain authoritative; the trace is not read back into prompts. No proposal means only that no proposal was returned,
+not an explanation of hidden model reasoning. Adapter dispatch is distinct from actual HTTP dispatch.
+Server playout does not prove that a person heard the audio, and no microphone/reference/PCM audio is stored.
+
+The copy is redacted for configured credentials, credential fields and common key/header formats;
+HTTP headers/cookies are never captured. Large records are explicitly marked truncated. Runtime I/O errors or
+capture limits never fail a reply; missing terminal records must be treated as incomplete capture, not proof that nothing ran.
+The default viewer folds full prompts, detailed sources and per-chunk timing. Use `--expand` for local inspection.
+Traces are sensitive local files, excluded from Git; no telemetry/upload or automatic retention service exists.
+They remain until the operator removes the corresponding private trace file. Copies are separate from memory deletion.
+
+`ANGELENO_TRACE_REASONING=0` remains the default. Opting into1 records only `reasoning_content` actually
+returned by the supplier, bounded and redacted; it does **not** enable thinking or reveal an inaccessible internal chain.
+The current provider still sends `thinking: {type: disabled}`. No returned reasoning is shown as not returned,
+not synthesized. Synthetic comparison uses the same fields but separate development trace files; formal grading and heldout rules are unchanged.

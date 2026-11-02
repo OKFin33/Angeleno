@@ -20,6 +20,7 @@ from .runtime import ConversationRuntime, open_store
 from .provider import configured_providers
 from .voice_timing import TurnDeadlines, install_phase_audio
 from .language import configured_language
+from . import trace as tracing
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,7 @@ UNCERTAIN_DELIVERY = "[语音交付中断或未确认，无法确认对方已听
 
 
 def voice_configuration(env, *, root=ROOT):
+    tracing.trace_path(env,root)
     configured_language(env)
     pack = configured_pack(env, root=root)
     if pack is None:
@@ -69,7 +71,7 @@ def create_voice_runtime(env, *, root=ROOT, provider_factory=None):
                   else live_lookup() if env.get("ANGELENO_PLACE_TOOLS") == "1" else None)
         return ConversationRuntime(pack, actor, store=store, writer=writer, variant=variant,
                                    memory_tools=env.get("ANGELENO_MEMORY_TOOLS") == "1",
-                                   lookup=lookup, attribution_check=env.get("ANGELENO_MEMORY_ATTRIBUTION_CHECK") == "1", language=configured_language(env))
+                                   lookup=lookup, attribution_check=env.get("ANGELENO_MEMORY_ATTRIBUTION_CHECK") == "1", language=configured_language(env), trace_env=env, trace_root=root)
     except BaseException:
         store.close()
         raise
@@ -102,11 +104,16 @@ class VoiceBridge:
         # turn without pretending the generated buffer was played.
         self.settle_unconfirmed()
         turn = self.runtime.begin(user)
+        tracing.register(request_id, getattr(turn,'trace_binding',None))
+        tracing.record('voice_link', binding=tracing.linked(request_id), request_id=request_id)
         self.pending[request_id] = turn
         self.playback[request_id] = []
         self.active_id = request_id
         self.last_complete = False
         confirmation = self.confirmed if self.confirmed and self.confirmed[0] == user else None
+        tracing.record('asr_final', binding=tracing.linked(request_id), text=user,
+                       confirmed_at=confirmation[1] if confirmation else None,
+                       anchor='asr_final_received' if confirmation else 'sdk_user_item')
         self.confirmed = None
         self.speech_parts.clear()
         self.deadlines.begin(request_id, confirmed_at=confirmation[1] if confirmation else None,
@@ -152,6 +159,7 @@ class VoiceBridge:
     async def expire(self, timed):
         if self.active_id != timed.request_id:
             return
+        tracing.record('voice_timeout', binding=tracing.linked(timed.request_id), lookup=timed.lookup)
         turn = self.pending.get(timed.request_id)
         if turn is not None:
             turn.timed_out = True

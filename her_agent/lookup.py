@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .author import MAX_REQUEST_CHARS
 from .diagnostics import tool_trace
+from .trace import record as trace_record
 from .budget import BudgetExceeded
 from .memory import encoded, new_session
 from .memory_tools import request_chars
@@ -836,6 +837,7 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
                     tool_trace('tool_adapter_end', call, user_turn=user_turn, reason='budget_refused' if isinstance(exc, BudgetExceeded) else 'adapter_error')
                     raise
                 tool_trace('tool_adapter_end', call, user_turn=user_turn, status='searched')
+                trace_record('tool_evidence', call_id=call['id'], operation=name, result=json.loads(tool['content']))
                 await asyncio.sleep(0)
                 continue
             tool_trace('tool_adapter_start', call, user_turn=user_turn)
@@ -853,6 +855,7 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             await service.checkpoint(session_id, arm=name in service.check_names and intent is not None)
             payload, card = service.reconcile(session_id, name, payload, card, intent)
             tool_trace('tool_result', call, user_turn=user_turn, status=payload.get('status'))
+            trace_record('tool_evidence', call_id=call['id'], operation=name, result=payload)
             if name in service.check_names and turn is not None:
                 turn.speech_phase = "answer"
                 if service.on_check_finished is not None:

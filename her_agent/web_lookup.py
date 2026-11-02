@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from .diagnostics import emit
+from .trace import record as trace_record
 
 from .lookup import (TextLookup, _CHECK, _LOOKUP_NOTE, _quiet, _tool,
                      _unique_object, parse_call, prepare_messages)
@@ -372,6 +373,8 @@ class DeepSeekWeb:
             if kind == "fetch":
                 emit("web_fetch_http_start", request_id=str(request_id), url=payload["url"],
                      request_hash=_fetch_hash(payload["url"]))
+            trace_record('web_http_start', operation=kind, ledger_request_id=request_id,
+                         public_payload=payload)
             async with client.stream("POST", "https://api.deepseek.com/v1/tools/" + kind,
                     headers={"Authorization": "Bearer " + actor.api_key}, json=payload,
                     follow_redirects=False) as response:
@@ -401,6 +404,8 @@ class DeepSeekWeb:
             raise WebFailure("web_unavailable") from None
         finally:
             actor.budget.ledger.finish_web(request_id, charged=charged, status=status, http_status=http_status)
+            trace_record('web_http_end', operation=kind, ledger_request_id=request_id,
+                         status=status, http_status=http_status, charged=charged)
             if kind == "fetch":
                 emit("web_fetch_http_end", request_id=str(request_id), request_hash=_fetch_hash(payload["url"]),
                      reason=status, http_status=http_status)

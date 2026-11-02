@@ -8,6 +8,7 @@ import math
 from .memory import StaleBatch, new_session
 from .author import MAX_REQUEST_CHARS
 from .language import configured_language, requested_language
+from . import trace as tracing
 
 
 MAINTAIN = """你维护虚构角色与真实用户的相处记忆，只返回 JSON，不扮演、不写下一句对白。
@@ -112,6 +113,10 @@ class Maintainer:
         self.last_attempt = None
 
     async def once(self):
+        with tracing.activate(getattr(self,'trace_binding',None) or tracing.current()):
+            return await self._traced_once()
+
+    async def _traced_once(self):
         if self.attribution_check:
             try:
                 # One conservative total budget for both calls, not a fresh
@@ -120,6 +125,7 @@ class Maintainer:
                 async with asyncio.timeout(self._attribution_seconds):
                     return await self._once()
             except TimeoutError:
+                tracing.record('memory_end', status='timeout')
                 self.error = "TimeoutError"
                 if self.last_attempt is not None:
                     self.last_attempt.update(status="rejected", error=self.error)
@@ -132,6 +138,9 @@ class Maintainer:
             batch = self.store.batch()
             if batch is None:
                 return False
+            tracing.record('memory_batch', revision=batch.revision, watermark=batch.watermark,
+                           through=batch.through, pending_events=len(batch.events),
+                           records=[{'id':r['id']} for r in batch.records])
             evidence = self.store.record_evidence(batch.records)
             messages = maintenance_messages(self.pack, batch, evidence,
                 self.store.maintenance_lookup_sources((*evidence, *batch.events)))
@@ -169,10 +178,13 @@ class Maintainer:
             if self.attribution_check and asyncio.current_task().cancelling():
                 raise asyncio.CancelledError  # a cancellation-insensitive checker cannot commit late
             self.store.apply(batch, normalized)
+            tracing.record('memory_commit', revision=self.store.revision, watermark=self.store.watermark,
+                           through=batch.through, proposal=normalized)
             self.last_attempt["status"] = "committed"
             self.error = None
             return True
         except asyncio.CancelledError:
+            tracing.record('memory_end', status='cancelled')
             if self.attribution_check:
                 self.error = "CancelledError"
                 if self.last_attempt is not None:
@@ -181,6 +193,7 @@ class Maintainer:
         except Exception as exc:
             # Retain unprocessed evidence. No automatic retry or fallback memory.
             self.error = type(exc).__name__
+            tracing.record('memory_end', status='failed', error_type=self.error)
             if self.last_attempt is not None:
                 self.last_attempt["status"] = "rejected"
                 self.last_attempt["error"] = self.error

@@ -4,6 +4,8 @@ import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
+import uuid
+from . import trace as tracing
 
 from .continuity import Conversation, Maintainer
 from .memory import MemoryStore, seed_digest
@@ -64,7 +66,7 @@ class ConversationRuntime:
     """
 
     def __init__(self, pack, provider, *, store=None, writer=None, variant="guided",
-                 memory_tools=False, lookup=None, attribution_check=False, language=None):
+                 memory_tools=False, lookup=None, attribution_check=False, language=None, trace_env=None, trace_root=None):
         if type(attribution_check) is not bool or (attribution_check and store is None):
             raise ValueError('Attribution check requires an explicit boolean and persistent memory')
         if memory_tools and store is None:
@@ -85,6 +87,15 @@ class ConversationRuntime:
         self.active = None
         self.closed = False
         self._current_call_topic = False
+        self.trace = tracing.Trace(trace_env, root=trace_root or Path(__file__).resolve().parents[1],
+                                   purpose=getattr(store, 'purpose', None))
+        self.trace_session = self.conversation.session if self.conversation else uuid.uuid4().hex
+        self.trace_binding = tracing.Binding(self.trace, self.trace_session)
+        self.trace_turns = 0
+        tracing.record('session', binding=self.trace_binding, code_version=self.trace.version, working_tree_dirty=self.trace.dirty,
+                       character=pack.id, role=getattr(pack,'role','character'), author=pack.provenance(),
+                       configured_language=self.language, memory=store is not None,
+                       memory_search=memory_tools, lookup=type(lookup).__name__ if lookup is not None else None)
 
     def set_temporary(self, enabled):
         self.temporary = enabled
@@ -122,10 +133,35 @@ class ConversationRuntime:
                     user_seq=self.store.current_turn(self.conversation.session)
                     if self.store and not self.temporary else None)
         turn.language = self.language
+        self.trace_turns += 1
+        turn.trace_binding = tracing.Binding(self.trace, self.trace_session, 't'+str(self.trace_turns), not turn.temporary)
+        if self.maintainer is not None:self.maintainer.trace_binding=turn.trace_binding
+        tracing.record('turn_input', binding=turn.trace_binding, text=user, language=self.language,
+                       temporary=turn.temporary, user_seq=turn.user_seq,
+                       tools_suppressed=suppress_old_tools,
+                       observable_reason='new_call_phatic_no_old_task' if suppress_old_tools else None)
         self.active = turn
         return turn
 
     async def stream(self, turn):
+        iterator=self._stream(turn)
+        status='interrupted'
+        with tracing.activate(getattr(turn,'trace_binding',None)):
+            try:
+                async for piece in iterator:yield piece
+                status='completed'
+            except asyncio.CancelledError:
+                status='cancelled';raise
+            except Exception as exc:
+                status='error'
+                tracing.record('generation_error', error_type=type(exc).__name__)
+                raise
+            finally:
+                try:await iterator.aclose()
+                finally:tracing.record('generation_end', status=status, text=''.join(turn.generated),
+                                      complete=turn.generation_complete)
+
+    async def _stream(self, turn):
         if turn is not self.active or turn.settled or self.closed:
             raise ValueError("Inactive conversation turn")
         if turn.suppress_old_tools:
@@ -189,16 +225,26 @@ class ConversationRuntime:
                 self.store, getattr(turn, "lookup_session", None),
                 getattr(turn, "lookup_user_turn", None), text,
             )
+        tracing.record('delivery', binding=getattr(turn,'trace_binding',None), text=text, complete=complete,
+                       evidence='adapter_display_or_server_playout_not_human_hearing', temporary=turn.temporary)
         turn.settled = True
         if complete and not turn.temporary:
             self.completed += 1
             if self.maintainer and self.completed % 3 == 0:
                 self.maintainer.schedule()
+        if self.store is not None and self.trace.path is not None:
+            try:
+                tracing.record('memory_state', binding=turn.trace_binding, revision=self.store.revision,
+                    watermark=self.store.watermark, pending_events=len(self.store.pending()),
+                    maintenance_error=self.maintainer.error,
+                    maintenance_scheduled=self.maintainer.task is not None and not self.maintainer.task.done())
+            except Exception:pass
 
     async def close(self, *, flush=True, timeout=None):
         if self.closed:
             return
         self.closed = True
+        tracing.record('session_closing', binding=self.trace_binding, completed_turns=self.completed)
         try:
             if self.maintainer:
                 if flush and self.completed and (self.active is None or self.active.settled):
@@ -226,3 +272,5 @@ class ConversationRuntime:
             finally:
                 if self.store:
                     self.store.close()
+                tracing.record('session_closed', binding=self.trace_binding, completed_turns=self.completed)
+                tracing.forget(self.trace_session)

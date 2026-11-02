@@ -1,4 +1,4 @@
-"""Opt-in local metadata receipts. Never store speech, prompts or credentials.
+"""Opt-in local metadata receipts; content trace is a separate explicit switch.
 
 No file is created by default. The operator must select a non-symlink path
 inside this checkout's ignored private/ directory. Failures cannot affect a turn.
@@ -63,6 +63,8 @@ def emit(event, **metadata):
                 return False
             row = {"event": event, "monotonic_seconds": time.monotonic(), **metadata}
             os.write(fd, (json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n").encode())
+            from .trace import timing
+            timing(event,metadata)
         finally:
             os.close(fd)
         return True
@@ -74,7 +76,7 @@ _TOOL_NAMES = frozenset({'web_search','web_fetch','place_search','place_check','
 _TRACE_REASONS = frozenset({'batch_validation','tool_limit_reached','actor_request_limit','cancelled',
     'provider_security_refused','budget_refused','adapter_error','tool_not_accepted'})
 _TRACE_STATUSES = frozenset({'evidence','supported','insufficient','conflict','unavailable','cancelled',
-    'out_of_scope','searched','invalid_arguments','not_executed'})
+    'out_of_scope','searched','invalid_arguments','not_executed','not_observed'})
 _tool_trace_rows = 0
 _tool_trace_lock = threading.Lock()
 
@@ -86,6 +88,8 @@ def tool_trace(event, call, *, user_turn, reason=None, status=None):
     The existing Fetch HTTP events remain the evidence of actual network I/O.
     """
     global _tool_trace_rows
+    from .trace import tool
+    tool(event,call,reason=reason,status=status)
     if (os.getenv('ANGELENO_TOOL_TRACE') != '1'
             or os.getenv('ANGELENO_MEMORY_PURPOSE') != 'development'
             or not os.getenv('ANGELENO_DIAGNOSTICS_FILE')):

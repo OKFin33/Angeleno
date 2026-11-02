@@ -54,7 +54,7 @@ async def chat(args, pack, env=None):
         raise
     runtime = ConversationRuntime(pack, provider, store=store, writer=writer,
                                   variant=args.variant, memory_tools=getattr(args, "memory_tools", False),
-                                  attribution_check=attribution_check, language=configured_language(env))
+                                  attribution_check=attribution_check, language=configured_language(env), trace_env=env, trace_root=ROOT)
     maintainer = runtime.maintainer
     allow_flush = True
     print("文字试聊；会调用 DeepSeek 计费。/exit 结束。")
