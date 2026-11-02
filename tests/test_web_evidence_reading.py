@@ -68,12 +68,21 @@ class EvidenceReadingTests(unittest.IsolatedAsyncioTestCase):
                                                      'a'*64, readings(case) if source else ())
                         api = FakeWeb(); api.search = AsyncMock(return_value=observed)
                     try:
-                        body, actor, _ = await self.packet(api, case['current_date'])
+                        body, actor, service = await self.packet(api, case['current_date'])
                         evidence = body['evidence_reading']
                         scopes[case['id']] = evidence['observation_scope']
                         self.assertEqual(evidence['fact_verification'], 'not_performed')
+                        self.assertEqual(evidence['execution_this_turn'],
+                                         'live_request' if case['observation']['mode'] == 'live' else 'not_executed')
+                        self.assertEqual(evidence['observation_result'],
+                                         'unobserved' if case['source'] is None and case['observation']['mode'] != 'live'
+                                         else 'empty' if case['source'] is None else 'results')
                         claims = evidence['source_assertions']
                         self.assertEqual(evidence['unbound_assertions'], 0)
+                        persisted = next(iter(service.result_readings.values()))['evidence_reading']
+                        self.assertEqual(persisted['observation_scope'], evidence['observation_scope'])
+                        self.assertNotIn('execution_this_turn', persisted)
+                        self.assertNotIn('observation_result', persisted)
                         public = [c['source_modality'] for c in claims if c['event'] == 'public_opening']
                         expected = {'planned_only': ['planned'], 'reported_actual': ['reported_actual'],
                                     'not_established': []}[case['expected_public_opening']]
@@ -119,6 +128,8 @@ class EvidenceReadingTests(unittest.IsolatedAsyncioTestCase):
         body, _, _ = await self.packet(api)
         self.assertEqual(body['evidence_reading']['source_assertions'], [])
         self.assertEqual(body['evidence_reading']['observation_scope'], 'adapter_observation')
+        self.assertEqual(body['evidence_reading']['execution_this_turn'], 'adapter_unconfirmed')
+        self.assertEqual(body['evidence_reading']['observation_result'], 'results')
 
     async def test_fetch_assertions_bind_to_visible_body_and_cancel_removes_them(self):
         api = FakeWeb()
@@ -134,6 +145,8 @@ class EvidenceReadingTests(unittest.IsolatedAsyncioTestCase):
             {'result_id': search['results'][0]['result_id']},
             session_id='fetch', user_turn=1, utterance='建筑？')
         self.assertEqual(body['evidence_reading']['source_assertions'][0]['source_modality'], 'reported_actual')
+        self.assertEqual(body['evidence_reading']['execution_this_turn'], 'not_executed')
+        self.assertEqual(body['evidence_reading']['observation_result'], 'page')
         service.channel.cancel(intent.lineage_id)
         reconciled, _ = service.reconcile('fetch', 'web_fetch', body, card, intent)
         self.assertNotIn('evidence_reading', reconciled)
