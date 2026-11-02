@@ -24,6 +24,24 @@ node tests/test_call_page.js web/index.html
 
 `examples/demo/` 是公开接线用合成人物“林”，与 Jo 产品人物不同。页面根据实际包显示示例或人物名，不能用该包的表现代替 Jo 验收。
 
+## Interaction language (v0.1.1)
+
+`ANGELENO_LANGUAGE=en` is the new default for Jo's spoken replies and the call page.
+Set `ANGELENO_LANGUAGE=zh` in your own `private/runtime.env` to restore Chinese defaults.
+Use one value consistently for the worker and page server. Invalid values fail the offline configuration check.
+The setting does not change character files, source IDs, identity seeds, existing memories, models, reference audio or tool policy.
+Chinese author material remains the source of the same character; it is not a requirement to recite or reply in Chinese.
+An explicit user request to switch language is followed within the conversation; it does not rewrite the deployment default.
+
+Paraformer still sends mono PCM16 at 16 kHz. Its explicit hints are `['en', 'zh']` in English mode and
+`['zh', 'en']` in Chinese mode, retaining both languages. The SDK result language marks the configured primary
+recognition language, not verified automatic language identification by the service.
+English sentence segmentation handles periods while preserving decimal prices, abbreviations, initialisms and times such as
+`USC`, `Los Angeles`, `7:30 p.m.` and `$12.50`; the text is not rewritten to guess pronunciation.
+The same reference-only VoxCPM2 path is used. Cross-language voice quality and accent still need listening verification;
+no reference transcript is fabricated, and the reference audio is not sent to cloud TTS.
+
+
 ## 配置、人物与私有状态
 
 ```sh

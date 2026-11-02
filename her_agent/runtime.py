@@ -7,6 +7,7 @@ import re
 
 from .continuity import Conversation, Maintainer
 from .memory import MemoryStore, seed_digest
+from .language import configured_language
 
 
 def _user_utterance(turn):
@@ -63,20 +64,21 @@ class ConversationRuntime:
     """
 
     def __init__(self, pack, provider, *, store=None, writer=None, variant="guided",
-                 memory_tools=False, lookup=None, attribution_check=False):
+                 memory_tools=False, lookup=None, attribution_check=False, language=None):
         if type(attribution_check) is not bool or (attribution_check and store is None):
             raise ValueError('Attribution check requires an explicit boolean and persistent memory')
         if memory_tools and store is None:
             raise ValueError("Memory tools require a persistent identity")
         if store is not None and writer is None:
             raise ValueError("Persistent conversation requires a maintenance provider")
+        self.language = configured_language() if language is None else configured_language({"ANGELENO_LANGUAGE": language})
         self.pack, self.provider, self.store, self.writer = pack, provider, store, writer
         self.variant, self.memory_tools = variant, memory_tools
         self.lookup = lookup
         self.voice_output = False  # Set only by the voice adapter, never user text.
         self._lookup_turns = 0
-        self.conversation = Conversation(pack, store, variant=variant) if store else None
-        self.maintainer = Maintainer(store, pack, writer, attribution_check=attribution_check) if store else None
+        self.conversation = Conversation(pack, store, variant=variant, language=self.language) if store else None
+        self.maintainer = Maintainer(store, pack, writer, attribution_check=attribution_check, language=self.language) if store else None
         self.history, self.temporary_history = [], []
         self.temporary = False
         self.completed = 0
@@ -95,7 +97,8 @@ class ConversationRuntime:
             raise ValueError("Previous turn has no delivery disposition")
         if not isinstance(user, str) or not user.strip():
             raise ValueError("A nonempty user utterance is required")
-        if self.store and any(word in user for word in ("别记", "不要记", "别保存", "不要保存")):
+        if self.store and (any(word in user for word in ("别记", "不要记", "别保存", "不要保存"))
+                           or re.search(r"(?:^|[.!?]\s+)(?:please[ ,]+)?(?:do not|don't|don’t) (?:save|store|remember) (?:this|our|anything|that)\b", user, re.I)):
             self.set_temporary(True)
         if self.conversation and self.temporary:
             self.temporary_history.append({"role": "user", "content": user})
@@ -103,7 +106,7 @@ class ConversationRuntime:
         elif self.conversation:
             messages = self.conversation.begin(user)
         else:
-            messages = self.pack.messages([*self.history, {"role": "user", "content": user}], self.variant)
+            messages = self.pack.messages([*self.history, {"role": "user", "content": user}], self.variant, language=self.language)
         phatic = non_action_opening(user)
         suppress_old_tools = not self._current_call_topic and phatic
         if not phatic:
@@ -113,6 +116,7 @@ class ConversationRuntime:
         turn = Turn(messages, temporary=self.temporary, suppress_old_tools=suppress_old_tools,
                     user_seq=self.store.current_turn(self.conversation.session)
                     if self.store and not self.temporary else None)
+        turn.language = self.language
         self.active = turn
         return turn
 

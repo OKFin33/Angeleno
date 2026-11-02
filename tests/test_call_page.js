@@ -42,6 +42,7 @@ function harness(fetchOverride, options={}) {
     setInterval:(fn,delay)=>schedule(fn,delay,'interval'),clearInterval:cancel,
     fetch:fetchOverride||defaultFetch,console:{...console,error(){}}};
   vm.createContext(ctx);vm.runInContext(code,ctx);
+  ctx.applyLanguage(options.language || 'zh');
   // Exercise real DOM/state/timer functions; only the media graph is synthetic.
   ctx.ensureAudioGraph=()=>{}; ctx.connectMicToAnalyser=()=>{};
   const showToast=ctx.showToast, setStatus=ctx.setStatus, showTranscript=ctx.showTranscript;
@@ -52,6 +53,26 @@ function harness(fetchOverride, options={}) {
     toastTimer:()=>[...timers.entries()].filter(([,t])=>t.kind==='timeout'&&t.delay===6000&&!t.cancelled).at(-1)?.[0],
     state:()=>vm.runInContext('({connected,connecting,roomPresent:room!==null,callGeneration})',ctx)};
 }
+async function languageRegressions() {
+  assert.match(html, /<html lang="en">/);
+  const h=harness(undefined,{language:'en'});
+  assert.equal(h.elements.callLabel.textContent,'Start call');
+  assert.equal(h.elements.muteButton.attributes['aria-label'],'Mute microphone');
+  await h.ctx.connect();
+  assert.equal(h.elements.callLabel.textContent,'Hang up');
+  h.ctx.applyLanguage('zh');
+  assert.equal(h.elements.callLabel.textContent,'挂断');
+  h.ctx.applyLanguage('en');
+  h.ctx.updateMuteControl(false);
+  assert.equal(h.elements.muteButton.textContent,'Unmute');
+  const ending=h.ctx.disconnect();h.rooms[0].finishDisconnect();await ending;
+  assert.equal(h.elements.callLabel.textContent,'Start call');
+  assert.equal(h.elements.muteButton.textContent,'Mute');
+  const g=harness(async url=>({ok:true,json:async()=>url.endsWith('/healthz')?{ready:true,language:'zh',persona_label:'Jo'}:{token:'synthetic',livekit_url:'ws://synthetic'}}),{language:'en'});
+  await g.ctx.connect();assert.equal(g.elements.callLabel.textContent,'挂断','server language selects explicit Chinese fallback');
+  console.log('PASS language: English defaults, explicit Chinese, mute and redial labels');
+}
+
 async function originalRegressions(){
   const h=harness();await h.ctx.connect();
   const leaving=h.ctx.disconnect();
@@ -323,7 +344,7 @@ async function localAllowance(){
 }
 
 (async()=>{
-  const groups={'original':originalRegressions,'transient-reset':transientReset,'timer-isolation':timerIsolation,'mute-reset':muteReset,'audio-metrics':audioMetrics,'local-allowance':localAllowance};
+  const groups={'language':languageRegressions,'original':originalRegressions,'transient-reset':transientReset,'timer-isolation':timerIsolation,'mute-reset':muteReset,'audio-metrics':audioMetrics,'local-allowance':localAllowance};
   const selected=process.argv[3];
   if(selected){assert(groups[selected],`Unknown group ${selected}`);await groups[selected]();}
   else for(const run of Object.values(groups))await run();

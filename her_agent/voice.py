@@ -19,6 +19,7 @@ from .baseline import configured_pack
 from .runtime import ConversationRuntime, open_store
 from .provider import configured_providers
 from .voice_timing import TurnDeadlines, install_phase_audio
+from .language import configured_language
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +27,7 @@ UNCERTAIN_DELIVERY = "[语音交付中断或未确认，无法确认对方已听
 
 
 def voice_configuration(env, *, root=ROOT):
+    configured_language(env)
     pack = configured_pack(env, root=root)
     if pack is None:
         raise ValueError("ANGELENO_AUTHOR_PACK is required for the shared voice core")
@@ -67,7 +69,7 @@ def create_voice_runtime(env, *, root=ROOT, provider_factory=None):
                   else live_lookup() if env.get("ANGELENO_PLACE_TOOLS") == "1" else None)
         return ConversationRuntime(pack, actor, store=store, writer=writer, variant=variant,
                                    memory_tools=env.get("ANGELENO_MEMORY_TOOLS") == "1",
-                                   lookup=lookup, attribution_check=env.get("ANGELENO_MEMORY_ATTRIBUTION_CHECK") == "1")
+                                   lookup=lookup, attribution_check=env.get("ANGELENO_MEMORY_ATTRIBUTION_CHECK") == "1", language=configured_language(env))
     except BaseException:
         store.close()
         raise

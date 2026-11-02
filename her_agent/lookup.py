@@ -860,6 +860,8 @@ async def reply(service, provider, messages, *, session_id, user_turn, utterance
             # No fifth paid request, even if a model ignored the absent schemas.
             # This is a bounded stop notice, never a fabricated factual answer.
             notice = "这轮已停止继续核对，后面的工具没有执行；未核实的部分不能作结论。"
+            if getattr(turn, "language", None) == "en":
+                notice = "I have to stop checking here. The remaining tools did not run, so I cannot confirm those details."
             service.guard_speech(session_id, notice)
             yield notice
             break
@@ -886,7 +888,8 @@ async def _live(args):
     provider, writer = configured_providers(env, root=ROOT)
     from .web_lookup import configured_web_lookup
     service = configured_web_lookup(env, provider, pack=pack) if env.get("ANGELENO_WEB_ENABLED") == "1" else live_lookup()
-    runtime = ConversationRuntime(pack, provider, writer=writer, lookup=service)
+    from .language import configured_language
+    runtime = ConversationRuntime(pack, provider, writer=writer, lookup=service, language=configured_language(env))
     try:
         turn = runtime.begin(args.utterance)
         pieces = [piece async for piece in runtime.stream(turn)]

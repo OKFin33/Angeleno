@@ -19,7 +19,7 @@ from test_web_lookup import FakeWeb
 class RoleConfigurationTests(unittest.IsolatedAsyncioTestCase):
     def test_wire_labels_change_but_character_prompt_meaning_and_seed_are_unchanged(self):
         with patch.dict('os.environ', {'ANGELENO_TIMEZONE': 'America/Los_Angeles'}):
-            prompt = PACK.instructions(today='2026-10-30')
+            prompt = PACK.instructions(today='2026-10-30', language='zh')
             maintenance = PACK.maintenance_material()
         self.assertEqual(hashlib.sha256(prompt.encode()).hexdigest(),
                          '650310864779221238c6f47165d6dcd139dfdda22f4e999d702d726b3471f756')
@@ -49,7 +49,7 @@ class RoleConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(character.provenance(), original)
         self.assertEqual(assistant.role, 'assistant')
         for memory in (False, True):
-            prompt = assistant.instructions(today='2026-10-30', memory_enabled=memory)
+            prompt = assistant.instructions(today='2026-10-30', memory_enabled=memory, language='zh')
             self.assertIn(ASSISTANT_SETTING, prompt)
             self.assertIn(fact.body, prompt)
             self.assertNotIn(PACK.documents[0].body, prompt)

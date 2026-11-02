@@ -9,11 +9,12 @@ import uuid
 
 import aiohttp
 from livekit import rtc
+from her_agent.language import configured_language
 from livekit.agents import APIConnectionError, APIStatusError, APITimeoutError, DEFAULT_API_CONNECT_OPTIONS, stt
 
 
 class ParaformerSTT(stt.STT):
-    def __init__(self, api_key=None, url=None, *, allowance=None, paid_enabled=False):
+    def __init__(self, api_key=None, url=None, *, allowance=None, paid_enabled=False, language=None):
         super().__init__(capabilities=stt.STTCapabilities(streaming=True, interim_results=True))
         self.key = api_key or os.environ.get('DASHSCOPE_API_KEY', '')
         self.url = url or os.environ.get('DASHSCOPE_WS_URL', 'wss://dashscope.aliyuncs.com/api-ws/v1/inference')
@@ -24,6 +25,7 @@ class ParaformerSTT(stt.STT):
         if not is_loopback(self.url) and allowance is None:
             raise ValueError('Remote ASR requires an explicit duration allowance')
         self.allowance = allowance
+        self.language = configured_language() if language is None else configured_language({"ANGELENO_LANGUAGE": language})
 
     @property
     def model(self):
@@ -39,13 +41,14 @@ class ParaformerSTT(stt.STT):
     def stream(self, *, language=None, conn_options=DEFAULT_API_CONNECT_OPTIONS):
         if self.allowance is not None:
             conn_options = replace(conn_options, max_retry=0)
-        return ParaformerStream(self, conn_options)
+        return ParaformerStream(self, conn_options, language=language or self.language)
 
 
 class ParaformerStream(stt.SpeechStream):
-    def __init__(self, owner, conn_options):
+    def __init__(self, owner, conn_options, *, language):
         super().__init__(stt=owner, conn_options=conn_options, sample_rate=16000)
         self.owner = owner
+        self.language = configured_language({"ANGELENO_LANGUAGE": language})
         self.task_id = str(uuid.uuid4())
         self.speaking = False
 
@@ -57,7 +60,7 @@ class ParaformerStream(stt.SpeechStream):
                 'task_group': 'audio', 'task': 'asr', 'function': 'recognition',
                 'model': self.owner.model, 'parameters': {
                     'format': 'pcm', 'sample_rate': 16000,
-                    'language_hints': ['zh', 'en'], 'max_sentence_silence': 500,
+                    'language_hints': [self.language, 'zh' if self.language == 'en' else 'en'], 'max_sentence_silence': 500,
                     'semantic_punctuation_enabled': False,
                     'disfluency_removal_enabled': False, 'heartbeat': True,
                 },
@@ -75,7 +78,8 @@ class ParaformerStream(stt.SpeechStream):
         self._event_ch.send_nowait(stt.SpeechEvent(
             type=stt.SpeechEventType.FINAL_TRANSCRIPT if final else stt.SpeechEventType.INTERIM_TRANSCRIPT,
             request_id=self.task_id, alternatives=[stt.SpeechData(
-                language='zh', text=text,
+                # The service does not guarantee language identification; this is the configured primary language.
+                language=self.language, text=text,
                 start_time=(sentence.get('begin_time') or 0) / 1000,
                 end_time=(sentence.get('end_time') or 0) / 1000,
             )],

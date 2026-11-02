@@ -14,6 +14,7 @@ import secrets
 
 from her_agent.config import load_env
 from her_agent.baseline import configured_pack
+from her_agent.language import configured_language
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,7 +35,7 @@ async def create_room_and_token(env):
             room=room, agent_name=env.get('ANGELENO_AGENT_NAME', 'angeleno-jo'),
             metadata=json.dumps({'user_identity': identity})))
     token = (api.AccessToken(env['LIVEKIT_API_KEY'], env['LIVEKIT_API_SECRET'])
-             .with_identity(identity).with_name('试用者')
+             .with_identity(identity).with_name('Caller' if configured_language(env) == 'en' else '试用者')
              .with_grants(api.VideoGrants(room_join=True, room=room)).to_jwt())
     return {'token': token, 'room': room, 'identity': identity,
             'livekit_url': env.get('LIVEKIT_PUBLIC_URL') or url}
@@ -60,10 +61,11 @@ def handler_for(env, *, lifecycle=None):
                 ready = not check_configuration(env, starting=True) and (lifecycle is None or lifecycle.can_join())
                 try:
                     pack_id = configured_pack(env).id
-                    label = {'jo': 'Jo', 'demo-local': '合成示例（林）'}.get(pack_id, '自定义人物')
+                    label = ({'jo': 'Jo', 'demo-local': 'Synthetic demo (Lin)'}.get(pack_id, 'Custom character')
+                             if configured_language(env) == 'en' else {'jo': 'Jo', 'demo-local': '合成示例（林）'}.get(pack_id, '自定义人物'))
                 except (ValueError, OSError, KeyError):
-                    label = '人物配置未就绪'
-                self.send_json(200, {'ready': ready, 'scope': 'local-configuration', 'persona_label': label,
+                    label = 'Character not configured' if configured_language(env) == 'en' else '人物配置未就绪'
+                self.send_json(200, {'ready': ready, 'scope': 'local-configuration', 'persona_label': label, 'language': configured_language(env),
                                      **({'lifecycle_enabled':True} if lifecycle is not None else {})})
                 return
             # Never expose files outside the static page directory.

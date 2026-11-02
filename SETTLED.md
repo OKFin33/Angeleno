@@ -2,7 +2,7 @@
 
 ## Decisions
 
-**产品与首版范围** (all): Angeleno 以 Jo 为首个人物，提供 LA 地方生活交流与按需查证。当地生活交流为主，具体安排为辅；中文主用，首包做深 Jefferson Park 与 USC／Exposition Park，其他生活节点保持有限资料。完整行为由 [Spec](docs/spec.md) 持有。
+**产品与首版范围** (all): Angeleno 以 Jo 为首个人物，提供 LA 地方生活交流与按需查证。当地生活交流为主，具体安排为辅；v0.1 中文主用；v0.1.1 开发候选默认英文并保留中文回退，首包做深 Jefferson Park 与 USC／Exposition Park，其他生活节点保持有限资料。完整行为由 [Spec](docs/spec.md) 持有。
 
 **人物与事实** (all): 用户知道 Jo 是虚构 Agent。人物经历按与作者材料、既有交流和地方现实的逻辑一致性判断；关键信息仍须可信、可核对。允许偏好与局限，不能编造真实用户经历、现实地点或当前核查结果。
 

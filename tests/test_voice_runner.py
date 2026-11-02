@@ -173,7 +173,7 @@ class RunnerTests(unittest.TestCase):
                 with patch('scripts.run_voice.check_configuration', return_value=[]), \
                      patch.object(web_server, 'create_room_and_token', new_callable=AsyncMock) as create:
                     with urlopen(url + '/healthz', timeout=2) as response:
-                        self.assertEqual(json.load(response), {'ready': True, 'scope': 'local-configuration', 'persona_label': '合成示例（林）'})
+                        self.assertEqual(json.load(response), {'ready': True, 'scope': 'local-configuration', 'persona_label': 'Synthetic demo (Lin)', 'language':'en'})
                     request = Request(url + '/token', data=b'{}', method='POST')
                     with self.assertRaises(HTTPError) as error:
                         urlopen(request, timeout=2)
