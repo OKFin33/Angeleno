@@ -1,6 +1,7 @@
 """Author-pack configuration shared by the standalone text and voice entries."""
 from pathlib import Path
 from .author import load_pack
+from .language import configured_language
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,8 +17,8 @@ def configured_pack(env, *, root=ROOT):
 
 
 def author_instructions(env):
-    return configured_pack(env).instructions(env.get("ANGELENO_AUTHOR_VARIANT", "guided"))
+    return configured_pack(env).instructions(env.get("ANGELENO_AUTHOR_VARIANT", "guided"), language=configured_language(env))
 
 
 def author_messages(messages, env):
-    return configured_pack(env).messages(messages, env.get("ANGELENO_AUTHOR_VARIANT", "guided"))
+    return configured_pack(env).messages(messages, env.get("ANGELENO_AUTHOR_VARIANT", "guided"), language=configured_language(env))

@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Modified from talk-to-fengge (Apache-2.0). See NOTICE and LICENSES. -->
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Angeleno</title><style>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Angeleno</title><style>
 :root { font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif; color:#f1f5f5; background:#0d171c; font-size:15px; font-synthesis:none; --bg:#111e24; --panel:#213138; --line:#3b4b51; --sub:#b5c2c6; --green:#25b590; --red:#eb3c55}
 * { box-sizing:border-box}
 body { margin:0; background:var(--bg); height:100dvh; overflow:hidden}
@@ -143,12 +143,12 @@ body { overflow:auto}
 }
 </style></head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="i-phone" viewBox="0 0 24 24"><path d="M6.4 3.2 9 7.8 6.9 10a15 15 0 0 0 7.1 7.1l2.2-2.1 4.6 2.6c.5.3.7.9.5 1.4-.5 1.4-1.7 2.2-3.3 2-7.5-1-13.8-7.3-14.8-14.8-.2-1.6.6-2.8 2-3.3.5-.2 1.1 0 1.2.3Z"/></symbol><symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></symbol><symbol id="i-mic-off" viewBox="0 0 24 24"><path d="m3 3 18 18M9 9v3a3 3 0 0 0 5.2 2M15 9V6a3 3 0 0 0-5.7-1.3M5 10v2a7 7 0 0 0 11.9 5M19 10v2c0 .7-.1 1.4-.3 2M12 19v3M8 22h8"/></symbol></defs></svg>
-<main class="screen" aria-label="一对一语音通话">
-<header class="top"><h1 id="personaName" class="name">Angeleno</h1><p id="disclosure" class="identity">虚构人物 · 早期版本 · 正在加载人物配置</p><p id="statusText" class="status" role="status">正在检查服务</p><p id="timer" class="timer">00:00</p><p id="allowanceNotice" class="status" hidden aria-live="polite"></p></header>
+<main id="callScreen" class="screen" aria-label="One-to-one voice call">
+<header class="top"><h1 id="personaName" class="name">Angeleno</h1><p id="disclosure" class="identity">Fictional character · loading</p><p id="statusText" class="status" role="status">Checking service</p><p id="timer" class="timer">00:00</p><p id="allowanceNotice" class="status" hidden aria-live="polite"></p></header>
 <div class="stage"><div class="portrait" aria-hidden="true"><span id="portraitLetter">J</span></div></div>
 <div id="toast" role="status" hidden></div>
-<section id="sourceCard" class="shared" hidden aria-label="当前查证" aria-live="polite"></section>
-<footer class="controls"><div class="control-row"><button id="muteButton" class="control mute-control" hidden aria-label="静音麦克风" aria-pressed="false">静音</button><div class="control"><button id="micButton" class="circle" aria-label="开始对话" data-active="false"><svg aria-hidden="true"><use href="#i-phone"/></svg></button><span id="callLabel">开始通话</span></div></div><details class="captions"><summary>字幕</summary><p id="transcript"></p></details></footer>
+<section id="sourceCard" class="shared" hidden aria-label="Current sources" aria-live="polite"></section>
+<footer class="controls"><div class="control-row"><button id="muteButton" class="control mute-control" hidden aria-label="Mute microphone" aria-pressed="false">Mute</button><div class="control"><button id="micButton" class="circle" aria-label="Start conversation" data-active="false"><svg aria-hidden="true"><use href="#i-phone"/></svg></button><span id="callLabel">Start call</span></div></div><details class="captions"><summary id="captionsLabel">Captions</summary><p id="transcript"></p></details></footer>
 </main>
 <input id="modelSelect" type="hidden" value="deepseek">
 <audio id="remoteAudio" autoplay playsinline></audio>
@@ -157,7 +157,87 @@ body { overflow:auto}
 function bootAngeleno() {
     'use strict';
 
-    const MODEL_NAMES = {deepseek: '人物'};
+    const MODEL_NAMES = {deepseek: 'Character'};
+    let pageLanguage = 'en';
+    const ENGLISH_UI = {
+    "人物": "Character",
+    "一对一语音通话": "One-to-one voice call",
+    "虚构人物 · 正在加载": "Fictional character · loading",
+    "正在检查服务": "Checking service",
+    "当前查证": "Current sources",
+    "静音麦克风": "Mute microphone",
+    "取消静音": "Unmute",
+    "取消静音麦克风": "Unmute microphone",
+    "静音": "Mute",
+    "开始对话": "Start conversation",
+    "开始通话": "Start call",
+    "字幕": "Captions",
+    " · 虚构人物": " · Fictional character",
+    "语音通话": "Voice call",
+    "正在连接": "Connecting",
+    " 对话中": " · in conversation",
+    "通话已结束": "Call ended",
+    "暂时无法通话": "Call unavailable",
+    "这次核对回应超时，请继续说或换个问题": "That check timed out. Keep talking or try another question.",
+    "这次回应超时，请继续说": "That reply timed out. You can keep talking.",
+    "已取得资料": "Source material",
+    "有依据": "Supported",
+    "信息不足": "Not enough information",
+    "来源冲突": "Conflicting sources",
+    "来源暂不可用": "Source unavailable",
+    "超出当前范围": "Outside current coverage",
+    "已取消": "Cancelled",
+    "正在核对": "Checking",
+    "适用日期 · ": "Applies to · ",
+    "核对时间 · ": "Checked at · ",
+    "查看来源": "View sources",
+    "搜索摘要，页面未读到／未核验": "Search excerpt; page not read or verified",
+    "搜索摘要，尚未读取正文": "Search excerpt; page not read yet",
+    "由搜索服务读取；最终地址和跳转过程未提供": "Read by the search service; final address and redirects unavailable",
+    "试用者": "Caller",
+    "暂时无法建立通话，请稍后重试": "Could not create a call. Please try again.",
+    "通话地址缺失": "Call address missing",
+    "挂断": "Hang up",
+    "取消连接": "Cancel connection",
+    "通话服务未就绪": "Call service is not ready",
+    "通话暂时无法开始，请稍后重试": "Could not start the call. Please try again.",
+    " 正在回应": " · replying",
+    " 在听": " · listening",
+    "通话已停止，请重新拨号": "Call stopped. Please redial.",
+    "音频无法播放，请重新拨号": "Audio could not play. Please redial.",
+    "请允许浏览器使用麦克风后重新拨号": "Allow microphone access in your browser, then redial.",
+    "服务响应超时，请稍后重试": "Service timed out. Please try again.",
+    "连接失败，请重新拨号": "Connection failed. Please redial.",
+    "麦克风不可用，请重新拨号": "Microphone unavailable. Please redial.",
+    "语音识别测试预算已用完，正在结束通话": "Speech recognition test budget exhausted. Ending call.",
+    "通话已结束，试用资源正在释放": "Call ended. Releasing trial resources.",
+    "长时间无人接入，试用已结束": "No caller joined. Trial ended.",
+    "长时间未发送音频，试用已结束": "No audio was sent for too long. Trial ended.",
+    "语音识别测试预算状态变化，通话已结束": "Speech recognition test budget changed. Call ended.",
+    "连接状态不可确认，通话已结束": "Connection state could not be confirmed. Call ended.",
+    "本地语音识别测试预算：约剩 ": "Local speech recognition test budget: about ",
+    " 秒识别输入（含静音）": " seconds of input remaining (including silence)",
+    "，即将用完，请准备结束": "; nearly exhausted, please wrap up",
+    "；长时间未发送音频，约 ": "; no recent audio, closing in about ",
+    " 秒后收尾": " seconds",
+    "；等待接入，约 ": "; waiting for a caller, releasing in about ",
+    " 秒无人连接后释放": " seconds if nobody joins"
+};
+    function ui(text) { return pageLanguage === 'zh' ? text : (ENGLISH_UI[text] || text); }
+    function applyLanguage(value) {
+        pageLanguage = value === 'zh' ? 'zh' : 'en';
+        if (document.documentElement) document.documentElement.lang = pageLanguage === 'zh' ? 'zh-CN' : 'en';
+        const captions = document.getElementById('captionsLabel');
+        if (captions) captions.textContent = ui('字幕');
+        const screen = document.getElementById('callScreen');
+        if (screen) screen.setAttribute('aria-label', ui('一对一语音通话'));
+        document.getElementById('sourceCard').setAttribute('aria-label', ui('当前查证'));
+        document.getElementById('disclosure').textContent = modelDisplayName() + ui(' · 虚构人物');
+        callLabel.textContent = ui(connected || connecting ? '挂断' : '开始通话');
+        micButton.setAttribute('aria-label', ui(connected ? '挂断' : connecting ? '取消连接' : '开始对话'));
+        updateMuteControl(muteButton.getAttribute('aria-pressed') !== 'true');
+    }
+
     const modelSelect = document.getElementById('modelSelect');
     const micButton = document.getElementById('micButton');
     const muteButton = document.getElementById('muteButton');
@@ -230,23 +310,24 @@ function bootAngeleno() {
         toastTimeout = timeout;
     }
     function updateMuteControl(enabled) {
-        muteButton.textContent = enabled ? '静音' : '取消静音';
+        muteButton.textContent = enabled ? ui("静音") : ui("取消静音");
         muteButton.setAttribute('aria-pressed', String(!enabled));
-        muteButton.setAttribute('aria-label', enabled ? '静音麦克风' : '取消静音');
+        muteButton.setAttribute('aria-label', enabled ? ui("静音麦克风") : ui("取消静音"));
     }
     function updatePersona(health) {
+        if (health.language) applyLanguage(health.language);
         if (typeof health.persona_label !== 'string' || !health.persona_label) return;
         MODEL_NAMES.deepseek = health.persona_label;
         document.title = 'Angeleno · ' + health.persona_label;
         document.getElementById('personaName').textContent = health.persona_label;
         document.getElementById('portraitLetter').textContent = Array.from(health.persona_label)[0];
-        document.getElementById('disclosure').textContent = health.persona_label + ' · 虚构人物 · 早期版本';
+        document.getElementById('disclosure').textContent = health.persona_label + ui(" · 虚构人物");
     }
     function modelDisplayName() { return MODEL_NAMES.deepseek; }
     function setStatus(state, text) {
         const name = modelDisplayName();
-        const labels = {ready:'语音通话', connecting: connecting || connected ? '正在连接' : '正在检查服务',
-            connected:name + ' 对话中', disconnected:'通话已结束', error:'暂时无法通话'};
+        const labels = {ready:ui("语音通话"), connecting: connecting || connected ? ui("正在连接") : ui("正在检查服务"),
+            connected:name + ui(" 对话中"), disconnected:ui("通话已结束"), error:ui("暂时无法通话")};
         statusText.textContent = text || labels[state] || labels.error;
         micButton.dataset.active = String(connected || connecting);
     }
@@ -344,7 +425,7 @@ function bootAngeleno() {
         turnSession = event.session_id; turnAgent = participant.identity; turnSequence = event.sequence;
         if (event.state === 'started') setStatus('connected');
         else {
-            const message = event.state === 'lookup_timeout' ? '这次核对回应超时，请继续说或换个问题' : '这次回应超时，请继续说';
+            const message = event.state === 'lookup_timeout' ? ui("这次核对回应超时，请继续说或换个问题") : ui("这次回应超时，请继续说");
             setStatus('connected', message); showToast(message);
         }
     }
@@ -357,8 +438,8 @@ function bootAngeleno() {
         if (!event || event.type !== SOURCE_TOPIC || event.recipient !== localIdentity
             || !Number.isSafeInteger(event.sequence) || event.sequence <= sourceSequence) return;
         const card = event.card;
-        const labels = {evidence: '已取得资料', supported: '有依据', insufficient: '信息不足', conflict: '来源冲突',
-            unavailable: '来源暂不可用', out_of_scope: '超出当前范围', cancelled: '已取消'};
+        const labels = {evidence: ui("已取得资料"), supported: ui("有依据"), insufficient: ui("信息不足"), conflict: ui("来源冲突"),
+            unavailable: ui("来源暂不可用"), out_of_scope: ui("超出当前范围"), cancelled: ui("已取消")};
         if (!card || typeof card.session_id !== 'string' || !card.session_id
             || typeof card.request_id !== 'string' || !card.request_id
             || typeof card.subject !== 'string' || !Array.isArray(card.citations)
@@ -372,13 +453,13 @@ function bootAngeleno() {
         const add = (tag, text, parent = body) => {
             const node = document.createElement(tag); node.textContent = text; parent.appendChild(node); return node;
         };
-        const heading = add('h2', card.phase === 'checking' ? '正在核对' : labels[card.status]);
+        const heading = add('h2', card.phase === 'checking' ? ui("正在核对") : labels[card.status]);
         add('p', card.subject).className = 'card-title';
         if (card.phase === 'result' && card.status !== 'cancelled' && typeof card.conclusion === 'string') add('p', card.conclusion);
-        if (typeof card.applicable_date === 'string') add('small', '适用日期 · ' + card.applicable_date);
-        if (typeof card.checked_at === 'string') add('small', '核对时间 · ' + card.checked_at);
+        if (typeof card.applicable_date === 'string') add('small', ui("适用日期 · ") + card.applicable_date);
+        if (typeof card.checked_at === 'string') add('small', ui("核对时间 · ") + card.checked_at);
         if (card.phase === 'result' && card.status !== 'cancelled' && card.citations.length) {
-            const details = add('details', ''); add('summary', '查看来源', details);
+            const details = add('details', ''); add('summary', ui("查看来源"), details);
             for (const citation of card.citations) {
                 if (!citation || typeof citation.url !== 'string' || typeof citation.name !== 'string') continue;
                 let url; try { url = new URL(citation.url); } catch (_) { continue; }
@@ -386,8 +467,8 @@ function bootAngeleno() {
                 const p = add('p', '', details), link = add('a', citation.name, p);
                 link.href = url.href; link.target = '_blank'; link.rel = 'noopener noreferrer';
                 if (citation.claim_kind === 'search_summary') add('small', card.status === 'unavailable'
-                    ? '搜索摘要，页面未读到／未核验' : '搜索摘要，尚未读取正文', details);
-                if (citation.claim_kind === 'fetched_page') add('small', '由搜索服务读取；最终地址和跳转过程未提供', details);
+                    ? ui("搜索摘要，页面未读到／未核验") : ui("搜索摘要，尚未读取正文"), details);
+                if (citation.claim_kind === 'fetched_page') add('small', ui("由搜索服务读取；最终地址和跳转过程未提供"), details);
                 if (typeof citation.excerpt === 'string') add('p', citation.excerpt, details);
             }
             for (const conflict of card.conflicts) if (typeof conflict === 'string') add('p', conflict, details);
@@ -416,14 +497,14 @@ function bootAngeleno() {
         const resp = await fetchBounded(TOKEN_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ room: roomName, identity: identity, name: '试用者' }),
+            body: JSON.stringify({ room: roomName, identity: identity, name: ui("试用者") }),
         });
         if (!resp.ok) {
-            throw new Error('暂时无法建立通话，请稍后重试');
+            throw new Error(ui("暂时无法建立通话，请稍后重试"));
         }
         const data = await resp.json();
-        if (!data.token) throw new Error('暂时无法建立通话，请稍后重试');
-        if (!data.livekit_url) throw new Error('通话地址缺失');
+        if (!data.token) throw new Error(ui("暂时无法建立通话，请稍后重试"));
+        if (!data.livekit_url) throw new Error(ui("通话地址缺失"));
         return data;
     }
 
@@ -442,7 +523,7 @@ function bootAngeleno() {
         room = null;
         callGeneration += 1;
         if (sourcePhase === 'checking' && sourceHeading) {
-            sourceHeading.textContent = '已取消'; sourcePhase = 'result';
+            sourceHeading.textContent = ui("已取消"); sourcePhase = 'result';
         }
         connected = false;
         connecting = false;
@@ -450,8 +531,8 @@ function bootAngeleno() {
         clearToast();
         muteButton.hidden = true;
         updateMuteControl(true);
-        callLabel.textContent = '开始通话';
-        micButton.setAttribute('aria-label', '开始对话');
+        callLabel.textContent = ui("开始通话");
+        micButton.setAttribute('aria-label', ui("开始对话"));
         micButton.classList.remove('connected', 'speaking');
         stopTimer();
         disconnectMicFromAnalyser();
@@ -485,8 +566,8 @@ function bootAngeleno() {
         connecting = true;
         ensureAudioGraph();
         setStatus('connecting');
-        callLabel.textContent = '挂断';
-        micButton.setAttribute('aria-label', '取消连接');
+        callLabel.textContent = ui("挂断");
+        micButton.setAttribute('aria-label', ui("取消连接"));
         let currentRoom = null;
         const isCurrent = () => generation === callGeneration && room === currentRoom;
         try {
@@ -494,8 +575,8 @@ function bootAngeleno() {
             if (generation !== callGeneration) return;
             const health = await fetchBounded('/healthz').then(r => r.json());
             if (generation !== callGeneration) return;
-            if (health.persona_label) updatePersona(health);
-            if (!health.ready) throw new Error('通话服务未就绪');
+            if (health.persona_label || health.language) updatePersona(health);
+            if (!health.ready) throw new Error(ui("通话服务未就绪"));
             const connection = await getToken();
             if (generation !== callGeneration) return;
             currentRoom = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
@@ -509,10 +590,10 @@ function bootAngeleno() {
                 localIdentity = currentRoom.localParticipant ? currentRoom.localParticipant.identity : '';
                 setStatus('connecting');
                 agentTimer = setTimeout(() => {
-                    if (isCurrent()) failCall('通话暂时无法开始，请稍后重试');
+                    if (isCurrent()) failCall(ui("通话暂时无法开始，请稍后重试"));
                 }, 20000);
-                micButton.setAttribute('aria-label', '挂断');
-                callLabel.textContent = '挂断';
+                micButton.setAttribute('aria-label', ui("挂断"));
+                callLabel.textContent = ui("挂断");
                 muteButton.hidden = false;
                 micButton.classList.add('connected');
                 startTimer();
@@ -523,13 +604,13 @@ function bootAngeleno() {
                 const state = participant.attributes['lk.agent.state'];
                 if (!state || state === 'initializing') { setStatus('connecting'); return; }
                 clearTimeout(agentTimer);
-                if (state === 'thinking') setStatus('connected', modelDisplayName() + ' 正在回应');
-                else setStatus('connected', modelDisplayName() + (state === 'speaking' ? ' 正在回应' : ' 在听'));
+                if (state === 'thinking') setStatus('connected', modelDisplayName() + ui(" 正在回应"));
+                else setStatus('connected', modelDisplayName() + (state === 'speaking' ? ui(" 正在回应") : ui(" 在听")));
             }
             on(LivekitClient.RoomEvent.ParticipantConnected, agentState);
             on(LivekitClient.RoomEvent.ParticipantAttributesChanged, (_, participant) => agentState(participant));
             on(LivekitClient.RoomEvent.ParticipantDisconnected, participant => {
-                if (participant.isAgent) failCall('通话已停止，请重新拨号');
+                if (participant.isAgent) failCall(ui("通话已停止，请重新拨号"));
             });
             on(LivekitClient.RoomEvent.Reconnecting, () => setStatus('connecting'));
             on(LivekitClient.RoomEvent.Reconnected, () => setStatus('connected'));
@@ -540,7 +621,7 @@ function bootAngeleno() {
                 remoteAudio.muted = false;
                 const playing = remoteAudio.play ? remoteAudio.play() : null;
                 if (playing && typeof playing.catch === 'function') {
-                    playing.catch(() => { if (isCurrent()) failCall('音频无法播放，请重新拨号'); });
+                    playing.catch(() => { if (isCurrent()) failCall(ui("音频无法播放，请重新拨号")); });
                 }
             });
             on(LivekitClient.RoomEvent.TrackUnsubscribed, track => {
@@ -570,13 +651,13 @@ function bootAngeleno() {
                 if (pub && pub.track && pub.track.mediaStreamTrack) connectMicToAnalyser(pub.track.mediaStreamTrack);
             } catch (err) {
                 if (!isCurrent()) { await currentRoom.disconnect(); return; }
-                throw new Error('请允许浏览器使用麦克风后重新拨号');
+                throw new Error(ui("请允许浏览器使用麦克风后重新拨号"));
             }
             connecting = false;
         } catch (err) {
             if (generation !== callGeneration) return;
             console.error(err);
-            failCall(err.name === 'AbortError' ? '服务响应超时，请稍后重试' : (err.message || '连接失败，请重新拨号'));
+            failCall(err.name === 'AbortError' ? ui("服务响应超时，请稍后重试") : (err.message || ui("连接失败，请重新拨号")));
         }
     }
 
@@ -592,7 +673,7 @@ function bootAngeleno() {
             if (room !== currentRoom || generation !== callGeneration) return;
             updateMuteControl(enabled);
         } catch (_) {
-            if (room === currentRoom && generation === callGeneration) failCall('麦克风不可用，请重新拨号');
+            if (room === currentRoom && generation === callGeneration) failCall(ui("麦克风不可用，请重新拨号"));
         }
     });
     micButton.addEventListener('click', () => {
@@ -605,17 +686,17 @@ function bootAngeleno() {
         if (!allowanceNotice || !data || data.enabled !== true
             || data.allowance_source !== 'local_reserved_audio_not_account_balance'
             || !Number.isInteger(data.remaining_audio_seconds) || data.remaining_audio_seconds < 0) return;
-        const endings = {local_audio_exhausted:'语音识别测试预算已用完，正在结束通话',
-            user_ended:'通话已结束，试用资源正在释放', no_user_joined:'长时间无人接入，试用已结束',
-            connected_audio_idle:'长时间未发送音频，试用已结束', audio_meter_changed:'语音识别测试预算状态变化，通话已结束',
-            lifecycle_observer_unavailable:'连接状态不可确认，试用已安全结束'};
+        const endings = {local_audio_exhausted:ui("语音识别测试预算已用完，正在结束通话"),
+            user_ended:ui("通话已结束，试用资源正在释放"), no_user_joined:ui("长时间无人接入，试用已结束"),
+            connected_audio_idle:ui("长时间未发送音频，试用已结束"), audio_meter_changed:ui("语音识别测试预算状态变化，通话已结束"),
+            lifecycle_observer_unavailable:ui("连接状态不可确认，通话已结束")};
         let text = endings[data.stop_reason]
-            || '语音识别测试预算：还可发送约 ' + data.remaining_audio_seconds + ' 秒（本机自设保护，并非账户余额；发送的静音也计入；Jo语音合成在本地运行）';
-        if (!data.stop_reason && data.audio_warning) text += '，即将用完，请准备结束';
+            || ui("本地语音识别测试预算：约剩 ") + data.remaining_audio_seconds + ui(" 秒识别输入（含静音）");
+        if (!data.stop_reason && data.audio_warning) text += ui("，即将用完，请准备结束");
         if (!data.stop_reason && data.idle_warning && Number.isInteger(data.idle_seconds_remaining))
-            text += '；长时间未发送音频，约 ' + data.idle_seconds_remaining + ' 秒后收尾';
+            text += ui("；长时间未发送音频，约 ") + data.idle_seconds_remaining + ui(" 秒后收尾");
         if (data.state === 'waiting' && Number.isInteger(data.waiting_seconds_remaining))
-            text += '；等待接入，约 ' + data.waiting_seconds_remaining + ' 秒无人连接后释放';
+            text += ui("；等待接入，约 ") + data.waiting_seconds_remaining + ui(" 秒无人连接后释放");
         allowanceNotice.hidden = false; allowanceNotice.textContent = text;
         if (data.stop_reason && allowanceTimer !== null) { clearInterval(allowanceTimer); allowanceTimer = null; }
     }
@@ -637,15 +718,15 @@ function bootAngeleno() {
             .then(r => r.json())
             .then(health => {
                 if (connected || connecting || generation !== callGeneration) return;
-                if (health.persona_label) updatePersona(health);
+                if (health.persona_label || health.language) updatePersona(health);
                 if (health.lifecycle_enabled && allowanceTimer === null) {
                     refreshTrialStatus(); allowanceTimer = setInterval(refreshTrialStatus, 5000);
                 }
                 livekitReady = !!health.ready;
-                setStatus(health.ready ? 'ready' : 'error', health.ready ? '' : '通话服务未就绪');
+                setStatus(health.ready ? 'ready' : 'error', health.ready ? '' : ui("通话服务未就绪"));
             })
             .catch(() => {
-                if (!connected && !connecting && generation === callGeneration) setStatus('error', '通话服务未就绪');
+                if (!connected && !connecting && generation === callGeneration) setStatus('error', ui("通话服务未就绪"));
             });
     }
 

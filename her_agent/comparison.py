@@ -77,10 +77,10 @@ class FixedPack:
     def __getattr__(self, name):
         return getattr(self.pack, name)
 
-    def messages(self, history, variant='guided', today=None, *, memory_context=None):
+    def messages(self, history, variant='guided', today=None, *, memory_context=None, language=None):
         if today is not None:
             raise RunStopped('caller_clock_override')
-        return self.pack.messages(history, variant, today=self.today, memory_context=memory_context)
+        return self.pack.messages(history, variant, today=self.today, memory_context=memory_context, language=language)
 
 
 def load_config(path):

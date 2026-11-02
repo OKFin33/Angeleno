@@ -3,11 +3,35 @@
 本页说明当前可运行版本、验证证据及限制；首次部署从 [running](running.md) 开始。
 产品范围和接受条件由 [Intent](intent.md)／[Spec](spec.md) 持有，v0.1 整体收口见 [Issue #1](https://github.com/OKFin33/Angeleno/issues/1)。
 
-## 当前版本
+## v0.1.1
 
-[PR #30](https://github.com/OKFin33/Angeleno/pull/30) 已合入 main：
-`eeae55b2f517d3209b2e9a0f3690643dac0fb277`，
-[main CI 成功](https://github.com/OKFin33/Angeleno/actions/runs/41370501837)。
+本次开发版包含以下更新：
+
+- 默认英文对话与页面，保留中文部署配置和通话内明确语言切换；语言状态可跨近期历史裁剪保持。
+- 中英文识别提示及英文分句处理，支持常见地名、缩写、时间和价格表达。
+- 按实际记忆／查询能力生成一致的运行说明；普通助手比较臂使用单一、语言一致的设定。
+- 区分历史资料与本轮查证；开发回放缺失作为覆盖缺口停止，真实查询失败仍按实际来源降级。
+- 可选本地逐轮 trace：展开有效模型输入，查看工具及来源、延迟、生成／交付、卡片和记忆状态。
+
+```sh
+# 当前 v0.1.1 候选位于开发集成分支：
+git fetch origin
+git switch nexus-integrated-trial-20261031
+uv sync --locked --group dev
+```
+
+配置和 trace 用法见 [running](running.md)。`ANGELENO_LANGUAGE` 默认 `en`，设为 `zh` 可使用中文默认；
+`ANGELENO_TRACE` 默认关闭。现有 Jo 作者文件、身份种子、记忆和费用账本保持兼容，恢复部署时沿用原私有状态。
+
+验证覆盖离线状态／协议／页面回归、合成真实模型文字对话、缓存公开来源的工具／卡片过程与维护提交，
+以及一段真实英文 ASR 样本。真实英文 TTS／RTC、打断重连和人工听感是下一阶段的验证重点。
+trace 的真实模型样例验证了文字路径；语音观测接线由离线回归覆盖。
+
+## 已发布基线
+
+[PR #31](https://github.com/OKFin33/Angeleno/pull/31) 已合入公开 main：
+`57c8ddf971117574937a188c7f815842fa037624`，
+[main CI 成功](https://github.com/OKFin33/Angeleno/actions/runs/41374964362)。
 main 包含中文 v0.1.0、随仓 Jo 作者包与自备参考音频入口；未创建正式 Release。
 本文后续维护性修整不改变以下真人试用的代码归属，不把旧开发分支作为新部署默认入口。
 
@@ -44,32 +68,35 @@ ASR 测试预算按实际发送音频累计（包括静音），是本地保护�
   少量合成模型回归和离线状态测试不等同于后继版本已获真人整体接受。
 - D1／D2／D3 各一对模型输出是已见、未评分开发材料；正式冻结、Owner 校准和保留集比较尚未完成，见 [Issue #12](https://github.com/OKFin33/Angeleno/issues/12)。
 - 当前尚未完成全新环境安装与完整复现；也没有所有浏览器／网络／参考声音／语言的听感、音质或延迟保证。
-  `USER.md` 与显式熟悉状态不是已实现功能。Jo 再许可及正式发布仍未决定，见随包声明。
+  `USER.md` 与显式熟悉状态不是已实现功能。Jo 再许可及 Release 仍未决定，见随包声明。
 
 历史阶段记录保留在 Git 历史与相关 Issue；其中旧暂停、费用批次、未合并状态和私有部署命令不是当前安装要求。
+
+<details>
+<summary>版本验证记录</summary>
 
 ### 版本路线
 
 **v0.1.0：中文首发准备。** 先交付可审核的 Jo 作者包、配置、依赖与启动说明，参考声音由使用者自备；
 不将新环境安装或干净环境完整复现设为本轮候选形成的前置，也不宣称已通过该验证。
-搜索提示小改仍后置，不混入本版或默认纳入下一版。代码已通过 PR #30 合入 main；公开发布仍由维护者另行决定。
+搜索提示小改仍后置，不混入本版或默认纳入下一版。代码与文档已通过 PR #30／#31 合入公开 main；Release／tag 仍未创建。
 
-**v0.1.1 默认英文（仅计划）。** 前提是 v0.1 中文候选交付并确认无阻碍；本版本不实施切换。
-现有 ASR `paraformer-realtime-v2` 和 VoxCPM2 官方支持英语，不预设换供应商。
-最小改动应统一可回退的默认语言配置，检查人物编译提示、开场／备用回复、工具结果表达、记忆维护及 UI 的中文默认冲突；
-不必机械翻译全部人设，但须保持人物事实与风格一致。
+**v0.1.1 默认英文（本开发候选）。** 已实现统一 `ANGELENO_LANGUAGE=en|zh`、默认英文人物回复与页面、
+英文优先的双语 ASR 提示／结果标记及英文分句，人物原稿、种子、声音参考与搜索策略不变。
+安装和中文回退见 [running](running.md#interaction-language-v011)。
 
-当前源码定位：人物与维护提示在 `her_agent/author.py`、`her_agent/continuity.py` 及 `characters/jo/`；
-ASR 在 `worker/paraformer_stt.py` 固定 `language_hints=['zh','en']`，结果语言标记为 `zh`；
-口语／工具文字在 `her_agent/lookup.py`、`her_agent/web_lookup.py`，页面语言与文案在 `web/index.html`。
-ASR 未来按实际调用显式选择 language_hints；英文／中英切换及专有名词须验证。
-TTS 继续使用同模型与使用者自备参考，当前为 reference-only，不提供 prompt_text；若以后使用 continuation，
-prompt_text 必须是原参考的准确转写，不能翻译后冒充转写。
+离线测试覆盖中英文角色／记忆兼容、显式配置与 SDK stream 覆盖、16k PCM 参数、英文小数／时间／缩写跨块分句、页面静音重拨。
+一次真实 DeepSeek 合成开发验证完成问候、人物饮食偏好、来源未覆盖时的回应及用户要求切回中文；
+共5次模型请求、usage完整，无真实用户历史或实时Web请求。来源是明确的 replay fixture，不是新网页事实。
+这证明语言接合，不证明所有人设细节、记忆语义或查证表达无误，也不改变正式同料比较未完成的状态。
 
-验证英文分句、数字／时间／地名、人设自然度、声音一致性、首音及取消重开，不只看文字语言。
-用少量合成多轮覆盖问候／偏好、地方信息与查证失败、地名数字、中途改说中文、取消与重拨；
-先独立英语候选，验证后才改默认，保留中文显式回退。不宣称未经测试的参考英语发音或口音等价，
-不预估无依据工时；当前未为此进行语言模型调用或英语音频验收。
+另一次真实 DashScope 验证识别了2.067秒本地合成英文问候，配置标记为 en；Jo 被识别为同音的 Joe，原转写保留，未人工替换。发送含尾部静音，按原 ASR 保护预留4秒；这不是 RTC 端到端验证。
+
+本次两次观测 GPU 97%／98% 时未启动测试、不结束他人进程。真实英文 TTS／RTC、取消重开和人工听感仍待 GPU 空闲验证，
+不能用此前中文 w16 或本次协议测试替代。现有参考为 reference-only，沿用本地文件，未外传至音色服务。
+
 官方参考：[ASR](https://help.aliyun.com/en/model-studio/paraformer-client-events)、
 [VoxCPM2 跨语种](https://openbmb.github.io/voxcpm2-demopage/)、
 [参考模式](https://voxcpm.readthedocs.io/en/latest/usage_guide.html)。
+
+</details>

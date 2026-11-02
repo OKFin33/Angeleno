@@ -29,6 +29,11 @@ from worker.audio_budget import asr_settings, is_loopback
 def check_configuration(env, *, root=ROOT, starting=False):
     """Inspect local files/settings only. Never open an endpoint or create state."""
     errors = []
+    from her_agent.language import configured_language
+    try:
+        configured_language(env)
+    except ValueError as exc:
+        errors.append(str(exc))
     from her_agent.voice_timing import configured_prefetch_frames
     try:
         configured_prefetch_frames(env)
@@ -52,7 +57,7 @@ def check_configuration(env, *, root=ROOT, starting=False):
         errors.append('ANGELENO_MEMORY_USER must explicitly select an identity (lowercase letters, digits, _ or -)')
     try:
         pack = configured_pack(env, root=root)
-        directory = resolve_path(env.get('ANGELENO_DATA_DIR', 'private/state'), root=root)
+        directory = resolve_path(env.get('ANGELENO_MEMORY_DATA_DIR', env.get('ANGELENO_DATA_DIR', 'private/state')), root=root)
         if not directory.is_relative_to((Path(root) / 'private').resolve()):
             errors.append('ANGELENO_DATA_DIR must remain inside this repository private directory')
         elif user and env.get('ANGELENO_MEMORY_CREATE', '0') != '1':

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -28,15 +29,36 @@ HTTP_KEEPALIVE_SECONDS = 2.0  # Shorter than the local Uvicorn server's 5s idle 
 
 
 def _split_with_remainder(text: str) -> tuple[list[str], str]:
-    """Return (complete_sentences, remainder). Splits on Chinese/English sentence ends."""
-    parts = []
-    last = 0
-    for j, ch in enumerate(text):
-        if ch in _SENT_ENDS:
-            s = text[last:j + 1].strip()
-            if s:
-                parts.append(s)
-            last = j + 1
+    """Incremental sentence boundaries without cutting decimals/initialisms.
+
+    A period needs following whitespace (or a closing quote then whitespace).
+    A final period waits for the next chunk or final flush. Abbreviations remain
+    conservative; this is segmentation, never a pronunciation rewrite.
+    """
+    parts, last = [], 0
+    abbreviations = {"mr", "mrs", "ms", "dr", "prof", "st", "sr", "jr", "vs", "etc", "e.g", "i.e", "a.m", "p.m"}
+    j = 0
+    while j < len(text):
+        ch = text[j]
+        end = j + 1
+        boundary = ch in _SENT_ENDS
+        if ch == ".":
+            word = re.search(r"[A-Za-z.]+$", text[:j])
+            token = word[0].lower() if word else ""
+            # Includes initials and dotted place names: U.S., L.A., p.m.
+            abbreviation = token in abbreviations or bool(re.fullmatch(r"(?:[a-z]\.)*[a-z]", token))
+            while end < len(text) and text[end] in '\"”’\')]}':
+                end += 1
+            boundary = (not abbreviation and end < len(text) and text[end].isspace()
+                        and not (j and text[j - 1] == "."))
+        if boundary:
+            sentence = text[last:end].strip()
+            if sentence:
+                parts.append(sentence)
+            last = end
+            j = end
+        else:
+            j += 1
     return parts, text[last:]
 
 

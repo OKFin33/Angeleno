@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import hashlib
+from . import trace as tracing
 
 from .lookup import card_public
 
@@ -61,6 +63,7 @@ class VoiceCards:
         self.closed = False
         self.error = None
         self.on_error = None
+        self.trace_bindings = {}
         lookup.channel.on_card = self.offer
         self.task = asyncio.create_task(self._run())
 
@@ -70,7 +73,12 @@ class VoiceCards:
         self.sequence += 1
         if self.queue.full():
             self.queue.get_nowait()
-        self.queue.put_nowait((self.sequence, card))
+        key=(card.session_id,card.request_id)
+        binding=tracing.current() or self.trace_bindings.get(key)
+        if binding is not None:
+            self.trace_bindings[key]=binding
+            while len(self.trace_bindings)>100:self.trace_bindings.pop(next(iter(self.trace_bindings)))
+        self.queue.put_nowait((self.sequence, card, binding))
 
     def _payload(self, sequence, card):
         value = card_public(card)
@@ -89,19 +97,26 @@ class VoiceCards:
         return payload
 
     async def _run(self):
+        binding=None
         try:
             while True:
-                sequence, card = await self.queue.get()
+                sequence, card, binding = await self.queue.get()
                 if self.lookup.channel.card(card.session_id) != card:
+                    if binding:tracing.record('card_not_sent',binding=binding,reason='stale_card',request_id=card.request_id)
                     continue
                 await asyncio.wait_for(self.participant.publish_data(
                     self._payload(sequence, card), reliable=True,
                     destination_identities=[self.identity], topic=TOPIC,
                 ), timeout=2)
+                if binding:tracing.record('card_sent',binding=binding,sequence=sequence,
+                    request_id=card.request_id,card=card_public(card),
+                    recipient_hash=hashlib.sha256(self.identity.encode()).hexdigest(),
+                    delivery='publish_data_completed_not_browser_ack')
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self.error = type(exc).__name__
+            if binding:tracing.record('card_send_error',binding=binding,error_type=self.error)
             self.closed = True
             if self.on_error is not None:
                 self.on_error()

@@ -41,6 +41,7 @@ async def chat(args, pack, env=None):
     from .provider import configured_providers
     env = load_env(root=ROOT) if env is None else env
     from .config import flag
+    from .language import configured_language
     attribution_check = flag(env, 'ANGELENO_MEMORY_ATTRIBUTION_CHECK')
     if attribution_check and not args.memory_user:
         raise ValueError('Attribution check requires persistent memory')
@@ -53,7 +54,7 @@ async def chat(args, pack, env=None):
         raise
     runtime = ConversationRuntime(pack, provider, store=store, writer=writer,
                                   variant=args.variant, memory_tools=getattr(args, "memory_tools", False),
-                                  attribution_check=attribution_check)
+                                  attribution_check=attribution_check, language=configured_language(env), trace_env=env, trace_root=ROOT)
     maintainer = runtime.maintainer
     allow_flush = True
     print("文字试聊；会调用 DeepSeek 计费。/exit 结束。")
@@ -148,7 +149,7 @@ async def chat(args, pack, env=None):
     finally:
         await runtime.close(flush=allow_flush)
         if maintainer and maintainer.error:
-            print("后台整理未完成，原文仍在；本次没有宣称已整理记忆。")
+            print("后台整理未完成，原始文字已保留。")
 
 
 def main(argv=None):
@@ -192,7 +193,8 @@ def main(argv=None):
         try:
             query = "今天没什么特别的事，就是想找你随便聊两句。"
             context = store.context("preview", query)[0] if store else None
-            messages = pack.messages([{"role": "user", "content": query}], args.variant, memory_context=context)
+            from .language import configured_language
+            messages = pack.messages([{"role": "user", "content": query}], args.variant, memory_context=context, language=configured_language(env))
         finally:
             if store:
                 store.close()

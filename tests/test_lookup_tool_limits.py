@@ -113,7 +113,7 @@ class ToolLimitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(api.requests), 3)
         self.assertTrue(all(schema is None for schema in self.actor.tool_schemas[1:]))
         self.assertEqual(self.feedback(-1)['retry-2']['detail'], 'tool_limit_reached')
-        self.assertIn('后面的工具没有执行', text)
+        self.assertIn('The remaining tools did not run', text)
 
     async def test_cancel_reason_takes_precedence_and_later_requests_cannot_restart(self):
         api = FakeWeb()

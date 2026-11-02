@@ -7,6 +7,8 @@ import math
 
 from .memory import StaleBatch, new_session
 from .author import MAX_REQUEST_CHARS
+from .language import configured_language, requested_language
+from . import trace as tracing
 
 
 MAINTAIN = """你维护虚构角色与真实用户的相处记忆，只返回 JSON，不扮演、不写下一句对白。
@@ -96,9 +98,10 @@ def normalize_replacements(proposal, batch):
 
 
 class Maintainer:
-    def __init__(self, store, pack, provider, *, attribution_check=False):
+    def __init__(self, store, pack, provider, *, attribution_check=False, language=None):
         if type(attribution_check) is not bool:
             raise ValueError("Attribution candidate flag must be explicit")
+        self.language = configured_language() if language is None else configured_language({"ANGELENO_LANGUAGE": language})
         self.store, self.pack, self.provider = store, pack, provider
         self.attribution_check = attribution_check  # experimental; production default unchanged
         seconds = getattr(provider, "timeout_s", 30.0)
@@ -110,6 +113,10 @@ class Maintainer:
         self.last_attempt = None
 
     async def once(self):
+        with tracing.activate(getattr(self,'trace_binding',None) or tracing.current()):
+            return await self._traced_once()
+
+    async def _traced_once(self):
         if self.attribution_check:
             try:
                 # One conservative total budget for both calls, not a fresh
@@ -118,6 +125,7 @@ class Maintainer:
                 async with asyncio.timeout(self._attribution_seconds):
                     return await self._once()
             except TimeoutError:
+                tracing.record('memory_end', status='timeout')
                 self.error = "TimeoutError"
                 if self.last_attempt is not None:
                     self.last_attempt.update(status="rejected", error=self.error)
@@ -130,9 +138,15 @@ class Maintainer:
             batch = self.store.batch()
             if batch is None:
                 return False
+            tracing.record('memory_batch', revision=batch.revision, watermark=batch.watermark,
+                           through=batch.through, pending_events=len(batch.events),
+                           records=[{'id':r['id']} for r in batch.records])
             evidence = self.store.record_evidence(batch.records)
             messages = maintenance_messages(self.pack, batch, evidence,
                 self.store.maintenance_lookup_sources((*evidence, *batch.events)))
+            if self.language == "en":
+                messages[0]["content"] += ("\nWrite maintained prose and keywords in English by default, while preserving the user's explicit language preference. "
+                    "Keep the same JSON schema, original evidence, dates, names and source IDs. Do not translate or rewrite quoted evidence or invent new facts.")
             if sum(len(m["content"]) for m in messages) > MAX_REQUEST_CHARS:
                 raise ValueError("Maintenance sources exceed the input budget; inspect memory explicitly")
             pieces = [piece async for piece in self.provider.chat(messages, temperature=0.2)]
@@ -164,10 +178,13 @@ class Maintainer:
             if self.attribution_check and asyncio.current_task().cancelling():
                 raise asyncio.CancelledError  # a cancellation-insensitive checker cannot commit late
             self.store.apply(batch, normalized)
+            tracing.record('memory_commit', revision=self.store.revision, watermark=self.store.watermark,
+                           through=batch.through, proposal=normalized)
             self.last_attempt["status"] = "committed"
             self.error = None
             return True
         except asyncio.CancelledError:
+            tracing.record('memory_end', status='cancelled')
             if self.attribution_check:
                 self.error = "CancelledError"
                 if self.last_attempt is not None:
@@ -176,6 +193,7 @@ class Maintainer:
         except Exception as exc:
             # Retain unprocessed evidence. No automatic retry or fallback memory.
             self.error = type(exc).__name__
+            tracing.record('memory_end', status='failed', error_type=self.error)
             if self.last_attempt is not None:
                 self.last_attempt["status"] = "rejected"
                 self.last_attempt["error"] = self.error
@@ -205,7 +223,8 @@ class Maintainer:
 
 
 class Conversation:
-    def __init__(self, pack, store, *, variant="guided"):
+    def __init__(self, pack, store, *, variant="guided", language=None):
+        self.language = configured_language() if language is None else configured_language({"ANGELENO_LANGUAGE": language})
         self.pack, self.store, self.variant = pack, store, variant
         self.session = new_session()
 
@@ -217,9 +236,10 @@ class Conversation:
                 for message, source in zip(history, context["history_sources"], strict=True)]
 
     def begin(self, user):
+        self.language = requested_language(user, self.language)
         turn = self.store.append(self.session, "user", user)
         context, history = self.store.context(self.session, user)
-        messages = self.pack.messages(self._sourced_history(context, history), self.variant, memory_context=context)
+        messages = self.pack.messages(self._sourced_history(context, history), self.variant, memory_context=context, language=self.language)
         self.store.capture_input(turn, context)
         return messages
 
@@ -229,7 +249,8 @@ class Conversation:
 
     def temporary(self, history):
         query = history[-1]["content"]
+        self.language = requested_language(query, self.language)
         context, public = self.store.context(self.session, query)
         context["temporary_mode"] = "本段临时对话不保存、不整理；退出后不会作为持久记忆继续使用。"
         return self.pack.messages([*self._sourced_history(context, public), *history],
-                                  self.variant, memory_context=context)
+                                  self.variant, memory_context=context, language=self.language)

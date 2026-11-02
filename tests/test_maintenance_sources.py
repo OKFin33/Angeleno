@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 
 from her_agent.continuity import Maintainer
-from her_agent.lookup import TextLookup
+from her_agent.lookup import TextLookup, LookupObservationMissing
 from her_agent.provider import TextDelta
 from her_agent.runtime import ConversationRuntime
 from her_agent.web_lookup import RecordedWebResult, SourceAssertion, WebLookup
@@ -153,16 +153,24 @@ class MaintenanceSourceTests(StoreFixture, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['source_context']['reading']['replay']['coverage'],'recorded')
         self.assertEqual(result['source_context']['citations'],[])
 
-    async def test_uncovered_is_unavailable_not_observed_empty_or_no_attempt(self):
+    async def test_uncovered_stops_without_fabricated_delivery_or_lost_user_evidence(self):
         class Uncovered(Replay):
             async def search(self,query):return RecordedWebResult(None,None,'c'*64)
-        payload,_=await self.ask(Uncovered())
-        sources=payload['lookup_sources'];row=sources['results'][0]
-        self.assertEqual(row['status'],'unavailable');self.assertIsNone(row['conclusion'])
-        self.assertEqual(row['source_context']['citations'],[])
-        self.assertEqual(row['source_context']['reading']['evidence_reading']['observation_scope'],'replay_query_unobserved')
-        self.assertEqual(row['source_context']['reading']['replay']['coverage'],'uncovered')
+        actor=Scripted();actor.rounds=[[call('web_search',{'area':'usc_exposition','topic':'architecture'})]]
+        writer=FakeProvider(lambda p:{'retire':[],'updates':[]})
+        runtime=ConversationRuntime(self.pack,actor,store=self.store,writer=writer,lookup=WebLookup(Uncovered(),CLOCK))
+        turn=runtime.begin('请核对建筑展。')
+        with self.assertRaises(LookupObservationMissing) as caught:
+            _=[p async for p in runtime.stream(turn)]
+        runtime.delivered(turn,'',complete=False)
+        self.assertEqual(caught.exception.outcome['status'],'not_observed')
+        self.assertEqual(caught.exception.outcome['replay']['coverage'],'uncovered')
+        self.assertEqual(self.store.lookup_results(),[])
+        self.assertEqual([(e['role'],e['text']) for e in self.store.pending()],[('user','请核对建筑展。')])
+        sources=self.store.maintenance_lookup_sources(self.store.pending())
+        self.assertEqual(sources['results'],[])
         self.assertEqual(sources['missing_record'],'no_recorded_delivered_result_not_proof_of_no_attempt')
+        self.assertEqual(writer.requests,[])
 
     async def test_agent_claims_and_ambiguous_user_words_are_separate_evidence_domains(self):
         user,agent=self.exchange('这个不太喜欢。','我已经查过蓝穹展；我猜你住北边。')

@@ -10,6 +10,7 @@ import os
 from livekit.agents import Agent, AgentServer, JobExecutorType, cli
 
 from her_agent.config import load_env
+from her_agent.language import configured_language
 from her_agent.voice import start_voice_session, validate_voice_setup
 from worker.audio_budget import configured_allowance
 from worker.energy_vad import EnergyVAD
@@ -31,6 +32,7 @@ class VoiceAgent(Agent):
             llm=llm_instance,
             stt=ParaformerSTT(
                 api_key=env['DASHSCOPE_API_KEY'],
+                language=configured_language(env),
                 url=env.get('DASHSCOPE_WS_URL'),
                 allowance=configured_allowance(env),
                 paid_enabled=env.get('ANGELENO_PAID_ENABLED') == '1',

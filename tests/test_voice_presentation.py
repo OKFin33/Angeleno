@@ -101,8 +101,8 @@ class VoicePresentationTests(unittest.IsolatedAsyncioTestCase):
         sent,spoken,_=await self.capture(case,spoken=detail)
         self.assertEqual(spoken,detail)
         self.assertEqual(next(m['content'] for m in reversed(sent[-1]) if m['role']=='user'),case['user'])
-        self.assertIn('当前用户明确要详细听取、逐条比较或朗读来源',sent[-1][0]['content'])
-        self.assertIn('不能省掉',sent[-1][0]['content'])
+        self.assertIn('用户明确要详细听取或比较时展开',sent[-1][0]['content'])
+        self.assertIn('保留相关时间、例外和冲突',sent[-1][0]['content'])
 
     async def test_no_card_and_closed_card_never_claim_separate_visible_card(self):
         for case,closed in [(FIXTURE['cases'][2],False),(FIXTURE['cases'][0],True)]:
@@ -120,7 +120,7 @@ class VoicePresentationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body['page_read_status'],'unavailable')
         self.assertEqual(body['evidence_reading']['source_assertions'],[])
         self.assertEqual(card['status'],'unavailable');self.assertIsNone(card['conclusion'])
-        self.assertIn('不能把摘要升级为已核实事实',failed[-1][0]['content'])
+        self.assertIn('evidence仅表示取得资料，绝不等于结论已核实',failed[-1][0]['content'])
 
     async def test_voice_rules_are_included_in_existing_request_budget(self):
         lookup=WebLookup(PublicReplay(),CLOCK);actor=Scripted();runtime=ConversationRuntime(PACK,actor,lookup=lookup)

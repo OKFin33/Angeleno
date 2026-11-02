@@ -153,6 +153,23 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         # The SDK may pad the final 10ms frame with zeros.
         self.assertTrue(all(b == 0 for b in received[len(raw)*2:]))
 
+    async def test_english_incremental_periods_preserve_names_numbers_and_final_flush(self):
+        texts=[];raw=b'\x01\x00'*2400
+        async def handler(request):
+            texts.append((await request.json())['input'])
+            return web.Response(body=raw,content_type='audio/pcm')
+        url=await self.serve('/v1/audio/speech/stream',handler)
+        tts=VoxCPMHttpTTS(url=url,sample_rate=48000)
+        stream=tts.stream(conn_options=APIConnectOptions(max_retry=0))
+        for piece in ['USC is in Los Ang','eles. The cost is $12.','50 at 7:30 p.','m. Bring ID! Final sentence.']:
+            stream.push_text(piece)
+        stream.end_input();received=bytearray()
+        async for item in stream:received.extend(bytes(item.frame.data))
+        await stream.aclose();await tts.aclose()
+        self.assertEqual(texts,['USC is in Los Angeles.','The cost is $12.50 at 7:30 p.m. Bring ID!','Final sentence.'])
+        self.assertEqual(received[:len(raw)*3],raw*3)
+        self.assertTrue(all(b==0 for b in received[len(raw)*3:]))
+
     async def test_adjacent_sentences_reuse_connection_and_owner_close_releases_it(self):
         connections=[];raw=b'\x01\x00'*9600
         async def handler(request):

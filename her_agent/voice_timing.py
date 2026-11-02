@@ -10,6 +10,7 @@ from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
 from livekit.agents.voice import io
 from livekit.agents.utils import aio
 from .diagnostics import emit
+from . import trace as tracing
 
 
 ORDINARY_SECONDS = 15.0
@@ -34,6 +35,9 @@ class TimedTurn:
 
     def mark(self, name, now):
         self.events.append({"event": name, "after_confirmed_ms": round((now - self.confirmed_at) * 1000)})
+        binding=tracing.linked(self.request_id)
+        if binding:tracing.record('timing',binding=binding,kind=name,observer='deadline_state',
+                                 after_confirmed_ms=round((now-self.confirmed_at)*1000))
 
 
 class TurnDeadlines:
@@ -226,7 +230,7 @@ async def _serial_tagged_tts(text, bridge, synthesizer):
     buffer, tag = "", None
     request_id = None
 
-    async def frames(sentence, current_tag):
+    async def untraced_frames(sentence, current_tag):
         if not bridge.deadlines.accepts(current_tag[0]):
             raise asyncio.CancelledError
         options = replace(DEFAULT_API_CONNECT_OPTIONS, max_retry=0)
@@ -244,6 +248,11 @@ async def _serial_tagged_tts(text, bridge, synthesizer):
             raise
         finally:
             emit("tts_stream_end", request_id=current_tag[0], phase=current_tag[1], reason=reason)
+
+    async def frames(sentence, current_tag):
+        with tracing.activate(tracing.linked(current_tag[0])):
+            async with aclosing(untraced_frames(sentence,current_tag)) as audio:
+                async for frame in audio:yield frame
 
     async for chunk in text:
         for piece, current_tag in bridge.consume_speech(chunk, request_id=request_id):

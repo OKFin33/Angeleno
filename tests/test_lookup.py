@@ -326,7 +326,7 @@ class LookupLoopTests(unittest.IsolatedAsyncioTestCase):
     async def test_previous_tool_result_is_not_replayed(self):
         marker = "STALE-RESULT-MARKER"
         messages = [
-            {"role": "system", "content": "系统。"},
+            {"role": "system", "content": PACK.instructions()},
             {"role": "assistant", "content": None, "tool_calls": [{
                 "id": "old", "type": "function", "function": {"name": "place_check", "arguments": marker},
             }]},

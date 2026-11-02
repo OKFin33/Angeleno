@@ -10,7 +10,7 @@ from her_agent.runtime import ConversationRuntime, open_store, non_action_openin
 class Pack:
     id='fixture'
     def provenance(self): return {'fixture':'isolation'}
-    def messages(self, history, variant='guided', memory_context=None):
+    def messages(self, history, variant='guided', memory_context=None, language=None):
         return [{'role':'system','content':'A fictional friend. '+json.dumps(memory_context,ensure_ascii=False)},*history]
 class Provider:
     def __init__(self): self.calls=[]
