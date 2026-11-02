@@ -24,9 +24,36 @@
 - 当前服务均离线，按需启动。ASR 显示的是本机自设的语音识别测试预算，按发送音频累计（含静音），
   不是本地 TTS 合成额度、供应商账户余额或已结算费用；保留原计数，不将旧1200秒记录当作用户规定的产品硬限。
 
-### 唯一目录中的恢复命令
+### 版本路线
 
-已有私有启动器、人物／声音／身份状态、凭据和连续账本均保留在原位。先运行计划与配置预检，不启动服务：
+**v0.1.0：中文首发准备。** 先交付可审核的 Jo 作者包、配置、依赖与启动说明，参考声音由使用者自备；
+不将新环境安装或干净环境完整复现设为本轮候选形成的前置，也不宣称已通过该验证。
+搜索提示小改仍后置，不混入本版或默认纳入下一版。main 合并与公开发布另行确认。
+
+**v0.1.1 默认英文（仅计划）。** 前提是 v0.1 中文候选交付并确认无阻碍；本版本不实施切换。
+现有 ASR `paraformer-realtime-v2` 和 VoxCPM2 官方支持英语，不预设换供应商。
+最小改动应统一可回退的默认语言配置，检查人物编译提示、开场／备用回复、工具结果表达、记忆维护及 UI 的中文默认冲突；
+不必机械翻译全部人设，但须保持人物事实与风格一致。
+
+当前源码定位：人物与维护提示在 `her_agent/author.py`、`her_agent/continuity.py` 及 `characters/jo/`；
+ASR 在 `worker/paraformer_stt.py` 固定 `language_hints=['zh','en']`，结果语言标记为 `zh`；
+口语／工具文字在 `her_agent/lookup.py`、`her_agent/web_lookup.py`，页面语言与文案在 `web/index.html`。
+ASR 未来按实际调用显式选择 language_hints；英文／中英切换及专有名词须验证。
+TTS 继续使用同模型与使用者自备参考，当前为 reference-only，不提供 prompt_text；若以后使用 continuation，
+prompt_text 必须是原参考的准确转写，不能翻译后冒充转写。
+
+验证英文分句、数字／时间／地名、人设自然度、声音一致性、首音及取消重开，不只看文字语言。
+用少量合成多轮覆盖问候／偏好、地方信息与查证失败、地名数字、中途改说中文、取消与重拨；
+先独立英语候选，验证后才改默认，保留中文显式回退。不宣称未经测试的参考英语发音或口音等价，
+不预估无依据工时；当前未为此进行语言模型调用或英语音频验收。
+官方参考：[ASR](https://help.aliyun.com/en/model-studio/paraformer-client-events)、
+[VoxCPM2 跨语种](https://openbmb.github.io/voxcpm2-demopage/)、
+[参考模式](https://voxcpm.readthedocs.io/en/latest/usage_guide.html)。
+
+### 既有部署的维护恢复记录
+
+新部署使用 README 和 [running](running.md) 的标准 `scripts/run_voice.py` 入口；不需要下面的私有启动器、机器用户名或 Tailnet 节点。
+以下仅供既有 Nexus 部署维护：私有启动器、声音／身份状态、凭据和连续账本保留在原位。先运行计划与配置预检，不启动服务：
 
 ```sh
 cd /Users/nexus/project/GitHub/OKFin33/Angeleno
