@@ -3,7 +3,31 @@
 本页说明当前可运行版本、验证证据及限制；首次部署从 [running](running.md) 开始。
 产品范围和接受条件由 [Intent](intent.md)／[Spec](spec.md) 持有，v0.1 整体收口见 [Issue #1](https://github.com/OKFin33/Angeleno/issues/1)。
 
-## 当前版本
+## v0.1.1
+
+本次开发版包含以下更新：
+
+- 默认英文对话与页面，保留中文部署配置和通话内明确语言切换；语言状态可跨近期历史裁剪保持。
+- 中英文识别提示及英文分句处理，支持常见地名、缩写、时间和价格表达。
+- 按实际记忆／查询能力生成一致的运行说明；普通助手比较臂使用单一、语言一致的设定。
+- 区分历史资料与本轮查证；开发回放缺失作为覆盖缺口停止，真实查询失败仍按实际来源降级。
+- 可选本地逐轮 trace：展开有效模型输入，查看工具及来源、延迟、生成／交付、卡片和记忆状态。
+
+```sh
+# 当前 v0.1.1 候选位于开发集成分支：
+git fetch origin
+git switch nexus-integrated-trial-20261031
+uv sync --locked --group dev
+```
+
+配置和 trace 用法见 [running](running.md)。`ANGELENO_LANGUAGE` 默认 `en`，设为 `zh` 可使用中文默认；
+`ANGELENO_TRACE` 默认关闭。现有 Jo 作者文件、身份种子、记忆和费用账本保持兼容，恢复部署时沿用原私有状态。
+
+验证覆盖离线状态／协议／页面回归、合成真实模型文字对话、缓存公开来源的工具／卡片过程与维护提交，
+以及一段真实英文 ASR 样本。真实英文 TTS／RTC、打断重连和人工听感是下一阶段的验证重点。
+trace 的真实模型样例验证了文字路径；语音观测接线由离线回归覆盖。
+
+## 已发布基线
 
 [PR #31](https://github.com/OKFin33/Angeleno/pull/31) 已合入公开 main：
 `57c8ddf971117574937a188c7f815842fa037624`，
@@ -48,6 +72,9 @@ ASR 测试预算按实际发送音频累计（包括静音），是本地保护�
 
 历史阶段记录保留在 Git 历史与相关 Issue；其中旧暂停、费用批次、未合并状态和私有部署命令不是当前安装要求。
 
+<details>
+<summary>版本验证记录</summary>
+
 ### 版本路线
 
 **v0.1.0：中文首发准备。** 先交付可审核的 Jo 作者包、配置、依赖与启动说明，参考声音由使用者自备；
@@ -71,3 +98,5 @@ ASR 测试预算按实际发送音频累计（包括静音），是本地保护�
 官方参考：[ASR](https://help.aliyun.com/en/model-studio/paraformer-client-events)、
 [VoxCPM2 跨语种](https://openbmb.github.io/voxcpm2-demopage/)、
 [参考模式](https://voxcpm.readthedocs.io/en/latest/usage_guide.html)。
+
+</details>

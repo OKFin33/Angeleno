@@ -326,9 +326,10 @@ async function audioMetrics(){
 async function localAllowance(){
   const h=harness();const source='local_reserved_audio_not_account_balance';
   h.ctx.applyTrialStatus({enabled:true,allowance_source:source,remaining_audio_seconds:493,state:'waiting',waiting_seconds_remaining:300});
-  assert.match(h.elements.allowanceNotice.textContent,/493/);assert.match(h.elements.allowanceNotice.textContent,/并非账户余额/);
-  assert.match(h.elements.allowanceNotice.textContent,/语音识别测试预算/);assert.match(h.elements.allowanceNotice.textContent,/本机自设保护/);
-  assert.match(h.elements.allowanceNotice.textContent,/Jo语音合成在本地运行/);assert.doesNotMatch(h.elements.allowanceNotice.textContent,/剩余可发送音频/);
+  assert.match(h.elements.allowanceNotice.textContent,/493/);
+  assert.match(h.elements.allowanceNotice.textContent,/本地语音识别测试预算/);
+  assert.match(h.elements.allowanceNotice.textContent,/识别输入（含静音）/);
+  assert.doesNotMatch(h.elements.allowanceNotice.textContent,/账户余额|Jo语音合成|剩余可发送音频/);
   h.ctx.applyTrialStatus({enabled:true,allowance_source:source,remaining_audio_seconds:60,state:'active',audio_warning:true});
   assert.match(h.elements.allowanceNotice.textContent,/即将用完/);
   const text=h.elements.allowanceNotice.textContent;

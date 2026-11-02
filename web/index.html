@@ -144,7 +144,7 @@ body { overflow:auto}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="i-phone" viewBox="0 0 24 24"><path d="M6.4 3.2 9 7.8 6.9 10a15 15 0 0 0 7.1 7.1l2.2-2.1 4.6 2.6c.5.3.7.9.5 1.4-.5 1.4-1.7 2.2-3.3 2-7.5-1-13.8-7.3-14.8-14.8-.2-1.6.6-2.8 2-3.3.5-.2 1.1 0 1.2.3Z"/></symbol><symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></symbol><symbol id="i-mic-off" viewBox="0 0 24 24"><path d="m3 3 18 18M9 9v3a3 3 0 0 0 5.2 2M15 9V6a3 3 0 0 0-5.7-1.3M5 10v2a7 7 0 0 0 11.9 5M19 10v2c0 .7-.1 1.4-.3 2M12 19v3M8 22h8"/></symbol></defs></svg>
 <main id="callScreen" class="screen" aria-label="One-to-one voice call">
-<header class="top"><h1 id="personaName" class="name">Angeleno</h1><p id="disclosure" class="identity">虚构Character · 早期版本 · 正在加载Character配置</p><p id="statusText" class="status" role="status">Checking service</p><p id="timer" class="timer">00:00</p><p id="allowanceNotice" class="status" hidden aria-live="polite"></p></header>
+<header class="top"><h1 id="personaName" class="name">Angeleno</h1><p id="disclosure" class="identity">Fictional character · loading</p><p id="statusText" class="status" role="status">Checking service</p><p id="timer" class="timer">00:00</p><p id="allowanceNotice" class="status" hidden aria-live="polite"></p></header>
 <div class="stage"><div class="portrait" aria-hidden="true"><span id="portraitLetter">J</span></div></div>
 <div id="toast" role="status" hidden></div>
 <section id="sourceCard" class="shared" hidden aria-label="Current sources" aria-live="polite"></section>
@@ -162,7 +162,7 @@ function bootAngeleno() {
     const ENGLISH_UI = {
     "人物": "Character",
     "一对一语音通话": "One-to-one voice call",
-    "虚构人物 · 早期版本 · 正在加载人物配置": "Fictional character · early version · loading character",
+    "虚构人物 · 正在加载": "Fictional character · loading",
     "正在检查服务": "Checking service",
     "当前查证": "Current sources",
     "静音麦克风": "Mute microphone",
@@ -172,7 +172,7 @@ function bootAngeleno() {
     "开始对话": "Start conversation",
     "开始通话": "Start call",
     "字幕": "Captions",
-    " · 虚构人物 · 早期版本": " · Fictional character · early version",
+    " · 虚构人物": " · Fictional character",
     "语音通话": "Voice call",
     "正在连接": "Connecting",
     " 对话中": " · in conversation",
@@ -214,9 +214,9 @@ function bootAngeleno() {
     "长时间无人接入，试用已结束": "No caller joined. Trial ended.",
     "长时间未发送音频，试用已结束": "No audio was sent for too long. Trial ended.",
     "语音识别测试预算状态变化，通话已结束": "Speech recognition test budget changed. Call ended.",
-    "连接状态不可确认，试用已安全结束": "Connection state could not be confirmed. Trial ended safely.",
-    "语音识别测试预算：还可发送约 ": "Speech recognition test budget: about ",
-    " 秒（本机自设保护，并非账户余额；发送的静音也计入；Jo语音合成在本地运行）": " seconds of input remaining (local limit, not account balance; sent silence counts; Jo speech is generated locally)",
+    "连接状态不可确认，通话已结束": "Connection state could not be confirmed. Call ended.",
+    "本地语音识别测试预算：约剩 ": "Local speech recognition test budget: about ",
+    " 秒识别输入（含静音）": " seconds of input remaining (including silence)",
     "，即将用完，请准备结束": "; nearly exhausted, please wrap up",
     "；长时间未发送音频，约 ": "; no recent audio, closing in about ",
     " 秒后收尾": " seconds",
@@ -232,7 +232,7 @@ function bootAngeleno() {
         const screen = document.getElementById('callScreen');
         if (screen) screen.setAttribute('aria-label', ui('一对一语音通话'));
         document.getElementById('sourceCard').setAttribute('aria-label', ui('当前查证'));
-        document.getElementById('disclosure').textContent = modelDisplayName() + ui(' · 虚构人物 · 早期版本');
+        document.getElementById('disclosure').textContent = modelDisplayName() + ui(' · 虚构人物');
         callLabel.textContent = ui(connected || connecting ? '挂断' : '开始通话');
         micButton.setAttribute('aria-label', ui(connected ? '挂断' : connecting ? '取消连接' : '开始对话'));
         updateMuteControl(muteButton.getAttribute('aria-pressed') !== 'true');
@@ -321,7 +321,7 @@ function bootAngeleno() {
         document.title = 'Angeleno · ' + health.persona_label;
         document.getElementById('personaName').textContent = health.persona_label;
         document.getElementById('portraitLetter').textContent = Array.from(health.persona_label)[0];
-        document.getElementById('disclosure').textContent = health.persona_label + ui(" · 虚构人物 · 早期版本");
+        document.getElementById('disclosure').textContent = health.persona_label + ui(" · 虚构人物");
     }
     function modelDisplayName() { return MODEL_NAMES.deepseek; }
     function setStatus(state, text) {
@@ -689,9 +689,9 @@ function bootAngeleno() {
         const endings = {local_audio_exhausted:ui("语音识别测试预算已用完，正在结束通话"),
             user_ended:ui("通话已结束，试用资源正在释放"), no_user_joined:ui("长时间无人接入，试用已结束"),
             connected_audio_idle:ui("长时间未发送音频，试用已结束"), audio_meter_changed:ui("语音识别测试预算状态变化，通话已结束"),
-            lifecycle_observer_unavailable:ui("连接状态不可确认，试用已安全结束")};
+            lifecycle_observer_unavailable:ui("连接状态不可确认，通话已结束")};
         let text = endings[data.stop_reason]
-            || ui("语音识别测试预算：还可发送约 ") + data.remaining_audio_seconds + ui(" 秒（本机自设保护，并非账户余额；发送的静音也计入；Jo语音合成在本地运行）");
+            || ui("本地语音识别测试预算：约剩 ") + data.remaining_audio_seconds + ui(" 秒识别输入（含静音）");
         if (!data.stop_reason && data.audio_warning) text += ui("，即将用完，请准备结束");
         if (!data.stop_reason && data.idle_warning && Number.isInteger(data.idle_seconds_remaining))
             text += ui("；长时间未发送音频，约 ") + data.idle_seconds_remaining + ui(" 秒后收尾");

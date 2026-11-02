@@ -149,7 +149,7 @@ async def chat(args, pack, env=None):
     finally:
         await runtime.close(flush=allow_flush)
         if maintainer and maintainer.error:
-            print("后台整理未完成，原文仍在；本次没有宣称已整理记忆。")
+            print("后台整理未完成，原始文字已保留。")
 
 
 def main(argv=None):
