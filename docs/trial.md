@@ -2,11 +2,50 @@
 
 本页是 Jo 产品试用的恢复入口；范围与接受仍在 Issue1/11/12 和 Spec，不以 PR 数量计完成。
 
-## 当前恢复点（2026-11-01）
+## 首版交付候选（2026-11-02）
 
-已发布开发分支为 `nexus-integrated-trial-20261031`，本次生命周期修复的基底 head 为
-[`911e1fbcbabe5a7094afefba0b8a575f45f5d459`](https://github.com/OKFin33/Angeleno/commit/911e1fbcbabe5a7094afefba0b8a575f45f5d459)；
-后续恢复须核该分支最新已交接 head，不回退到下文历史 PR28／旧 main。
+首版行为与真人试用基线固定为
+[`c40717947ad7b88da9e26c289cef86ed82113ddb`](https://github.com/OKFin33/Angeleno/commit/c40717947ad7b88da9e26c289cef86ed82113ddb)，
+[对应 CI 成功](https://github.com/OKFin33/Angeleno/actions/runs/41364021899)。
+既有开发分支为 `nexus-integrated-trial-20261031`，main 未合并。
+运行恢复包含后继的纯退出清理修复
+[`915fd198c7ef769dd5875663709f0e7e478a1c98`](https://github.com/OKFin33/Angeleno/commit/915fd198c7ef769dd5875663709f0e7e478a1c98)，
+[CI 成功](https://github.com/OKFin33/Angeleno/actions/runs/41364727240)；该修复不改变人物、查询提示或音频生成。
+后续文档提交不改变上述实听证据归属；恢复前核开发分支的最新交接和私有启动器版本，不退回历史 PR28／旧 main。
+
+### 已有实测与接受边界
+
+- w16 使用正确 Jo 参考与显式编译模式，真实浏览器试用完成8个用户轮；8轮文字标记完整交付，8次正常播放结束。
+  用户认可表达自然；这些证据不等于全部产品验收，也不证明每个字都被人耳听到。
+- 真实身份和隔离后的记忆沿用，未另建身份；文字记录留本机私有状态，不录原始音频、不将原话提交仓库。
+- 首版有自然对话、按需自主 Search/Fetch 与定向来源卡片的完整入口。此前真实查询、卡片和中文语音已有技术证据；
+  w16 没有查询执行记录，不能把该场说成搜索验收，也不要求每次提地名必搜。提示词对主动查询的影响仍待有限对照。
+- 卡顿和浏览器听感未正式验收；编译的源端吞吐收益不等于端到端流畅或音质等价。
+- 当前服务均离线，按需启动。ASR 显示的是本机自设的语音识别测试预算，按发送音频累计（含静音），
+  不是本地 TTS 合成额度、供应商账户余额或已结算费用；保留原计数，不将旧1200秒记录当作用户规定的产品硬限。
+
+### 唯一目录中的恢复命令
+
+已有私有启动器、人物／声音／身份状态、凭据和连续账本均保留在原位。先运行计划与配置预检，不启动服务：
+
+```sh
+cd /Users/nexus/project/GitHub/OKFin33/Angeleno
+git status --short
+git rev-parse HEAD
+.venv/bin/python scripts/run_trial.py --mode product --env-file private/runtime.env --tts-candidate compiled --check-host
+trial_session_id=$(.venv/bin/python -c 'import uuid; print("jo-v1-" + uuid.uuid4().hex[:12])')
+.venv/bin/python -B private/validation/science-center-preparation-20261101/run_user_window.py \
+  --tts-candidate compiled --session "$trial_session_id" --output "private/validation/$trial_session_id"
+```
+
+确认按需恢复时给最后一条命令加 `--run`。启动器先查 GPU 持续低负载及旧实例，再预热、核正确 Jo 资产与真实编译状态，
+最后才开放原 Tailnet HTTPS 页面；不先启 ASR、不用探针占用户身份。入口仅在 ready 后可用，停止后链接不能继续体验。
+默认候选 `eager` 仍可回退；用新 session ID 将 `--tts-candidate compiled` 换为 `--tts-candidate eager`，
+不换人物／用户身份、不重置账本、不改音色。编译准备160秒／总准备195秒；实际约112秒，准备不消耗识别预算。
+用户挂断、无加入／无音频进展闲置或异常会清理本任务资源；没有旧540秒通话墙钟切断。下文保留完整运行边界。
+
+### 资源与连续性
+
 Nexus 唯一项目目录是 `/Users/nexus/project/GitHub/OKFin33/Angeleno`；
 旧任务目录只作归档，不从其中启动，也不另建运行 checkout。
 
