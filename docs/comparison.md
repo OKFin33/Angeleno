@@ -39,6 +39,8 @@
 
 四种语料 case 的两臂一致性由 `tests/test_comparison.py` 覆盖。默认六段演练只用 `normal`。H1–H5 没有进入 runner。回执留在忽略的 `private/evaluation/`，不入库。
 
+干净提交 `48bb89a4dca51c473bd290112c815406ae8c4e2f` 复跑了这两条离线入口：6 段完成，0 次模型，0 次网络，没有校准。合成包回执的 `tracked_diff_present` 为 false。
+
 ## 两种入口
 
 ```sh

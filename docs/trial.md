@@ -96,6 +96,8 @@ ASR 测试预算按实际发送音频累计（包括静音），是本地保护�
 
 离线比较臂的数字见 [comparison](comparison.md#这次跑过的离线臂)。`scripts/check_comparison_freeze.py` 退出码 0。
 
+这些命令又在干净提交 `48bb89a4dca51c473bd290112c815406ae8c4e2f` 上复跑，退出码和上表数字相同。公开合成包演练的 `observed_commit` 就是该提交，`tracked_diff_present` 为 false。
+
 ## 这次仍然不做
 
 Zab 在 2026-11-15 认为 Angeleno 值得继续，但 GPU 部分这次大概做不了。下面这些没有做，也没有用离线结果代替：
