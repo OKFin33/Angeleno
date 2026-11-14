@@ -15,7 +15,9 @@
 
 v0.1.1 已通过 [PR #32](https://github.com/OKFin33/Angeleno/pull/32) 合入 main。
 可安装的 `src/angeleno/` 布局、安装包和稳定命令已通过 [PR #33](https://github.com/OKFin33/Angeleno/pull/33) 合入 main。
-当前 main 为 `4185b8eb29e8fa62ddc32300cc9db526f6704e15`。安装与命令见 [running](running.md)。
+离线收口与比较报告 r1 说明已通过 [PR #34](https://github.com/OKFin33/Angeleno/pull/34) 和 [PR #35](https://github.com/OKFin33/Angeleno/pull/35) 合入；#35 的合并提交是 `6103c463d8530a0dced139161906cf13b5767af6`。
+同料比较的冻结候选仍是 `4185b8eb29e8fa62ddc32300cc9db526f6704e15`，后来的说明提交不自动算进候选。
+安装与命令见 [running](running.md)。
 
 配置和 trace 用法见 [running](running.md)。`ANGELENO_LANGUAGE` 默认 `en`，设为 `zh` 可使用中文默认；
 `ANGELENO_TRACE` 默认关闭。现有 Jo 作者文件、身份种子、记忆和费用账本保持兼容，恢复部署时沿用原私有状态。

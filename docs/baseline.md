@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-main `4185b8eb29e8fa62ddc32300cc9db526f6704e15` 包含中文 v0.1.0（[PR #30](https://github.com/OKFin33/Angeleno/pull/30)、[PR #31](https://github.com/OKFin33/Angeleno/pull/31)）、默认英文的 v0.1.1（[PR #32](https://github.com/OKFin33/Angeleno/pull/32)）和可安装的 `src/angeleno/`（[PR #33](https://github.com/OKFin33/Angeleno/pull/33)）。
+当前 main 已含中文 v0.1.0（[PR #30](https://github.com/OKFin33/Angeleno/pull/30)、[PR #31](https://github.com/OKFin33/Angeleno/pull/31)）、默认英文的 v0.1.1（[PR #32](https://github.com/OKFin33/Angeleno/pull/32)）、可安装的 `src/angeleno/`（[PR #33](https://github.com/OKFin33/Angeleno/pull/33)），以及离线收口（[PR #34](https://github.com/OKFin33/Angeleno/pull/34)）和比较报告 r1 说明（[PR #35](https://github.com/OKFin33/Angeleno/pull/35)，合并提交 `6103c463d8530a0dced139161906cf13b5767af6`）。同料比较的冻结候选仍是 `4185b8eb29e8fa62ddc32300cc9db526f6704e15`，后来的说明提交不自动算进候选。
 版本、干净环境复现和仍阻塞的事项见 [trial](trial.md)。同料比较的离线冻结见 [comparison](comparison.md)。
 
 | 层 | 职责与边界 |

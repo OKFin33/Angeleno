@@ -22,7 +22,7 @@ Owner Zab 在 2026-11-15 05:04（Asia/Taipei）批准这项交付，原话是「
 报告要能按同一命令复核。
 
 冻结候选仍是 `4185b8eb29e8fa62ddc32300cc9db526f6704e15`，见 [examples/comparison/freeze-checklist.json](../../examples/comparison/freeze-checklist.json)。
-当前 main 是 `500274506ca17774863a93b0d079c86beed2852d`（已合入 PR #34）。main 上多出来的是比较控制记录和说明，不自动把冻结候选改掉。人物会话循环若再改，清单要重建。
+最新交付合入是 [PR #35](https://github.com/OKFin33/Angeleno/pull/35) 的合并提交 `6103c463d8530a0dced139161906cf13b5767af6`（其前已合入 PR #34）。main 上多出来的是比较控制记录和说明，不自动把冻结候选改掉。人物会话循环若再改，清单要重建。
 
 复核命令：
 
@@ -112,14 +112,14 @@ E7 那一行的「无离线测试」由 `tests/test_comparison_boundaries.py` �
 
 # Angeleno v0.1 收口
 
-Status: active — 仓库已公开，PR #31–#34 已合入，离线收口已完成。正式同料比较还没跑。整体接受、Jo 再许可和 Release／tag 仍未完成。
+Status: active — 仓库已公开，PR #31–#35 已合入，离线收口已完成。正式同料比较还没跑。整体接受、Jo 再许可和 Release／tag 仍未完成。
 
 本项是唯一 v0.1 交付与接纳入口；不是以 PR 数量、CI 或一次通话代替产品接受。范围仍以 [Intent](https://github.com/OKFin33/Angeleno/blob/main/docs/intent.md) 与 [Spec](https://github.com/OKFin33/Angeleno/blob/main/docs/spec.md) 为准。
 
 ## 当前交付
 
 - 2026-11-15 用 GitHub API `GET /repos/OKFin33/Angeleno` 核对：`private` 为 false，`visibility` 为 public。这次核对没有改可见性。未创建 Release／tag。
-- main **`500274506ca17774863a93b0d079c86beed2852d`**，即合并 [PR #34](https://github.com/OKFin33/Angeleno/pull/34) 之后的提交。[PR #31](https://github.com/OKFin33/Angeleno/pull/31)（公开交接）、[PR #32](https://github.com/OKFin33/Angeleno/pull/32)（v0.1.1 默认英文）、[PR #33](https://github.com/OKFin33/Angeleno/pull/33)（可安装的 `src/angeleno/`）都已在这条 main 上。[PR #30](https://github.com/OKFin33/Angeleno/pull/30) 仍是中文 v0.1.0。同料比较的冻结候选仍是 `4185b8eb29e8fa62ddc32300cc9db526f6704e15`，不是把后来的说明提交自动算进候选。
+- 最新交付合入是 [PR #35](https://github.com/OKFin33/Angeleno/pull/35)（比较报告 r1 交付说明）的合并提交 **`6103c463d8530a0dced139161906cf13b5767af6`**；[PR #34](https://github.com/OKFin33/Angeleno/pull/34)（离线收口）在其之前合入。[PR #31](https://github.com/OKFin33/Angeleno/pull/31)（公开交接）、[PR #32](https://github.com/OKFin33/Angeleno/pull/32)（v0.1.1 默认英文）、[PR #33](https://github.com/OKFin33/Angeleno/pull/33)（可安装的 `src/angeleno/`）都已在这条 main 上。[PR #30](https://github.com/OKFin33/Angeleno/pull/30) 仍是中文 v0.1.0。同料比较的冻结候选仍是 `4185b8eb29e8fa62ddc32300cc9db526f6704e15`，不是把后来的说明提交自动算进候选。
 - 离线收口已完成：干净环境的非 GPU 复现和同料比较控制记在 [trial](https://github.com/OKFin33/Angeleno/blob/main/docs/trial.md) 与 [comparison](https://github.com/OKFin33/Angeleno/blob/main/docs/comparison.md)。这不是正式比较，也不是产品接受。
 - 下一交付点是文字同料比较报告 r1：[docs/delivery/2026-11-15-comparison-report-r1.md](https://github.com/OKFin33/Angeleno/blob/main/docs/delivery/2026-11-15-comparison-report-r1.md)。#12 继续持有这项义务。
 - 中文 v0.1.0 的随仓 Jo 作者包、README、运行说明和恢复入口仍在。v0.1.1 默认英文已经随 PR #32 合入，不是待做计划。使用者自备有权使用的参考音频、模型权重与服务账户；不分发真实聊天／记忆、参考声音、密钥或私有账本。
