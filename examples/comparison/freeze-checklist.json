@@ -1,0 +1,148 @@
+{
+  "format": "angeleno-comparison-freeze-checklist/1",
+  "status": "offline_controls_frozen",
+  "executable_live_manifest": false,
+  "authorizes_paid_run": false,
+  "owner_calibration": null,
+  "holdout_executed": false,
+  "preference_scores": null,
+  "product_candidate": {
+    "commit": "4185b8eb29e8fa62ddc32300cc9db526f6704e15",
+    "merged_pull_requests": [
+      30,
+      31,
+      32,
+      33
+    ],
+    "meaning": "main 上已合入的产品代码。PR #30 是中文 v0.1.0，PR #31 是公开交接，PR #32 是 v0.1.1 默认英文，PR #33 是可安装的 src 布局。比较锚例仍是中文。本文件不是可执行的付费 manifest；之后的 --run 必须另绑当时干净的 HEAD、原账本和授权。产品循环若再改，这份候选就要重建。"
+  },
+  "model_parameters": {
+    "model": "deepseek-flash",
+    "temperature": 0.7,
+    "writer_temperature": 0.2,
+    "actor_max_tokens": 512,
+    "writer_max_tokens": 2048,
+    "actor_requests_per_turn": 4,
+    "tools_per_turn": 3,
+    "writer_requests_per_segment": 3,
+    "actor_requests_total": 184,
+    "writer_requests_total": 18,
+    "turn_timeout_seconds": 10,
+    "maintenance_timeout_seconds": 10,
+    "variant": "guided",
+    "clock_utc": "2026-10-30T22:04:05+00:00",
+    "timezone": "America/Los_Angeles",
+    "language": "zh"
+  },
+  "model_version_limitation": "configured_alias_no_immutable_provider_revision",
+  "comparison_language_enforced_by_runner": true,
+  "file_sha256": {
+    "examples/comparison/development.json": "08b3452d22acfeb11b74fe4e606ef6cfd1bc022b043006f9cad1aac9f90a6ce0",
+    "examples/comparison/anchors.json": "22f61066732800cea8610c268965ad7b7e57f918872f7de63fa5a8306b0d3a04",
+    "examples/comparison/corpus.synthetic.json": "e24ed638d146ebf5496703beb989fe4b096f88e886ca7791f93cd79f2e590971",
+    "examples/comparison/scoring-rubric.json": "471a7751cbc5c4152e70e082d43b0265627433c7806bc73e91ed6d73a560b99e",
+    "examples/comparison/scenarios.json": "0eef37c5ee2229721a6b04e5041562eae82aa3a3680e070f31d834b2a5fdc8da",
+    "characters/jo/author-pack.json": "5de7a47a26222ce3ccdf300844b857b9f28db057cb7dce0a1d757af975c12225",
+    "characters/jo/NOTICE": "fa44cda7a23e690234d60f80a7c83307f55c8a6f1d569c353c9db44db4bf236d",
+    "characters/jo/persona/role-core.md": "941caf0bc1fda79d0452ec4fa071d4b3781c5680616f96510135e31430e29cec",
+    "characters/jo/persona/character-bible.md": "d253d3fe824128fd113c84d0b2878806641c18264bfa67094ea37abbeb08f0a9",
+    "characters/jo/persona/continuity.md": "2f79ed6a1a6bdea41952e990272b1294c9ab21515d44a006d8584cd5d7d89747",
+    "characters/jo/persona/grounding.md": "5801e35a619e4447baf4f4922956e13a9b2d63cbfe0a86b57904727d01a2a465",
+    "data/places/fixtures/fisher-visit.html": "ebaaf537e57988bc99200568c07b4af104437d0ae7584feb155974a3c9f134cd",
+    "src/angeleno/author.py": "5588324a431b9968f410e0bec7bae95bd55f42f618456c059e461e73e6aeabd0",
+    "src/angeleno/comparison.py": "591c5eff391a69f666b2beec81ad596884182b5a83fac164764203489043a3d8"
+  },
+  "roles_sha256": {
+    "character": "352076410dc71df7f28301ec91e901d7bfcec7296d595bf60ef054fa6c42244d",
+    "assistant": "1ded286dca455ba79389bb2f881cf6c5803fc084ef39ae9968dcd70c60ed4499"
+  },
+  "character_documents": [
+    "persona/role-core.md",
+    "persona/character-bible.md",
+    "persona/continuity.md",
+    "persona/grounding.md"
+  ],
+  "assistant_documents": [
+    "assistant-control",
+    "persona/grounding.md"
+  ],
+  "shared_grounding": [
+    "characters/jo/persona/grounding.md"
+  ],
+  "corpus": {
+    "file": "examples/comparison/corpus.synthetic.json",
+    "cases": [
+      "normal",
+      "empty",
+      "conflicting_body",
+      "truncated_body"
+    ],
+    "query_count": 24,
+    "record_ids": [
+      "SYN-A",
+      "SYN-B",
+      "SYN-FISHER"
+    ],
+    "acceptance": "双方同一套合成开发集合。24 组映射里的空匹配只说明这个集合没有记录，不是现实里不存在。Fisher 契约样本只属于开发锚例。"
+  },
+  "development_anchors": [
+    "DEV-D1",
+    "DEV-D2",
+    "DEV-D3"
+  ],
+  "scenarios_file": "examples/comparison/scenarios.json",
+  "rubric_file": "examples/comparison/scoring-rubric.json",
+  "holdout_proposal_ids": [
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5"
+  ],
+  "holdout_count": 5,
+  "holdout_unseen": false,
+  "open_gaps": [
+    {
+      "id": "non_grounding_persona_facts_not_copied",
+      "status": "open",
+      "resolution": null,
+      "blocks_formal_comparison": true,
+      "summary": "人物核心、人物圣经和连续性里的现实说法不会复制给助手。通勤分钟数一类的具体估计只在这些文档里；共享的 grounding 只写明车程属于作者估计。本清单不新写补充，也不改 Jo 原稿。"
+    },
+    {
+      "id": "historical_private_supplements_absent",
+      "status": "open",
+      "resolution": null,
+      "blocks_formal_comparison": true,
+      "summary": "2026-10-31 放在 private/evaluation 的六组共享补充不在本检出中，这里也没有按那份私有审计重核。"
+    },
+    {
+      "id": "immutable_model_revision_unknown",
+      "status": "open",
+      "resolution": null,
+      "blocks_formal_comparison": true,
+      "summary": "deepseek-flash 是配置别名。没有不可变的供应商模型版本。"
+    },
+    {
+      "id": "owner_calibration_absent",
+      "status": "open",
+      "resolution": null,
+      "blocks_formal_comparison": true,
+      "summary": "Owner 还没有对三对开发锚例给出判断和理由。量表因此不能用来打正式分。"
+    },
+    {
+      "id": "unseen_holdout_absent",
+      "status": "open",
+      "resolution": null,
+      "blocks_formal_comparison": true,
+      "summary": "H1–H5 标记为「起草时已读 D1–D3，仅作可见练习题，不作未见保留集」。未见保留集必须由没有读过 D1–D3 的人撰写。这五段不改写，也没有运行。"
+    },
+    {
+      "id": "real_model_comparison_not_run",
+      "status": "open",
+      "resolution": null,
+      "blocks_formal_comparison": true,
+      "summary": "没有在这个候选上执行 comparison_live --run。早先见过的三对模型输出不在仓库里，不能当成这次结果。"
+    }
+  ]
+}

@@ -1,14 +1,47 @@
 # 同料比较与开发入口
 
 正式同料比较沿 [Spec §8](spec.md#8-评测接受与交付) 和 [Issue #12](https://github.com/OKFin33/Angeleno/issues/12)。
-产品交付和整体接受归 Issue #1。
+产品交付和整体接受归 [Issue #1](https://github.com/OKFin33/Angeleno/issues/1)。
 
 ## 当前状态
 
-D1／D2／D3 各一对实际模型开发输出已完成，属于已见、未评分开发材料，不是正式比较结果。
-发现的来源升级、偏好范围扩大等失败保留；没有手改历史输出使其通过。
-Owner 锚例校准、正式候选／参数／来源／评分冻结和独立保留集运行尚未完成，未取消比较义务。
-公开 Jo 作者包已在 `characters/jo/`；私有开发回执不随仓，不是启动人物的必需资源。
+离线控制已经冻结，正式比较没有执行。清单在
+[examples/comparison/freeze-checklist.json](../examples/comparison/freeze-checklist.json)，
+用下面的命令对照仓库复核。它不是 `comparison_live --run` 的可执行 manifest，
+没有账本路径、付费授权或分数。
+
+```sh
+.venv/bin/python scripts/check_comparison_freeze.py
+```
+
+已冻结的四项：
+
+- **候选。** 产品代码是 main `4185b8eb29e8fa62ddc32300cc9db526f6704e15`。这里已经合入 PR #30（中文 v0.1.0）、#31（公开交接）、#32（v0.1.1 默认英文）和 #33（可安装的 `src/angeleno/`）。比较锚例仍是中文 D1／D2／D3。这份清单不把后来的提交自动算进候选；人物会话循环若再改，就要重建清单。
+- **模型参数。** 两臂同为 `deepseek-flash`、actor 温度 0.7、writer 温度 0.2、输出上限 512／2048、每轮 4 次模型与 3 次工具、开发计数护栏 184／18、回合和维护超时各 10 秒、`guided`、语言 `zh`、时钟 `2026-10-30T22:04:05Z`、时区 `America/Los_Angeles`。比较进程会把语言设成这个 `zh`，两臂相同；语音产品的默认语言仍是 `en`。`deepseek-flash` 只是配置别名，没有不可变模型版本。
+- **同料来源。** 两臂逐字共享 `characters/jo/persona/grounding.md`、合成语料 `corpus.synthetic.json`（24 组公开查询、四种 case）和 Fisher 开发契约样本，工具协议与时钟也相同。助手只换角色设定，不接收人物核心、人物圣经和连续性。这些文档里的具体通勤估计不会被抽给助手。2026-10-31 的私有六组补充不在本检出里；没有改 Jo 原稿，也没有新写共享段落。
+- **评分量表。** [scoring-rubric.json](../examples/comparison/scoring-rubric.json) 冻结 Spec §8 的成对问题和六个观察特征。偏好与 E1–E8 边界分开。Owner 校准、已评分数和第二评分者都为空。
+
+Mayne 在委托范围内决定：本 PR 作为比较控制记录保留；正式比较仍未执行。
+
+情景在 [scenarios.json](../examples/comparison/scenarios.json)。D1／D2／D3 仍是已见开发锚例，结果字段为空；早先那三对模型输出不在仓库里。H1–H5 不改写，标记为「起草时已读 D1–D3，仅作可见练习题，不作未见保留集」。未见保留集必须由没有读过 D1–D3 的人撰写。这 5 段没有运行。E7 的插话和重拨不在这批文字材料里。
+
+离线能跑的比较臂，是脚本演员的六段演练：公开合成包一次，随仓 Jo 包一次，每次都是人物臂和助手臂。脚本回答不是模型行为，也不是偏好结果。真实 `--run`、在线网页、Owner 校准和保留集评分都没有做。
+
+早先 D1／D2／D3 各一对模型输出仍只是已见、未评分的开发样本。来源升级和偏好范围扩大那些失败保留着，没有手改旧输出。比较义务没有取消。
+公开 Jo 作者包在 `characters/jo/`；私有回执不随仓，也不是启动人物的必需资源。
+
+## 这次跑过的离线臂
+
+2026-11-15，在基于上述 main 的工作树上：
+
+- `scripts/check_comparison_freeze.py` 退出码 0。
+- `scripts/run_development.py` 使用公开合成人物：`status=completed`，`mode=dry_run`，`evidence=scripted_mechanism_only`。6 段都完成，0 次模型调用，0 次网络。`owner_calibration` 为空，`holdout_included` 为 false，`ready_for_real_comparison` 为 false。D1 两臂各 0 次合成检索，D2 各 6 次，D3 各 4 次。
+- `python -m angeleno.comparison_live` 不带 `--run`：同样 6 段完成，0 次模型，0 次网络，没有校准。
+- 随仓 Jo 包的六段脚本演练在 `tests/test_comparison_freeze.py` 里通过，结论与上面相同。CLI 默认仍只加载公开合成人物。
+
+四种语料 case 的两臂一致性由 `tests/test_comparison.py` 覆盖。默认六段演练只用 `normal`。H1–H5 是可见练习题，没有进入 runner，也不是未见保留集。回执留在忽略的 `private/evaluation/`，不入库。
+
+干净提交 `48bb89a4dca51c473bd290112c815406ae8c4e2f` 复跑了这两条离线入口：6 段完成，0 次模型，0 次网络，没有校准。合成包回执的 `tracked_diff_present` 为 false。
 
 ## 两种入口
 
@@ -25,7 +58,8 @@ Owner 锚例校准、正式候选／参数／来源／评分冻结和独立保�
 输入许可、双方同料及参数、当前干净候选指纹、独立状态、账号和未知费用策略必须成立。
 不能为了跳过检查重置账本、换身份、自动补未知分支或把旧失败追认为成功。
 
-双方使用同核心、同模型／参数／工具能力、共同资料与固定时钟，只有人物材料不同。
+双方使用同核心、同模型／参数／语言／工具能力、共同资料与固定时钟，只有人物材料不同。
+这次开发锚例的语言钉在 `zh`。这不修改调用方的环境文件，也不把产品默认从英文改回中文。
 工具次数可以因角色选择而不同；不按输出质量选择分支。普通社交反问不影响下一固定输入时 `continue`；
 必要澄清只能使用已列规则，真正未覆盖／混合／不明分支仍停。
 

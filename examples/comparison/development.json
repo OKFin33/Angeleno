@@ -4,6 +4,7 @@
   "scope": "development_only",
   "clock_utc": "2026-10-30T22:04:05+00:00",
   "timezone": "America/Los_Angeles",
+  "language": "zh",
   "variant": "guided",
   "model": "deepseek-flash",
   "temperature": 0.7,
