@@ -14,8 +14,8 @@
 - 可选本地逐轮 trace：展开有效模型输入，查看工具及来源、延迟、生成／交付、卡片和记忆状态。
 
 v0.1.1 已通过 [PR #32](https://github.com/OKFin33/Angeleno/pull/32) 合入 main。
-本次结构开发分支 `refactor/installable-application` 提供 `src/angeleno/` 布局、安装包和稳定命令；
-安装与旧命令迁移见 [running](running.md)。
+可安装的 `src/angeleno/` 布局、安装包和稳定命令已通过 [PR #33](https://github.com/OKFin33/Angeleno/pull/33) 合入 main。
+当前 main 为 `4185b8eb29e8fa62ddc32300cc9db526f6704e15`。安装与命令见 [running](running.md)。
 
 配置和 trace 用法见 [running](running.md)。`ANGELENO_LANGUAGE` 默认 `en`，设为 `zh` 可使用中文默认；
 `ANGELENO_TRACE` 默认关闭。现有 Jo 作者文件、身份种子、记忆和费用账本保持兼容，恢复部署时沿用原私有状态。
@@ -63,11 +63,51 @@ ASR 测试预算按实际发送音频累计（包括静音），是本地保护�
 - w16 没有 Search／Fetch 执行记录，不是搜索验收；未保存完整逐轮 HTTP／工具 proposal，不能据此推断隐藏模型原因。
 - 后继已有真实／开发状态隔离、含糊输入不自动跨会话续旧任务、主动查证与人物表达修复，以及记忆归属保护。
   少量合成模型回归和离线状态测试不等同于后继版本已获真人整体接受。
-- D1／D2／D3 各一对模型输出是已见、未评分开发材料；正式冻结、Owner 校准和保留集比较尚未完成，见 [Issue #12](https://github.com/OKFin33/Angeleno/issues/12)。
-- 当前尚未完成全新环境安装与完整复现；也没有所有浏览器／网络／参考声音／语言的听感、音质或延迟保证。
+- D1／D2／D3 各一对历史模型输出仍是已见、未评分开发材料，而且不在仓库里。候选、模型参数、同料来源和评分量表的离线冻结已经写上，见 [comparison](comparison.md)。Owner 校准没有做。5 段保留提案是可见草稿，不是未见比较，也没有运行。
+- 干净环境的非 GPU 复现见下一节。没有所有浏览器、网络、参考声音或语言的听感、音质和延迟保证。
   `USER.md` 与显式熟悉状态不是已实现功能。Jo 再许可及 Release 仍未决定，见随包声明。
 
 历史阶段记录保留在 Git 历史与相关 Issue；其中旧暂停、费用批次、未合并状态和私有部署命令不是当前安装要求。
+
+## 干净环境复现（2026-11-15）
+
+这次从没有虚拟环境的检出开始。Python 3.12.3，uv 0.13.8，Node.js v22.23.4。
+`uv sync --locked --group dev` 新建 `.venv`，安装 77 个锁定包，退出码 0。没有服务密钥，没有参考声音，没有真实 GPU。
+
+非 GPU 的 `make verify` 目标：
+
+| 目标 | 结果 |
+| --- | --- |
+| `sync` | `uv sync --locked --group dev` 退出码 0 |
+| `diff-check` | `git diff --check` 与已暂存检查均退出码 0 |
+| `gate` | `python -B scripts/verify_gate.py --self-check` 退出码 0 |
+| `tests` | `python -B -m unittest discover -s tests -v`：**612** 项，OK，18.039 秒 |
+| `page` | `node tests/test_call_page.js web/index.html`：15 组页面回归通过 |
+| `preview` | `angeleno preview --env-file .env.example` 退出码 0；Jo，4 份材料，`network_calls` 0 |
+| `demo` | `python -m angeleno.demo` 退出码 0，三条离线 PASS |
+| `install-check` | `python scripts/check_installation.py` 通过：wheel／sdist、三条命令、检出外运行，不含私有文件或音频 |
+
+仓库根目录 `python -m pytest -q`：**630 passed**，1 条 `audioop` 弃用警告，501 个 subtests，22.86 秒。
+早先参考环境的 pytest 是 624 passed。这次多出的 6 项是本分支的比较冻结和中文语言钉住测试。
+`make tests` 使用 unittest，只收集 `tests/`，所以是 612，不是 630。
+
+`make gpu` 另跑为 `pytest -q gpu/test_server.py`：**18 passed**，4 个 subtests，0.94 秒。
+这是协议假模型，不加载权重，不占用 CUDA，也不能代替英文 TTS／RTC 或听感。
+
+离线比较臂的数字见 [comparison](comparison.md#这次跑过的离线臂)。`scripts/check_comparison_freeze.py` 退出码 0。
+
+## 这次仍然不做
+
+Zab 在 2026-11-15 认为 Angeleno 值得继续，但 GPU 部分这次大概做不了。下面这些没有做，也没有用离线结果代替：
+
+- 真实英文 TTS／RTC、打断重连、人工听感，以及 E7 的播放中插话和挂断重拨。
+- Owner 对三对开发锚例的校准，以及按该口径评分。早先三对模型输出不在本检出，没有重跑收费模型。
+- 未见保留集的正式比较。仓库里的 H1–H5 是可见提案。
+- `comparison_live --run` 和在线 Search／Fetch。没有不可变模型版本，也没有把私有六组补充重新造进仓库。
+- Jo 作者素材的再许可。代码和文档的 MIT、改编文件的 Apache-2.0 不自动覆盖人物素材。参考声音不随仓。
+- 仓库公开、Release／tag 和正式发布。
+
+需要 Zab 决定的是：是否接受这份离线冻结、5 段可见提案要不要作废后由没读过它们的人重写、人物素材再许可，以及是否公开或打 tag。英文语音仍等有 GPU 的时候再验。
 
 <details>
 <summary>版本验证记录</summary>
@@ -75,7 +115,8 @@ ASR 测试预算按实际发送音频累计（包括静音），是本地保护�
 ### 版本路线
 
 **v0.1.0：中文首发准备。** 先交付可审核的 Jo 作者包、配置、依赖与启动说明，参考声音由使用者自备；
-不将新环境安装或干净环境完整复现设为本轮候选形成的前置，也不宣称已通过该验证。
+不将新环境安装或干净环境完整复现设为本轮候选形成的前置，也不宣称形成该候选时已经通过。
+2026-11-15 的收口另做了一次干净环境非 GPU 复现，结果写在上文，不把 v0.1.0 形成时改写成已经复现过。
 搜索提示小改仍后置，不混入本版或默认纳入下一版。代码与文档已通过 PR #30／#31 合入公开 main；Release／tag 仍未创建。
 
 **v0.1.1 默认英文。** 已实现统一 `ANGELENO_LANGUAGE=en|zh`、默认英文人物回复与页面、

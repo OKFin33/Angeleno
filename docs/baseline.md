@@ -2,9 +2,8 @@
 
 ## 当前版本
 
-main 的中文 v0.1.0 基线由 [PR #31](https://github.com/OKFin33/Angeleno/pull/31) 合入。
-main 已通过 PR #32 纳入默认英文、中文切换、能力说明修复与可选本地逐轮 trace。结构开发分支提供可安装的 `src/angeleno/` 应用。
-版本安装、验证范围与中文基线证据见 [trial](trial.md)。
+main `4185b8eb29e8fa62ddc32300cc9db526f6704e15` 包含中文 v0.1.0（[PR #30](https://github.com/OKFin33/Angeleno/pull/30)、[PR #31](https://github.com/OKFin33/Angeleno/pull/31)）、默认英文的 v0.1.1（[PR #32](https://github.com/OKFin33/Angeleno/pull/32)）和可安装的 `src/angeleno/`（[PR #33](https://github.com/OKFin33/Angeleno/pull/33)）。
+版本、干净环境复现和仍阻塞的事项见 [trial](trial.md)。同料比较的离线冻结见 [comparison](comparison.md)。
 
 | 层 | 职责与边界 |
 | --- | --- |
@@ -20,7 +19,7 @@ main 已通过 PR #32 纳入默认英文、中文切换、能力说明修复与�
 Jo／普通助手均可使用真实 Search／Fetch。仅最小公开查询字段或已选公开 URL 进入相应工具，不附作者原文或完整对白。
 旧 24 组合是比较 fixture 的覆盖范围，不是生产查询的固定白名单。供应商403、未知用量和余额保护保持。
 每轮工程候选上限为 **总计3次工具、4次模型、累计10秒Web**，Search／Fetch 可在总量内重复，其他工具每类最多一次；
-15／30秒交互保护仍在。它们是 Spec §4 允许校准的候选参数，未完成正式比较冻结，也不保证达到上限的体验可接受。
+15／30秒交互保护仍在。它们是 Spec §4 允许校准的候选参数。比较的离线控制已经写入 [comparison](comparison.md)；正式比较、Owner 校准，以及达到上限时的体验是否可接受，都还没有完成。
 
 真实与开发身份／存储分开；人物种子、原始交流、来源等级与交付状态分别保留。
 可选维护归因检查默认关闭。ASR 本地测试预算与模型费用独立；供应商账户余额另行查询。
@@ -30,7 +29,7 @@ Jo／普通助手均可使用真实 Search／Fetch。仅最小公开查询字段
 `make verify` 包含锁文件依赖同步、diff 检查、文件保护、Python 回归、GPU 协议假模型测试、页面测试、preview 和 demo。
 它不启动真实 GPU、麦克风或收费调用；`make gpu` 也是协议假模型测试，不是硬件性能测试。
 真实通话、工具结果、已见开发比较与仍未验范围集中见 [trial](trial.md)。
-下一步验证重点是新环境安装、英文真实语音链路与人工听感。
+干净环境的非 GPU 复现也记在那里。英文真实语音链路和人工听感仍要等 GPU，这次没有做。
 
 ## 历史实施记录
 

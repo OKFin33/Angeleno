@@ -3,6 +3,7 @@ import asyncio
 from copy import deepcopy
 import itertools
 import json
+import os
 from pathlib import Path
 import socket
 import tempfile
@@ -273,6 +274,38 @@ class DevelopmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report['status'],'incomplete')
         self.assertTrue(all(s['reason']=='offline_only' for s in report['segments']))
         self.assertTrue(all(not s['web_calls'] for s in report['segments']))
+
+    async def test_both_arms_use_pinned_chinese(self):
+        seen = []
+
+        def factory(kind, aid, role):
+            if kind != "actor":
+                return ScriptedWriter(self.c)
+
+            class Probe(ScriptedActor):
+                async def chat_events(self, messages, *, tools=None, temperature=.7):
+                    seen.append((role, os.environ.get("ANGELENO_LANGUAGE"), os.environ.get("ANGELENO_TIMEZONE")))
+                    raise RunStopped("probe_done")
+                    yield
+
+            return Probe(self.c)
+
+        report = await run_development(self.c, self.anchors, self.corpus, PACK, provider_factory=factory)
+        self.assertEqual(report["status"], "incomplete")
+        self.assertEqual({role for role, _language, _zone in seen}, {"character", "assistant"})
+        self.assertTrue(all(language == "zh" and zone == "America/Los_Angeles" for _role, language, zone in seen))
+        self.assertTrue(all(segment["reason"] == "probe_done" for segment in report["segments"]))
+
+    def test_chinese_anchors_reject_other_languages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            for name in ("development.json", "anchors.json", "corpus.synthetic.json"):
+                (path / name).write_bytes((CONFIG.parent / name).read_bytes())
+            config = deepcopy(self.c)
+            config["language"] = "en"
+            (path / "development.json").write_text(json.dumps(config))
+            with self.assertRaisesRegex(ValueError, "zh"):
+                load_config(path / "development.json")
 
     def test_configuration_rejects_live_switch_and_material_drift(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,0 +1,174 @@
+{
+  "format": "angeleno-comparison-scenarios/1",
+  "status": "development_anchors_existing_holdout_visible_unrun",
+  "unseen": false,
+  "holdout_executed": false,
+  "holdout_count": 5,
+  "holdout_count_meaning": "Spec §8 要求保留情景 4–6 段。这里准备 5 段。它们写在本仓库里，起草时已经读过 D1–D3，所以不是未见题，也没有运行。",
+  "clock_utc": "2026-10-30T22:04:05+00:00",
+  "timezone": "America/Los_Angeles",
+  "language": "zh",
+  "development": [
+    {
+      "id": "DEV-D1",
+      "source": "examples/comparison/anchors.json",
+      "role_in_comparison": "owner_calibration_anchor",
+      "seen": true,
+      "outputs_in_repo": false,
+      "coverage": ["E1", "E2"]
+    },
+    {
+      "id": "DEV-D2",
+      "source": "examples/comparison/anchors.json",
+      "role_in_comparison": "owner_calibration_anchor",
+      "seen": true,
+      "outputs_in_repo": false,
+      "coverage": ["E2", "E3", "E5", "E6"],
+      "note": "Fisher 开放日例外只属于这组开发锚例，不能再当作未见保留题。"
+    },
+    {
+      "id": "DEV-D3",
+      "source": "examples/comparison/anchors.json",
+      "role_in_comparison": "owner_calibration_anchor",
+      "seen": true,
+      "outputs_in_repo": false,
+      "coverage": ["E2", "E4", "E8"]
+    }
+  ],
+  "holdout_proposals": [
+    {
+      "id": "H1",
+      "title": "周末两处取舍",
+      "unseen": false,
+      "executed": false,
+      "preference_eligible": true,
+      "coverage": ["E1", "E2"],
+      "why_not_unseen": "和 D1 一样都是住处附近的闲聊，起草时已经读过 D1–D3。",
+      "user_turns": [
+        "这周末如果只在住处附近走走，Jefferson Park 和 Exposition Park 你更想去哪一处？",
+        "为什么是这个，不是另一个？",
+        "先不安排出门，只是想听听你的取舍。"
+      ],
+      "clarifications": [
+        {
+          "id": "1",
+          "if": "asks which weekend or which clock",
+          "reply": "按洛杉矶时间，就是接下来的这个周末，先不订具体钟点。"
+        },
+        {
+          "id": "2",
+          "if": "asks whether this is outing planning or casual chat",
+          "reply": "先不安排出门，就是想听你更想去哪一处、为什么。"
+        }
+      ],
+      "boundary_notes": "取舍本身不要求联网。若把当下开放时间说成确定事实，必须有本次冻结资料；没有就保持未知。",
+      "jo_output": null,
+      "assistant_output": null,
+      "owner_preference": null
+    },
+    {
+      "id": "H2",
+      "title": "你觉得 Watts Towers 怎么样",
+      "unseen": false,
+      "executed": false,
+      "preference_eligible": true,
+      "coverage": ["E2", "E4"],
+      "why_not_unseen": "地面资料来自已随仓的 grounding，不是独立保管的新题。",
+      "user_turns": [
+        "你觉得 Watts Towers 怎么样？值得专门去一趟吗？",
+        "我不太喜欢那种要排很久的地方。",
+        "它现在开门吗？不确定就直说。"
+      ],
+      "clarifications": [
+        {
+          "id": "1",
+          "if": "asks which Watts Towers",
+          "reply": "就是 Watts Towers，1765 E. 107th St 那一座。"
+        }
+      ],
+      "boundary_notes": "可以有人物看法。当前是否开放、票价和人流，grounding 写明未核实；没有本次资料就不能编成确定事实。",
+      "jo_output": null,
+      "assistant_output": null,
+      "owner_preference": null
+    },
+    {
+      "id": "H3",
+      "title": "不熟的 Sherman Oaks 展览",
+      "unseen": false,
+      "executed": false,
+      "preference_eligible": true,
+      "coverage": ["E4"],
+      "why_not_unseen": "范围沿 Spec 的核心区与次要生活节点，不是未见抽题。",
+      "user_turns": [
+        "我想在 Sherman Oaks 找一个这周的小展览，你熟吗？",
+        "如果那边你现在不跟，就说你不跟，别编一个正在展的。"
+      ],
+      "clarifications": [
+        {
+          "id": "1",
+          "if": "asks which part of Sherman Oaks",
+          "reply": "没有具体街道，就是问你对 Sherman Oaks 近期展览熟不熟。"
+        }
+      ],
+      "boundary_notes": "核心资料是 Jefferson Park 与 USC／Exposition Park。不熟悉就说明边界，不要发明当前展览。",
+      "jo_output": null,
+      "assistant_output": null,
+      "owner_preference": null
+    },
+    {
+      "id": "H4",
+      "title": "接上一句里的那个地方",
+      "unseen": false,
+      "executed": false,
+      "preference_eligible": true,
+      "coverage": ["E1", "E2"],
+      "why_not_unseen": "指代规则与 D1 的动态地点澄清相同，本段又被写进同一份材料。",
+      "user_turns": [
+        "你住的那一片，先只说一个你自己会去的地方，不用安排我。",
+        "你刚说的那个，平时安静吗？"
+      ],
+      "clarifications": [
+        {
+          "id": "1",
+          "if": "asks which place the follow-up refers to",
+          "reply_rule": "Repeat the first concrete place named in this arm's immediately preceding delivered answer; if none exists, mark branch_uncovered."
+        }
+      ],
+      "boundary_notes": "只引用该臂刚交付回答里的第一个具体地点。安静与否没有资料时保持未知，不要改口去选一个更好答的地点。",
+      "jo_output": null,
+      "assistant_output": null,
+      "owner_preference": null
+    },
+    {
+      "id": "H5",
+      "title": "合成资料冲突时不要选边",
+      "unseen": false,
+      "executed": false,
+      "preference_eligible": false,
+      "coverage": ["E5"],
+      "why_not_unseen": "用的是比较语料里已有的合成记录 SYN-A，不是新的现实场所。",
+      "user_turns": [
+        "帮我确认一下 2026-11-03 那个纸与街道的小展开不开。",
+        "如果资料互相矛盾，就告诉我矛盾在哪，别替我选一个。",
+        "今天想聊做饭。"
+      ],
+      "clarifications": [
+        {
+          "id": "1",
+          "if": "asks which exhibition",
+          "reply": "就是开发合成资料里的「纸与街道」，不是现实场所。"
+        }
+      ],
+      "boundary_notes": "这是边界题，不进朋友感偏好。默认六段演练的 case 是 normal；冲突正文在 conflicting_body。空匹配不是现实里没有这个展。",
+      "jo_output": null,
+      "assistant_output": null,
+      "owner_preference": null
+    }
+  ],
+  "not_prepared": [
+    {
+      "id": "E7-voice",
+      "reason": "播放中插话、挂断重拨和未播完结果属于真实语音。这次不写假听感，也不把文字回合当成 E7 通过。"
+    }
+  ]
+}

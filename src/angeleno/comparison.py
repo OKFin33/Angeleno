@@ -39,20 +39,26 @@ class RunStopped(RuntimeError):
     pass
 
 
+def _comparison_environ(zone, language):
+    # These Chinese anchors stay on one pinned language. The voice product default
+    # remains English unless a deployment sets ANGELENO_LANGUAGE itself.
+    return {'ANGELENO_TIMEZONE': zone, 'ANGELENO_LANGUAGE': language}
+
+
 @contextmanager
-def model_clock(now, zone):
+def model_clock(now, zone, language):
     """Freeze conversational memory time, never account/billing time."""
     class FrozenDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
             return now.astimezone(tz) if tz else now.replace(tzinfo=None)
     with patch('angeleno.memory.datetime', FrozenDatetime), \
-         patch.dict('os.environ', {'ANGELENO_TIMEZONE': zone}):
+         patch.dict('os.environ', _comparison_environ(zone, language)):
         yield
 
 
 @contextmanager
-def offline_clock(now, zone):
+def offline_clock(now, zone, language):
     """Process-local fixture clock/egress fence; this runner is strictly serial."""
     class FrozenDatetime(datetime):
         @classmethod
@@ -66,7 +72,7 @@ def offline_clock(now, zone):
          patch('angeleno.config.load_env', side_effect=refuse), \
          patch('angeleno.provider.configured_providers', side_effect=refuse), \
          patch('angeleno.memory.datetime', FrozenDatetime), \
-         patch.dict('os.environ', {'ANGELENO_TIMEZONE': zone}):
+         patch.dict('os.environ', _comparison_environ(zone, language)):
         yield
 
 
@@ -99,6 +105,8 @@ def load_config(path):
     now = datetime.fromisoformat(c['clock_utc'])
     if now.tzinfo is None or c['timezone'] != 'America/Los_Angeles':
         raise ValueError('Explicit LA clock required')
+    if c.get('language') != 'zh':
+        raise ValueError('Pinned comparison language must be zh for these Chinese anchors')
     if (c['actor_requests_per_turn'], c['tools_per_turn']) != (4, 3):
         raise ValueError('Limits must match the shared production loop')
     for key in ('actor_requests_total', 'writer_requests_total', 'writer_requests_per_segment',
@@ -351,7 +359,7 @@ async def _run_segments(c, anchors, corpus, pack, *, provider_factory=None, bran
     by_id = {a['id']: a for a in anchors}
     factory = provider_factory or (lambda kind, a, role: ScriptedActor(c) if kind == 'actor' else ScriptedWriter(c))
     clock = model_clock if real_models else offline_clock
-    with clock(now, c['timezone']), tempfile.TemporaryDirectory(prefix='angeleno-development-') as directory:
+    with clock(now, c['timezone'], c['language']), tempfile.TemporaryDirectory(prefix='angeleno-development-') as directory:
         for aid, role in c['order']:
             anchor = by_id[aid]
             max_turns = len(anchor['user_turns']) + len(anchor['clarifications'])
