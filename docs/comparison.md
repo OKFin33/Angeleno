@@ -14,6 +14,15 @@
 .venv/bin/python scripts/check_comparison_freeze.py
 ```
 
+下一交付点是 [文字同料比较报告 r1](delivery/2026-11-15-comparison-report-r1.md)，
+仍归 [Issue #12](https://github.com/OKFin33/Angeleno/issues/12)。
+Zab 在 2026-11-15 05:04（台北）批准做这一项。Owner 校准、未见保留集和正式运行都还没有。
+下面这条命令检查报告输入；输入不齐时退出码不是 0，冻结指纹仍是它的第一项。
+
+```sh
+.venv/bin/python scripts/check_comparison_report.py
+```
+
 已冻结的四项：
 
 - **候选。** 产品代码是 main `4185b8eb29e8fa62ddc32300cc9db526f6704e15`。这里已经合入 PR #30（中文 v0.1.0）、#31（公开交接）、#32（v0.1.1 默认英文）和 #33（可安装的 `src/angeleno/`）。比较锚例仍是中文 D1／D2／D3。这份清单不把后来的提交自动算进候选；人物会话循环若再改，就要重建清单。
