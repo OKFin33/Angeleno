@@ -11,6 +11,8 @@ from .author import assistant_control_pack, load_pack
 from .comparison import digest, file_hash, load_config
 
 PRODUCT_CANDIDATE = "4185b8eb29e8fa62ddc32300cc9db526f6704e15"
+VISIBLE_EXERCISE_LABEL = "起草时已读 D1–D3，仅作可见练习题，不作未见保留集"
+HELDOUT_AUTHOR_RULE = "未见保留集必须由没有读过 D1–D3 的人撰写。"
 MODEL_KEYS = (
     "model", "temperature", "writer_temperature", "actor_max_tokens", "writer_max_tokens",
     "actor_requests_per_turn", "tools_per_turn", "writer_requests_per_segment",
@@ -67,7 +69,7 @@ OPEN_GAPS = (
         "status": "open",
         "resolution": None,
         "blocks_formal_comparison": True,
-        "summary": "五段保留提案写在本仓库里，起草时已经读过 D1–D3。没有独立保管的未见集，也没有运行。",
+        "summary": "H1–H5 标记为「起草时已读 D1–D3，仅作可见练习题，不作未见保留集」。未见保留集必须由没有读过 D1–D3 的人撰写。这五段不改写，也没有运行。",
     },
     {
         "id": "real_model_comparison_not_run",
@@ -116,7 +118,9 @@ def _materials(root, anchors):
             or scenarios["unseen"] is not False or scenarios["holdout_executed"] is not False
             or scenarios["holdout_count"] != 5 or len(holdout) != 5
             or [item["id"] for item in scenarios["development"]] != anchor_ids
-            or scenarios["language"] != "zh"):
+            or scenarios["language"] != "zh"
+            or scenarios.get("label") != VISIBLE_EXERCISE_LABEL
+            or scenarios.get("heldout_author_rule") != HELDOUT_AUTHOR_RULE):
         raise ValueError("Scenario materials are not the prepared visible set")
     for item in (*scenarios["development"], *holdout):
         if item.get("outputs_in_repo") is True or item.get("unseen") is True or item.get("executed") is True:
@@ -127,6 +131,8 @@ def _materials(root, anchors):
     if [item["id"] for item in holdout] != ["H1", "H2", "H3", "H4", "H5"]:
         raise ValueError("Holdout proposal ids drifted")
     for item in holdout:
+        if item.get("label") != VISIBLE_EXERCISE_LABEL:
+            raise ValueError("Visible exercise label missing")
         if not item["user_turns"] or any(not turn.strip() for turn in item["user_turns"]):
             raise ValueError("Empty holdout turn")
         text = "\n".join(item["user_turns"])

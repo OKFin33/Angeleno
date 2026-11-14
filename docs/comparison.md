@@ -21,7 +21,9 @@
 - **同料来源。** 两臂逐字共享 `characters/jo/persona/grounding.md`、合成语料 `corpus.synthetic.json`（24 组公开查询、四种 case）和 Fisher 开发契约样本，工具协议与时钟也相同。助手只换角色设定，不接收人物核心、人物圣经和连续性。这些文档里的具体通勤估计不会被抽给助手。2026-10-31 的私有六组补充不在本检出里；没有改 Jo 原稿，也没有新写共享段落。
 - **评分量表。** [scoring-rubric.json](../examples/comparison/scoring-rubric.json) 冻结 Spec §8 的成对问题和六个观察特征。偏好与 E1–E8 边界分开。Owner 校准、已评分数和第二评分者都为空。
 
-情景在 [scenarios.json](../examples/comparison/scenarios.json)。D1／D2／D3 仍是已见开发锚例，结果字段为空；早先那三对模型输出不在仓库里。另有 5 段保留提案，数量落在 Spec 的 4–6 段里。它们写在本仓库、起草时已经读过 D1–D3，**不是未见题**，也没有运行。E7 的插话和重拨不在这批文字材料里。
+Mayne 在委托范围内决定：本 PR 作为比较控制记录保留；正式比较仍未执行。
+
+情景在 [scenarios.json](../examples/comparison/scenarios.json)。D1／D2／D3 仍是已见开发锚例，结果字段为空；早先那三对模型输出不在仓库里。H1–H5 不改写，标记为「起草时已读 D1–D3，仅作可见练习题，不作未见保留集」。未见保留集必须由没有读过 D1–D3 的人撰写。这 5 段没有运行。E7 的插话和重拨不在这批文字材料里。
 
 离线能跑的比较臂，是脚本演员的六段演练：公开合成包一次，随仓 Jo 包一次，每次都是人物臂和助手臂。脚本回答不是模型行为，也不是偏好结果。真实 `--run`、在线网页、Owner 校准和保留集评分都没有做。
 
@@ -37,7 +39,7 @@
 - `python -m angeleno.comparison_live` 不带 `--run`：同样 6 段完成，0 次模型，0 次网络，没有校准。
 - 随仓 Jo 包的六段脚本演练在 `tests/test_comparison_freeze.py` 里通过，结论与上面相同。CLI 默认仍只加载公开合成人物。
 
-四种语料 case 的两臂一致性由 `tests/test_comparison.py` 覆盖。默认六段演练只用 `normal`。H1–H5 没有进入 runner。回执留在忽略的 `private/evaluation/`，不入库。
+四种语料 case 的两臂一致性由 `tests/test_comparison.py` 覆盖。默认六段演练只用 `normal`。H1–H5 是可见练习题，没有进入 runner，也不是未见保留集。回执留在忽略的 `private/evaluation/`，不入库。
 
 干净提交 `48bb89a4dca51c473bd290112c815406ae8c4e2f` 复跑了这两条离线入口：6 段完成，0 次模型，0 次网络，没有校准。合成包回执的 `tracked_diff_present` 为 false。
 

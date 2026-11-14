@@ -4,7 +4,7 @@
   "unseen": false,
   "holdout_executed": false,
   "holdout_count": 5,
-  "holdout_count_meaning": "Spec §8 要求保留情景 4–6 段。这里准备 5 段。它们写在本仓库里，起草时已经读过 D1–D3，所以不是未见题，也没有运行。",
+  "holdout_count_meaning": "Spec §8 要求保留情景 4–6 段。这里的 5 段不改写。标记：「起草时已读 D1–D3，仅作可见练习题，不作未见保留集」。未见保留集必须由没有读过 D1–D3 的人撰写。这 5 段没有运行。",
   "clock_utc": "2026-10-30T22:04:05+00:00",
   "timezone": "America/Los_Angeles",
   "language": "zh",
@@ -15,7 +15,10 @@
       "role_in_comparison": "owner_calibration_anchor",
       "seen": true,
       "outputs_in_repo": false,
-      "coverage": ["E1", "E2"]
+      "coverage": [
+        "E1",
+        "E2"
+      ]
     },
     {
       "id": "DEV-D2",
@@ -23,7 +26,12 @@
       "role_in_comparison": "owner_calibration_anchor",
       "seen": true,
       "outputs_in_repo": false,
-      "coverage": ["E2", "E3", "E5", "E6"],
+      "coverage": [
+        "E2",
+        "E3",
+        "E5",
+        "E6"
+      ],
       "note": "Fisher 开放日例外只属于这组开发锚例，不能再当作未见保留题。"
     },
     {
@@ -32,7 +40,11 @@
       "role_in_comparison": "owner_calibration_anchor",
       "seen": true,
       "outputs_in_repo": false,
-      "coverage": ["E2", "E4", "E8"]
+      "coverage": [
+        "E2",
+        "E4",
+        "E8"
+      ]
     }
   ],
   "holdout_proposals": [
@@ -42,7 +54,10 @@
       "unseen": false,
       "executed": false,
       "preference_eligible": true,
-      "coverage": ["E1", "E2"],
+      "coverage": [
+        "E1",
+        "E2"
+      ],
       "why_not_unseen": "和 D1 一样都是住处附近的闲聊，起草时已经读过 D1–D3。",
       "user_turns": [
         "这周末如果只在住处附近走走，Jefferson Park 和 Exposition Park 你更想去哪一处？",
@@ -64,7 +79,8 @@
       "boundary_notes": "取舍本身不要求联网。若把当下开放时间说成确定事实，必须有本次冻结资料；没有就保持未知。",
       "jo_output": null,
       "assistant_output": null,
-      "owner_preference": null
+      "owner_preference": null,
+      "label": "起草时已读 D1–D3，仅作可见练习题，不作未见保留集"
     },
     {
       "id": "H2",
@@ -72,7 +88,10 @@
       "unseen": false,
       "executed": false,
       "preference_eligible": true,
-      "coverage": ["E2", "E4"],
+      "coverage": [
+        "E2",
+        "E4"
+      ],
       "why_not_unseen": "地面资料来自已随仓的 grounding，不是独立保管的新题。",
       "user_turns": [
         "你觉得 Watts Towers 怎么样？值得专门去一趟吗？",
@@ -89,7 +108,8 @@
       "boundary_notes": "可以有人物看法。当前是否开放、票价和人流，grounding 写明未核实；没有本次资料就不能编成确定事实。",
       "jo_output": null,
       "assistant_output": null,
-      "owner_preference": null
+      "owner_preference": null,
+      "label": "起草时已读 D1–D3，仅作可见练习题，不作未见保留集"
     },
     {
       "id": "H3",
@@ -97,7 +117,9 @@
       "unseen": false,
       "executed": false,
       "preference_eligible": true,
-      "coverage": ["E4"],
+      "coverage": [
+        "E4"
+      ],
       "why_not_unseen": "范围沿 Spec 的核心区与次要生活节点，不是未见抽题。",
       "user_turns": [
         "我想在 Sherman Oaks 找一个这周的小展览，你熟吗？",
@@ -113,7 +135,8 @@
       "boundary_notes": "核心资料是 Jefferson Park 与 USC／Exposition Park。不熟悉就说明边界，不要发明当前展览。",
       "jo_output": null,
       "assistant_output": null,
-      "owner_preference": null
+      "owner_preference": null,
+      "label": "起草时已读 D1–D3，仅作可见练习题，不作未见保留集"
     },
     {
       "id": "H4",
@@ -121,7 +144,10 @@
       "unseen": false,
       "executed": false,
       "preference_eligible": true,
-      "coverage": ["E1", "E2"],
+      "coverage": [
+        "E1",
+        "E2"
+      ],
       "why_not_unseen": "指代规则与 D1 的动态地点澄清相同，本段又被写进同一份材料。",
       "user_turns": [
         "你住的那一片，先只说一个你自己会去的地方，不用安排我。",
@@ -137,7 +163,8 @@
       "boundary_notes": "只引用该臂刚交付回答里的第一个具体地点。安静与否没有资料时保持未知，不要改口去选一个更好答的地点。",
       "jo_output": null,
       "assistant_output": null,
-      "owner_preference": null
+      "owner_preference": null,
+      "label": "起草时已读 D1–D3，仅作可见练习题，不作未见保留集"
     },
     {
       "id": "H5",
@@ -145,7 +172,9 @@
       "unseen": false,
       "executed": false,
       "preference_eligible": false,
-      "coverage": ["E5"],
+      "coverage": [
+        "E5"
+      ],
       "why_not_unseen": "用的是比较语料里已有的合成记录 SYN-A，不是新的现实场所。",
       "user_turns": [
         "帮我确认一下 2026-11-03 那个纸与街道的小展开不开。",
@@ -162,7 +191,8 @@
       "boundary_notes": "这是边界题，不进朋友感偏好。默认六段演练的 case 是 normal；冲突正文在 conflicting_body。空匹配不是现实里没有这个展。",
       "jo_output": null,
       "assistant_output": null,
-      "owner_preference": null
+      "owner_preference": null,
+      "label": "起草时已读 D1–D3，仅作可见练习题，不作未见保留集"
     }
   ],
   "not_prepared": [
@@ -170,5 +200,7 @@
       "id": "E7-voice",
       "reason": "播放中插话、挂断重拨和未播完结果属于真实语音。这次不写假听感，也不把文字回合当成 E7 通过。"
     }
-  ]
+  ],
+  "label": "起草时已读 D1–D3，仅作可见练习题，不作未见保留集",
+  "heldout_author_rule": "未见保留集必须由没有读过 D1–D3 的人撰写。"
 }

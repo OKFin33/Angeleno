@@ -41,7 +41,7 @@
     "examples/comparison/anchors.json": "22f61066732800cea8610c268965ad7b7e57f918872f7de63fa5a8306b0d3a04",
     "examples/comparison/corpus.synthetic.json": "e24ed638d146ebf5496703beb989fe4b096f88e886ca7791f93cd79f2e590971",
     "examples/comparison/scoring-rubric.json": "471a7751cbc5c4152e70e082d43b0265627433c7806bc73e91ed6d73a560b99e",
-    "examples/comparison/scenarios.json": "66c474c1abe26d90af7d8c32607e7aa6736441b670676f481e69e3d9e92f96e0",
+    "examples/comparison/scenarios.json": "0eef37c5ee2229721a6b04e5041562eae82aa3a3680e070f31d834b2a5fdc8da",
     "characters/jo/author-pack.json": "5de7a47a26222ce3ccdf300844b857b9f28db057cb7dce0a1d757af975c12225",
     "characters/jo/NOTICE": "fa44cda7a23e690234d60f80a7c83307f55c8a6f1d569c353c9db44db4bf236d",
     "characters/jo/persona/role-core.md": "941caf0bc1fda79d0452ec4fa071d4b3781c5680616f96510135e31430e29cec",
@@ -135,7 +135,7 @@
       "status": "open",
       "resolution": null,
       "blocks_formal_comparison": true,
-      "summary": "五段保留提案写在本仓库里，起草时已经读过 D1–D3。没有独立保管的未见集，也没有运行。"
+      "summary": "H1–H5 标记为「起草时已读 D1–D3，仅作可见练习题，不作未见保留集」。未见保留集必须由没有读过 D1–D3 的人撰写。这五段不改写，也没有运行。"
     },
     {
       "id": "real_model_comparison_not_run",
